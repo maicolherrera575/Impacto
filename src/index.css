@@ -1,0 +1,245 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ==========================================================================
+   Impulso — Sistema de diseño: variables nativas, editorial oscuro, 60fps
+   ========================================================================== */
+:root {
+  --imp-bg: #0b1220;
+  --imp-panel: #101a2d;
+  --imp-card: #121d33;
+  --imp-edge: rgba(148, 163, 184, 0.12);
+  --imp-emerald: #10b981;
+  --imp-mint: #34d399;
+  --imp-gold: #f59e0b;
+  --imp-rose: #f43f5e;
+  --imp-text: #e2e8f0;
+  --imp-muted: #94a3b8;
+  --imp-radius: 1.25rem;
+  --imp-safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+html {
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  @apply bg-impulso-night text-slate-200 font-sans antialiased;
+  overscroll-behavior-y: none;
+}
+
+/* Scrollbar discreta y editorial */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.25);
+  border-radius: 999px;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type='number'] {
+  -moz-appearance: textfield;
+}
+
+/* Texto con degradado de marca */
+.text-brand-gradient {
+  background: linear-gradient(135deg, var(--imp-mint), #2dd4bf 55%, #a5b4fc);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* ==========================================================================
+   Mapa (Leaflet) — pines personalizados animados + tema oscuro editorial
+   (los tiles de OSM se filtran por CSS: sin API keys ni servicios de pago)
+   ========================================================================== */
+.imp-map .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(190deg) brightness(0.86) contrast(0.92) saturate(0.55);
+}
+.imp-map {
+  background: #0d1526;
+  font-family: inherit;
+}
+.imp-map .leaflet-container {
+  background: #0d1526;
+}
+.imp-map .leaflet-control-attribution {
+  background: rgba(11, 18, 32, 0.75) !important;
+  color: #64748b !important;
+  font-size: 9px !important;
+  border-radius: 8px 0 0 0;
+}
+.imp-map .leaflet-control-attribution a {
+  color: #94a3b8 !important;
+}
+.imp-map .leaflet-bar {
+  border: none !important;
+  box-shadow: 0 4px 16px rgba(2, 6, 23, 0.5) !important;
+}
+.imp-map .leaflet-bar a {
+  background: var(--imp-panel) !important;
+  color: #cbd5e1 !important;
+  border-bottom-color: rgba(148, 163, 184, 0.15) !important;
+}
+.imp-map .leaflet-bar a:hover {
+  background: #182642 !important;
+}
+
+.leaflet-div-icon.imp-pin-marker {
+  background: transparent;
+  border: none;
+}
+
+.imp-pin {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  animation: imp-pin-drop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  will-change: transform;
+}
+.imp-pin-bubble {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  font-size: 19px;
+  line-height: 1;
+  background: #ffffff;
+  border: 2px solid var(--imp-emerald);
+  border-radius: 14px 14px 14px 4px;
+  box-shadow: 0 6px 18px rgba(2, 6, 23, 0.55);
+}
+.imp-pin-price {
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  color: #ffffff;
+  background: #0b1220;
+  border: 1px solid rgba(16, 185, 129, 0.55);
+  padding: 2px 7px;
+  border-radius: 999px;
+  white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(2, 6, 23, 0.55);
+}
+.imp-pin-tip {
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 6px solid var(--imp-emerald);
+}
+
+@keyframes imp-pin-drop {
+  0% {
+    transform: translateY(-14px) scale(0.6);
+    opacity: 0;
+  }
+  60% {
+    transform: translateY(3px) scale(1.06);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+/* Punto azul "estás aquí" con anillo pulsante */
+.leaflet-div-icon.imp-you-marker {
+  background: transparent;
+  border: none;
+}
+.imp-you-dot {
+  position: relative;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #3b82f6;
+  border: 3px solid #ffffff;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.35), 0 2px 10px rgba(2, 6, 23, 0.6);
+}
+.imp-you-dot::after {
+  content: '';
+  position: absolute;
+  inset: -9px;
+  border-radius: 50%;
+  border: 2px solid rgba(59, 130, 246, 0.6);
+  animation: imp-pulse-ring 1.8s ease-out infinite;
+}
+@keyframes imp-pulse-ring {
+  0% {
+    transform: scale(0.55);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.7);
+    opacity: 0;
+  }
+}
+
+/* ==========================================================================
+   Detalles de interacción háptica visual
+   ========================================================================== */
+.pressable {
+  transition:
+    transform 0.12s ease,
+    filter 0.12s ease;
+  will-change: transform;
+}
+.pressable:active {
+  transform: scale(0.96);
+  filter: brightness(1.06);
+}
+
+.card-lift {
+  transition:
+    transform 0.2s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.2s ease;
+  will-change: transform;
+}
+.card-lift:hover {
+  transform: translateY(-2px);
+}
+
+/* Barra de progreso de stock con brillo vivo */
+.stock-bar-fill::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.35) 50%, transparent 70%);
+  background-size: 200% 100%;
+  animation: imp-shimmer 1.8s linear infinite;
+}
+
+@keyframes imp-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+/* Área segura inferior para navegación tipo app nativa */
+.safe-bottom {
+  padding-bottom: calc(0.5rem + var(--imp-safe-bottom));
+}
