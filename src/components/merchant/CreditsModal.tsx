@@ -55,10 +55,14 @@ export function CreditsModal({ open, onClose, profile }: CreditsModalProps) {
         const result = await verifyNequiReceiptWithAI(thumb);
         setAiResult(result);
         if (result.reference) setReference(result.reference);
-        if (result.looksReal) {
-          toast.success(`🤖 IA: comprobante de ${result.amountCop ? formatCOP(result.amountCop) : 'valor no legible'} leído correctamente`);
-        } else {
+        if (!result.looksReal) {
           toast.error('🤖 La IA no reconoció un comprobante válido. Verifica que sea la captura del pago');
+        } else if (result.suspicious) {
+          toast.error('🚨 La IA detectó señales de captura editada o pago no confirmado. Envía la captura original de tu app Nequi');
+        } else if (result.amountCop != null && result.amountCop !== plan.priceCop) {
+          toast.push(`⚠️ La IA leyó ${formatCOP(result.amountCop)} pero el plan elegido cuesta ${formatCOP(plan.priceCop)}. Verifica el monto antes de enviar`, 'info');
+        } else {
+          toast.success(`🤖 IA: comprobante de ${result.amountCop ? formatCOP(result.amountCop) : 'valor no legible'} leído correctamente`);
         }
       } catch (aiErr) {
         toast.error('🤖 La IA no pudo leer la captura. Puedes escribir la referencia manualmente');
@@ -92,7 +96,7 @@ export function CreditsModal({ open, onClose, profile }: CreditsModalProps) {
         paymentMethod: method,
         receiptThumb: receipt,
         aiNote: aiResult
-          ? `${aiResult.looksReal ? 'Comprobante válido' : 'IA dudosa'} · ${aiResult.amountCop ? `monto leído ${aiResult.amountCop}` : 'monto no legible'} · ${aiResult.note}`
+          ? `${aiResult.looksReal ? 'Comprobante válido' : 'IA no lo reconoce'}${aiResult.suspicious ? ' · 🚨 POSIBLE FRAUDE (captura editada/pendiente)' : ''} · ${aiResult.amountCop ? `monto leído ${aiResult.amountCop}` : 'monto no legible'} · ${aiResult.note}`
           : null,
       });
       toast.success('✅ Comprobante enviado: el administrador lo activará en minutos');
@@ -213,7 +217,7 @@ export function CreditsModal({ open, onClose, profile }: CreditsModalProps) {
                 </p>
               ) : aiResult ? (
                 <p className="text-[11px] font-semibold leading-relaxed text-slate-300">
-                  {aiResult.looksReal ? '✅' : '⚠️'} {aiResult.note}
+                  {aiResult.suspicious ? '🚨' : aiResult.looksReal ? '✅' : '⚠️'} {aiResult.note}
                   {aiResult.amountCop != null && ` · Monto: ${formatCOP(aiResult.amountCop)}`}
                 </p>
               ) : (

@@ -19,36 +19,116 @@ Reglas estrictas:
 9. SEGURIDAD: si el mensaje pide transferencias o giros por adelantado, préstamos gota a gota, dinero fácil, servicios sexuales o encuentros en sitios despoblados sin local comercial identificado, NO generes la oferta: responde exactamente este JSON {"category":"servicios_comercios","title":"Contenido bloqueado","description":"Impulso protege a la comunidad: esta publicación no cumple las normas de seguridad local.","emoji_icon":"🛡️","original_price":null,"promo_price":1,"total_quota":1,"duration_hours":1}.
 Responde ÚNICAMENTE con el objeto JSON.`;
 
-let modelInstance: ReturnType<GoogleGenerativeAI['getGenerativeModel']> | null = null;
+// ── Motor de IA unificado (cero llave expuesta en producción) ──────────────
+// PRODUCCIÓN (Vercel): TODO pasa por /api/gemini (serverless) donde vive la
+// llave privada. DESARROLLO local: usa el SDK con VITE_GEMINI_API_KEY; si no
+// existe, intenta /api/gemini (útil con `vercel dev`).
 
-function getModel() {
-  if (!modelInstance) {
-    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-    modelInstance = genAI.getGenerativeModel({
-      model: 'gemini-2.5-flash',
-      systemInstruction: SYSTEM_PROMPT,
-      generationConfig: {
-        temperature: 0.4,
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: SchemaType.OBJECT,
-          properties: {
-            category: { type: SchemaType.STRING, format: 'enum', enum: CATEGORY_IDS },
-            title: { type: SchemaType.STRING },
-            description: { type: SchemaType.STRING },
-            emoji_icon: { type: SchemaType.STRING },
-            original_price: { type: SchemaType.NUMBER, nullable: true },
-            promo_price: { type: SchemaType.NUMBER },
-            total_quota: { type: SchemaType.NUMBER },
-            duration_hours: { type: SchemaType.NUMBER },
-          },
-          required: ['category', 'title', 'description', 'emoji_icon', 'promo_price', 'total_quota', 'duration_hours'],
-        },
-      },
-    });
+const MODEL_ID = 'gemini-2.5-flash';
+/** true cuando el bundle es de producción (build de Vercel). */
+const IS_PROD = import.meta.env.PROD === true;
+
+type SdkModel = ReturnType<GoogleGenerativeAI['getGenerativeModel']>;
+type SdkRequest = Parameters<SdkModel['generateContent']>[0];
+
+let sdkModel: SdkModel | null = null;
+
+function getSdkModel(): SdkModel {
+  if (!sdkModel) {
+    sdkModel = new GoogleGenerativeAI(GEMINI_API_KEY).getGenerativeModel({ model: MODEL_ID });
   }
-  return modelInstance;
+  return sdkModel;
 }
+
+interface GeminiCallOptions {
+  systemInstruction?: string;
+  prompt: string;
+  /** Imagen inline base64 (sin el prefijo data:) para IA Vision. */
+  image?: { mimeType: string; data: string };
+  temperature: number;
+  responseSchema?: Record<string, unknown>;
+}
+
+/** Payload compatible al 100% con el SDK y con la API REST de Gemini. */
+function buildPayload(options: GeminiCallOptions): Record<string, unknown> {
+  const parts: Record<string, unknown>[] = [];
+  if (options.image) parts.push({ inlineData: options.image });
+  parts.push({ text: options.prompt });
+  return {
+    ...(options.systemInstruction ? { systemInstruction: { parts: [{ text: options.systemInstruction }] } } : {}),
+    contents: [{ role: 'user', parts }],
+    generationConfig: {
+      temperature: options.temperature,
+      responseMimeType: 'application/json',
+      ...(options.responseSchema ? { responseSchema: options.responseSchema } : {}),
+    },
+  };
+}
+
+/** Extrae el texto de la respuesta REST (candidates → content → parts). */
+function extractRestText(rest: unknown): string {
+  const candidates = (rest as { candidates?: { content?: { parts?: { text?: string }[] } }[] } | null)?.candidates;
+  const parts = candidates?.[0]?.content?.parts ?? [];
+  return parts
+    .map((p) => (typeof p?.text === 'string' ? p.text : ''))
+    .join('')
+    .trim();
+}
+
+/** Llama al proxy serverless /api/gemini con mensajes de error claros. */
+async function callProxy(options: GeminiCallOptions): Promise<string> {
+  let res: Response;
+  try {
+    res = await fetch('/api/gemini', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: MODEL_ID, payload: buildPayload(options) }),
+    });
+  } catch {
+    throw new Error('No se pudo contactar la IA (revisa tu conexión a internet)');
+  }
+  const rest: unknown = await res.json().catch(() => null);
+  if (!res.ok) {
+    const msg = (rest as { error?: { message?: string } } | null)?.error?.message;
+    throw new Error(msg ? `La IA respondió con error: ${msg}` : `La IA respondió con error (HTTP ${res.status})`);
+  }
+  const text = extractRestText(rest);
+  if (!text) throw new Error('La IA no respondió con contenido. Intenta de nuevo');
+  return text;
+}
+
+/** Punto único de llamada a Gemini para toda la app. */
+async function callGemini(options: GeminiCallOptions): Promise<string> {
+  // Producción: SIEMPRE por el proxy. La llave jamás toca el navegador.
+  if (IS_PROD) return callProxy(options);
+
+  // Desarrollo local con llave en .env: SDK directo (rápido, sin proxy).
+  if (GEMINI_API_KEY) {
+    const { response } = await getSdkModel().generateContent(buildPayload(options) as unknown as SdkRequest);
+    const text = response.text().trim();
+    if (text) return text;
+    throw new Error('La IA no respondió con contenido. Intenta de nuevo');
+  }
+
+  // Desarrollo sin llave en el .env: intenta el proxy (ej: `vercel dev`).
+  return callProxy(options);
+}
+
+/** Esquema JSON del Creador Mágico (compatible SDK + REST). */
+const PROMO_SCHEMA: Record<string, unknown> = {
+  type: SchemaType.OBJECT,
+  properties: {
+    category: { type: SchemaType.STRING, format: 'enum', enum: CATEGORY_IDS },
+    title: { type: SchemaType.STRING },
+    description: { type: SchemaType.STRING },
+    emoji_icon: { type: SchemaType.STRING },
+    original_price: { type: SchemaType.NUMBER, nullable: true },
+    promo_price: { type: SchemaType.NUMBER },
+    total_quota: { type: SchemaType.NUMBER },
+    duration_hours: { type: SchemaType.NUMBER },
+  },
+  required: ['category', 'title', 'description', 'emoji_icon', 'promo_price', 'total_quota', 'duration_hours'],
+};
 
 const EMOJI_FALLBACKS: Record<Category, string> = {
   comida: '🍽️',
@@ -107,8 +187,12 @@ export async function parsePromoFromText(freeText: string): Promise<ParsedPromo>
     throw new Error(FRAUD_MESSAGE);
   }
 
-  const { response } = await getModel().generateContent(`Mensaje del comerciante: """${text}"""`);
-  const jsonText = response.text().trim();
+  const jsonText = await callGemini({
+    systemInstruction: SYSTEM_PROMPT,
+    prompt: `Mensaje del comerciante: """${text}"""`,
+    temperature: 0.4,
+    responseSchema: PROMO_SCHEMA,
+  });
 
   try {
     return normalize(JSON.parse(jsonText) as Partial<ParsedPromo>);
@@ -145,24 +229,34 @@ export function detectFraudSignals(text: string): boolean {
 /** Resultado del análisis de IA Vision sobre un comprobante de pago. */
 export interface ReceiptVerification {
   looksReal: boolean;
+  /** 🚨 true si la IA detecta señales de captura editada, reciclada o no pagada. */
+  suspicious: boolean;
   amountCop: number | null;
   reference: string | null;
   note: string;
 }
 
-const RECEIPT_PROMPT = `Eres el verificador de pagos de Impulso. Analiza la imagen (captura de pantalla) de un comprobante de pago de Nequi, Daviplata o Bancolombia de Colombia.
+const RECEIPT_PROMPT = `Eres el verificador de pagos de Impulso. Analiza la imagen de un comprobante de pago de Nequi, Daviplata o Bancolombia de Colombia.
 Devuelve ÚNICAMENTE este JSON:
-{"looks_real": true|false, "amount_cop": número entero del valor pagado o null, "reference": "código de referencia / número de transacción visible (máx 40 caracteres)" o null, "note": "fracción corta en español describiendo lo que leíste"}
+{"looks_real": true|false, "suspicious": true|false, "amount_cop": número entero del valor pagado o null, "reference": "código de referencia / número de transacción visible (máx 40 caracteres)" o null, "note": "frase corta en español describiendo lo que leíste"}
 
 Criterios:
-- looks_real: true solo si la imagen parece un comprobante real de Nequi/Daviplata/Bancolombia (pantalla de la app con monto y fecha). Si es un dibujo, un meme, otra cosa o no se entiende, false.
+- looks_real: true solo si la imagen parece un comprobante real de Nequi/Daviplata/Bancolombia (pantalla de la app con monto y fecha). Si es un dibujo, un meme, un papel escrito a mano u otra cosa, false.
+- suspicious: true si detectas ALGUNA señal de fraude:
+  * texto o números que parecen pegados/editados (fuente distinta, caja desalineada)
+  * la transacción dice "Pendiente", "Programada" o "En proceso" (NO cuenta como pagado)
+  * valor en 0 o ilegible con el resto muy elaborado
+  * la misma captura con fecha muy antigua (más de 3 días atrás)
+  * parece foto de la pantalla de OTRO teléfono con reflejos o bordes del celular
+  Si la captura se ve normal y directa de la app, false.
 - amount_cop: el valor pagado en pesos (si dice $24.000, devuelve 24000).
 - reference: la referencia, código de confirmación, número de transacción o "Id de operación" visible.
 - note: descripción breve (máx 120 caracteres).`;
 
 /**
- * 🤖 IA Vision: lee la miniatura del comprobante Nequi/Daviplata y extrae
- * el valor pagado y la referencia en ~2 segundos, sin pasarela de pago.
+ * 🤖 IA Vision anti-fraude: lee la miniatura del comprobante Nequi/Daviplata,
+ * extrae el valor pagado y la referencia en ~2 segundos, y marca señales de
+ * capturas editadas, recicladas o de pagos no confirmados.
  */
 export async function verifyNequiReceiptWithAI(imageDataUrl: string): Promise<ReceiptVerification> {
   const mimeType = imageDataUrl.startsWith('data:image/png')
@@ -175,26 +269,22 @@ export async function verifyNequiReceiptWithAI(imageDataUrl: string): Promise<Re
     throw new Error('La captura no se pudo leer. Sube el comprobante de nuevo');
   }
 
-  const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-  const model = genAI.getGenerativeModel({
-    model: 'gemini-2.5-flash',
-    generationConfig: { temperature: 0.1, responseMimeType: 'application/json' },
+  const jsonText = await callGemini({
+    prompt: RECEIPT_PROMPT,
+    image: { mimeType, data: base64 },
+    temperature: 0.1,
   });
-
-  const { response } = await model.generateContent([
-    { inlineData: { mimeType, data: base64 } },
-    { text: RECEIPT_PROMPT },
-  ]);
-  const jsonText = response.text().trim();
 
   const parsed = JSON.parse(jsonText) as {
     looks_real?: boolean;
+    suspicious?: boolean;
     amount_cop?: number | null;
     reference?: string | null;
     note?: string | null;
   };
   return {
     looksReal: parsed.looks_real === true,
+    suspicious: parsed.suspicious === true,
     amountCop: typeof parsed.amount_cop === 'number' ? Math.round(parsed.amount_cop) : null,
     reference: typeof parsed.reference === 'string' ? parsed.reference.trim().slice(0, 40) : null,
     note: typeof parsed.note === 'string' ? parsed.note.trim().slice(0, 160) : 'Comprobante analizado',
@@ -246,15 +336,11 @@ export async function analyzeMerchantTrust(input: {
     `Ofertas publicadas: ${input.offerTitles.length > 0 ? input.offerTitles.slice(0, 10).join(' | ') : '(ninguna aún)'}`,
   ].join('\n');
 
-  const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-  const model = genAI.getGenerativeModel({
-    model: 'gemini-2.5-flash',
+  const jsonText = await callGemini({
     systemInstruction: TRUST_PROMPT,
-    generationConfig: { temperature: 0.2, responseMimeType: 'application/json' },
+    prompt: facts,
+    temperature: 0.2,
   });
-
-  const { response } = await model.generateContent(facts);
-  const jsonText = response.text().trim();
 
   const parsed = JSON.parse(jsonText) as Partial<MerchantTrustResult>;
   const level = parsed.level === 'green' ? 'green' : 'yellow';

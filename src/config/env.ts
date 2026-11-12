@@ -16,7 +16,14 @@ function requireEnv(name: keyof ImportMetaEnv): string {
 
 export const SUPABASE_URL = requireEnv('VITE_SUPABASE_URL');
 export const SUPABASE_ANON_KEY = requireEnv('VITE_SUPABASE_ANON_KEY');
-export const GEMINI_API_KEY = requireEnv('VITE_GEMINI_API_KEY');
+
+/**
+ * Llave de Gemini SOLO para desarrollo local (npm run dev).
+ * En producción (Vercel) la IA corre por el endpoint serverless /api/gemini
+ * con la llave privada GEMINI_API_KEY: NUNCA se expone al navegador, así que
+ * aquí queda vacía sin romper la app ni el build.
+ */
+export const GEMINI_API_KEY = (import.meta.env.VITE_GEMINI_API_KEY ?? '').trim();
 
 export const ADMIN_WHATSAPP = (import.meta.env.VITE_ADMIN_WHATSAPP ?? '573000000000').trim();
 
