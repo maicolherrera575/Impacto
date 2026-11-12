@@ -4,6 +4,9 @@ import './index.css';
 import App from './App';
 import { ToastProvider } from './components/ui/Toast';
 
+// Portal web 100% por enlace seguro: SIN Service Worker ni manifest.
+// Así el navegador jamás ofrece "Instalar aplicación" y el contenido
+// publicado siempre llega fresco al municipio (cero caché vieja).
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ToastProvider>
@@ -11,10 +14,3 @@ createRoot(document.getElementById('root')!).render(
     </ToastProvider>
   </StrictMode>
 );
-
-// PWA: registrar el Service Worker solo en producción
-if ('serviceWorker' in navigator && import.meta.env.PROD) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => undefined);
-  });
-}

@@ -22,11 +22,31 @@
 
 html {
   -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
   @apply bg-impulso-night text-slate-200 font-sans antialiased;
   overscroll-behavior-y: none;
+  overflow-x: hidden;
+}
+
+/* Elimina el retardo de 300ms en toques y evita dobles zooms accidentales */
+button,
+a,
+input,
+select,
+textarea {
+  touch-action: manipulation;
+}
+
+/* En celulares los campos a 16px evitan el auto-zoom de iOS/Safari en Chrome */
+@media (max-width: 640px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
 }
 
 /* Scrollbar discreta y editorial */
@@ -71,6 +91,28 @@ input[type='number'] {
    Mapa (Leaflet) — pines personalizados animados + tema oscuro editorial
    (los tiles de OSM se filtran por CSS: sin API keys ni servicios de pago)
    ========================================================================== */
+
+/* ── Blindaje de capas: el mapa JAMÁS puede flotar sobre modales/login ──────
+   isolation: isolate crea un contexto de apilamiento cerrado: aunque las panes
+   internas de Leaflet usen z-index enormes, quedan encerradas al nivel base
+   de la página (el mapa vive en z 0; modales en z 70+). */
+.leaflet-container {
+  z-index: 0 !important;
+  isolation: isolate !important;
+}
+.leaflet-pane,
+.leaflet-tile-pane,
+.leaflet-overlay-pane,
+.leaflet-shadow-pane,
+.leaflet-marker-pane,
+.leaflet-tooltip-pane,
+.leaflet-popup-pane,
+.leaflet-top,
+.leaflet-bottom,
+.leaflet-control {
+  z-index: 10 !important;
+}
+
 .imp-map .leaflet-tile-pane {
   filter: invert(1) hue-rotate(190deg) brightness(0.86) contrast(0.92) saturate(0.55);
 }

@@ -5,13 +5,17 @@ import { CATEGORIES } from '../../types';
 import { LiveMap } from './LiveMap';
 import { OfferCard } from '../offers/OfferCard';
 import { haversineMeters } from '../../utils/geo';
-import type { LatLng } from '../../utils/geo';
+import type { GeoStatus, LatLng } from '../../utils/geo';
 import { cx } from '../../utils/format';
 
 interface RadarTabProps {
   offers: Offer[];
   center: LatLng;
   geoPos: LatLng | null;
+  /** Estado del GPS para el botón 🎯 flotante del mapa. */
+  geoStatus: GeoStatus;
+  /** Reintenta el permiso de ubicación (botón 🎯 del mapa). */
+  onGeoRequest: () => void;
   onSelectOffer: (offer: Offer) => void;
   onShareOffer: (offer: Offer) => void;
   /** 📲 Texto para el Estado de WhatsApp en 1 clic. */
@@ -21,7 +25,17 @@ interface RadarTabProps {
 }
 
 /** Pestaña 1: Radar de ofertas en vivo (mapa + filtros + tarjetas). */
-export function RadarTab({ offers, center, geoPos, onSelectOffer, onShareOffer, onStatusOffer, onReportOffer }: RadarTabProps) {
+export function RadarTab({
+  offers,
+  center,
+  geoPos,
+  geoStatus,
+  onGeoRequest,
+  onSelectOffer,
+  onShareOffer,
+  onStatusOffer,
+  onReportOffer,
+}: RadarTabProps) {
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState<Category | 'all'>('all');
 
@@ -46,7 +60,14 @@ export function RadarTab({ offers, center, geoPos, onSelectOffer, onShareOffer, 
     <section className="mx-auto max-w-6xl px-3 pt-3 lg:flex lg:items-start lg:gap-6">
       {/* Columna izquierda: mapa + búsqueda + filtros (anclada en escritorio) */}
       <div className="lg:sticky lg:top-20 lg:w-[46%] lg:shrink-0">
-        <LiveMap offers={visible} center={center} geoPos={geoPos} onSelect={onSelectOffer} />
+        <LiveMap
+          offers={visible}
+          center={center}
+          geoPos={geoPos}
+          geoStatus={geoStatus}
+          onGeoRequest={onGeoRequest}
+          onSelect={onSelectOffer}
+        />
 
         {/* Búsqueda instantánea */}
         <div className="relative mt-3">

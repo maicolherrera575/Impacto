@@ -1,14 +1,13 @@
 import { LogOut, MapPin, Radar, ShieldCheck, Store, Zap } from 'lucide-react';
 import { MUNICIPIOS, categoryMeta } from '../../types';
 import type { Profile } from '../../types';
-import type { GeoStatus, LatLng } from '../../utils/geo';
+import type { GeoStatus } from '../../utils/geo';
 import { cx } from '../../utils/format';
 
 interface NavbarProps {
   municipality: string;
   onMunicipality: (name: string) => void;
   geoStatus: GeoStatus;
-  geoPos: LatLng | null;
   onGeoRequest: () => void;
   profile: Profile | null;
   onOpenAuth: () => void;
@@ -19,14 +18,13 @@ interface NavbarProps {
 
 /**
  * Identidad de Impulso: logo editorial, selector de municipio, GPS con
- * doble estado (sin fricción: si no hay permiso, nunca se bloquea),
+ * triple estado (auto-GPS al entrar; si se niega, nunca se bloquea),
  * píldora de identidad con sesión activa y acceso a comerciantes / admin.
  */
 export function Navbar({
   municipality,
   onMunicipality,
   geoStatus,
-  geoPos,
   onGeoRequest,
   profile,
   onOpenAuth,
@@ -72,13 +70,15 @@ export function Navbar({
             </select>
           </label>
 
-          {/* GPS inteligente con doble estado */}
+          {/* GPS inteligente: se activa solo al entrar; si se niega, el radar sigue en Gachetá */}
           <button
             onClick={onGeoRequest}
             title={
               geoStatus === 'active'
-                ? 'Radar GPS activo: ordenando por cercanía real'
-                : 'Activa tu ubicación para ver distancias exactas'
+                ? 'Punto azul activo: ofertas ordenadas por cercanía real en vivo'
+                : geoStatus === 'denied'
+                  ? 'Ubicación no disponible: el radar se centra en Gachetá. Toca el 🎯 del mapa para reintentar'
+                  : 'Activando tu ubicación…'
             }
             className={cx(
               'pressable flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-semibold',
@@ -88,7 +88,7 @@ export function Navbar({
             )}
           >
             <Radar className={cx('h-3.5 w-3.5', geoStatus === 'active' && 'animate-pulse-soft')} />
-            {geoStatus === 'active' ? 'GPS Activo' : geoPos ? 'GPS' : 'Distancias'}
+            {geoStatus === 'active' ? 'GPS Activo' : geoStatus === 'denied' ? 'Sin GPS' : 'GPS…'}
           </button>
 
           {/* Acceso / sesión activa */}

@@ -325,7 +325,6 @@ export default function App() {
             municipality={municipality}
             onMunicipality={setMunicipality}
             geoStatus={geo.status}
-            geoPos={geo.pos}
             onGeoRequest={geo.request}
             profile={profile}
             onOpenAuth={() => setAuthOpen(true)}
@@ -345,6 +344,8 @@ export default function App() {
                 offers={offers}
                 center={mapCenter}
                 geoPos={geo.status === 'active' && geo.pos ? geo.pos : null}
+                geoStatus={geo.status}
+                onGeoRequest={geo.request}
                 onSelectOffer={setSelectedOffer}
                 onShareOffer={(o) => void shareOffer(o)}
                 onStatusOffer={(o) => void handleStatusShare(o)}

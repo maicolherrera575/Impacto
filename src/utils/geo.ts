@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { MUNICIPIOS, municipioCenter } from '../types';
 
 /** Coordenadas por defecto: Parque Principal de Gachetá. */
@@ -31,28 +31,53 @@ export function distanceText(meters: number): string {
 export type GeoStatus = 'idle' | 'active' | 'denied';
 
 /**
- * Geolocalización con fallback automático y cero fricción:
- * si el usuario rechaza o ignora el permiso, la app jamás se bloquea —
- * se centra en el Parque Principal de Gachetá.
+ * Geolocalización con modo Google Maps:
+ *  1. La app PIDE la ubicación al arrancar (auto-GPS, cero clics).
+ *  2. El punto azul se actualiza EN VIVO con watchPosition (como el mapa
+ *     de Google: caminas y el punto te sigue).
+ *  3. Si el usuario niega o falla, la app JAMÁS se bloquea: se centra en
+ *     el Parque Principal de Gachetá y puede reintentar desde el mapa
+ *     o desde la barra superior.
  */
 export function useGeolocation() {
   const [pos, setPos] = useState<LatLng | null>(null);
   const [status, setStatus] = useState<GeoStatus>('idle');
+  const watchIdRef = useRef<number | null>(null);
 
-  function request(): void {
+  const stop = useCallback(() => {
+    if (watchIdRef.current != null && 'geolocation' in navigator) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+  }, []);
+
+  /** Activa el rastreo en vivo (idempotente: si ya corre, no lo duplica). */
+  const request = useCallback(() => {
     if (!('geolocation' in navigator)) {
       setStatus('denied');
       return;
     }
-    navigator.geolocation.getCurrentPosition(
+    if (watchIdRef.current != null) return;
+    watchIdRef.current = navigator.geolocation.watchPosition(
       (p) => {
         setPos({ lat: p.coords.latitude, lng: p.coords.longitude });
         setStatus('active');
       },
-      () => setStatus('denied'),
-      { enableHighAccuracy: true, timeout: 8_000, maximumAge: 30_000 }
+      () => {
+        // Permiso negado, timeout o GPS apagado: fallback al casco urbano
+        // sin bloquear nada; el vecino puede reintentar cuando quiera.
+        setStatus('denied');
+        stop();
+      },
+      { enableHighAccuracy: true, timeout: 10_000, maximumAge: 30_000 }
     );
-  }
+  }, [stop]);
+
+  // ── Auto-GPS: la primera acción de la app es pedir la ubicación ──────────
+  useEffect(() => {
+    request();
+    return stop;
+  }, [request, stop]);
 
   return { pos, status, request, center: pos ?? GACHETA_CENTER } as const;
 }
