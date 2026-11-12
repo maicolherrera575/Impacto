@@ -16,6 +16,8 @@ interface RadarTabProps {
   geoStatus: GeoStatus;
   /** Reintenta el permiso de ubicación (botón 🎯 del mapa). */
   onGeoRequest: () => void;
+  /** Token para forzar el recentrado del mapa (cambio de municipio). */
+  recenterToken: number;
   onSelectOffer: (offer: Offer) => void;
   onShareOffer: (offer: Offer) => void;
   /** 📲 Texto para el Estado de WhatsApp en 1 clic. */
@@ -31,6 +33,7 @@ export function RadarTab({
   geoPos,
   geoStatus,
   onGeoRequest,
+  recenterToken,
   onSelectOffer,
   onShareOffer,
   onStatusOffer,
@@ -66,6 +69,7 @@ export function RadarTab({
           geoPos={geoPos}
           geoStatus={geoStatus}
           onGeoRequest={onGeoRequest}
+          recenterToken={recenterToken}
           onSelect={onSelectOffer}
         />
 

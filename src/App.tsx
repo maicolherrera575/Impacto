@@ -55,6 +55,8 @@ export default function App() {
   const [legalOpen, setLegalOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
   const [tickets, setTickets] = useState<Ticket[]>(() => loadTickets());
+  /** Token de recentrado del mapa: sube al cambiar de municipio. */
+  const [recenterToken, setRecenterToken] = useState(0);
 
   const geo = useGeolocation();
 
@@ -308,6 +310,12 @@ export default function App() {
     [toast]
   );
 
+  /** Cambio de municipio: refresca datos y recentra el radar con fuerza. */
+  const handleMunicipality = useCallback((name: string) => {
+    setMunicipality(name);
+    setRecenterToken((t) => t + 1);
+  }, []);
+
   // ── Punto de referencia del mapa (GPS con fallback al casco urbano) ──────
   const mapCenter = useMemo<LatLng>(
     () => (geo.status === 'active' && geo.pos ? geo.pos : municipioCenter(municipality)),
@@ -323,7 +331,7 @@ export default function App() {
         <>
           <Navbar
             municipality={municipality}
-            onMunicipality={setMunicipality}
+            onMunicipality={handleMunicipality}
             geoStatus={geo.status}
             onGeoRequest={geo.request}
             profile={profile}
@@ -346,6 +354,7 @@ export default function App() {
                 geoPos={geo.status === 'active' && geo.pos ? geo.pos : null}
                 geoStatus={geo.status}
                 onGeoRequest={geo.request}
+                recenterToken={recenterToken}
                 onSelectOffer={setSelectedOffer}
                 onShareOffer={(o) => void shareOffer(o)}
                 onStatusOffer={(o) => void handleStatusShare(o)}
