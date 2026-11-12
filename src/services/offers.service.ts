@@ -105,3 +105,13 @@ export function incrementViews(offerId: string): void {
     () => undefined
   );
 }
+
+/**
+ * Auto-compactación silenciosa: marca ofertas vencidas y borra pedidos
+ * viejos de la comunidad (la app la llama 1 vez cada 12 horas).
+ */
+export async function autoPruneData(): Promise<{ offers_expired: number; requests_deleted: number }> {
+  const { data, error } = await supabase.rpc('auto_prune_expired_data_rpc');
+  if (error) throw error;
+  return data as unknown as { offers_expired: number; requests_deleted: number };
+}

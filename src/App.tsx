@@ -6,7 +6,7 @@ import type { Tab } from './types/navigation';
 import { municipioCenter } from './types';
 
 import { supabase, friendlyError } from './services/supabase';
-import { fetchActiveOffers, fetchOfferById, reportOffer } from './services/offers.service';
+import { fetchActiveOffers, fetchOfferById, reportOffer, autoPruneData } from './services/offers.service';
 import { fetchActiveRequests } from './services/requests.service';
 import { cancelMyReservation, fetchTicketStatuses } from './services/reservations.service';
 import { fetchMyProfile, ensureMyProfile, signOut } from './services/profile.service';
@@ -57,6 +57,37 @@ export default function App() {
   const [tickets, setTickets] = useState<Ticket[]>(() => loadTickets());
 
   const geo = useGeolocation();
+
+  // ── Interceptor de errores de URL (enlaces expirados o denegados) ────────
+  // Si Supabase redirige con #error=access_denied&error_code=otp_expired,
+  // la cadena fea desaparece de la barra y el vecino recibe un mensaje amable.
+  useEffect(() => {
+    const { search, hash } = window.location;
+    const hasError = /error=|error_code=/i.test(search) || /error=|error_code=/i.test(hash);
+    if (hasError) {
+      window.history.replaceState(null, '', window.location.pathname);
+      toast.info('ℹ️ El enlace anterior ya expiró. Puedes iniciar sesión directamente con tu correo y contraseña.');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Auto-compactación de la base de datos (1 vez cada 12 horas) ──────────
+  useEffect(() => {
+    const PRUNE_KEY = 'impulso:last_db_prune';
+    const TWELVE_HOURS = 12 * 60 * 60 * 1000;
+    try {
+      if (Date.now() - Number(localStorage.getItem(PRUNE_KEY) ?? 0) < TWELVE_HOURS) return;
+    } catch {
+      return;
+    }
+    autoPruneData()
+      .then(() => {
+        localStorage.setItem(PRUNE_KEY, String(Date.now()));
+      })
+      .catch(() => {
+        /* silencioso: la limpieza no debe molestar nunca al usuario */
+      });
+  }, []);
 
   // ── Perfil autenticado (con auto-sanación: nunca más pantalla en blanco) ──
   const loadProfile = useCallback(async (userId: string) => {
@@ -253,6 +284,30 @@ export default function App() {
     [toast, refetchOffers]
   );
 
+  /** 📲 Texto magnético para el Estado de WhatsApp (viral, 1 clic). */
+  const handleStatusShare = useCallback(
+    async (offer: Offer) => {
+      const url = shareUrl(offer.id);
+      const lines = [
+        `${offer.emoji_icon} ${offer.title.toUpperCase()}`,
+        offer.original_price != null && Number(offer.original_price) > Number(offer.promo_price)
+          ? `❌ Antes ${formatCOP(offer.original_price)} → ✅ HOY ${formatCOP(offer.promo_price)}`
+          : `✅ HOY solo ${formatCOP(offer.promo_price)}`,
+        `🎟️ Quedan ${offer.available_quota} cupos`,
+        `🏪 ${offer.merchant?.business_name ?? 'Comercio local'} · ${offer.municipality}`,
+        `👉 ${url}`,
+        'Aparta el tuyo YA en Impulso 📲✨',
+      ];
+      try {
+        await navigator.clipboard.writeText(lines.join('\n'));
+        toast.success('📲 Texto copiado: pégalo en tu Estado de WhatsApp y vendes al instante');
+      } catch {
+        toast.error('No se pudo copiar. Mantén presionado para copiar manualmente');
+      }
+    },
+    [toast]
+  );
+
   // ── Punto de referencia del mapa (GPS con fallback al casco urbano) ──────
   const mapCenter = useMemo<LatLng>(
     () => (geo.status === 'active' && geo.pos ? geo.pos : municipioCenter(municipality)),
@@ -292,11 +347,17 @@ export default function App() {
                 geoPos={geo.status === 'active' && geo.pos ? geo.pos : null}
                 onSelectOffer={setSelectedOffer}
                 onShareOffer={(o) => void shareOffer(o)}
+                onStatusOffer={(o) => void handleStatusShare(o)}
                 onReportOffer={(o) => void handleReportOffer(o)}
               />
             )}
             {tab === 'pedir' && (
-              <RequestsTab requests={requests} municipality={municipality} onCreated={() => void refetchRequests()} />
+              <RequestsTab
+                requests={requests}
+                municipality={municipality}
+                geoPos={geo.status === 'active' && geo.pos ? geo.pos : null}
+                onCreated={() => void refetchRequests()}
+              />
             )}
             {tab === 'apartados' && (
               <ReservationsTab
@@ -370,6 +431,7 @@ export default function App() {
       {/* Modales globales */}
       <OfferDetailModal
         offer={selectedOffer}
+        geoPos={geo.status === 'active' && geo.pos ? geo.pos : null}
         onClose={() => setSelectedOffer(null)}
         onReserved={handleReserved}
         onViewTickets={() => {

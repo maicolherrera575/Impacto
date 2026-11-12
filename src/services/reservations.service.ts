@@ -14,6 +14,9 @@ export interface ReserveInput {
   customerPhone: string;
   quantity: number;
   customerNote: string;
+  /** Coordenadas silenciosas para el inspector forense (null si no hay GPS). */
+  clientLat?: number | null;
+  clientLng?: number | null;
 }
 
 /**
@@ -29,6 +32,8 @@ export async function reserveOffer(input: ReserveInput): Promise<ReserveResult> 
     p_quantity: input.quantity,
     p_customer_note: input.customerNote,
     p_device_id: getDeviceId(),
+    p_client_lat: input.clientLat ?? null,
+    p_client_lng: input.clientLng ?? null,
   });
   if (error) throw error;
   return data as unknown as ReserveResult;

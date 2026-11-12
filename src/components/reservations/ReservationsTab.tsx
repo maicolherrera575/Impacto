@@ -32,6 +32,17 @@ export function ReservationsTab({ tickets, onRate, onRemove, onCancel }: Reserva
 
   const sorted = useMemo(() => [...tickets].sort((a, b) => b.createdAt - a.createdAt), [tickets]);
 
+  // ── Termómetro de ahorro ciudadano: motor de orgullo y adicción ──────────
+  const totalSaved = useMemo(
+    () =>
+      tickets.reduce(
+        (sum, t) =>
+          sum + (t.originalPrice != null && t.originalPrice > t.promoPrice ? (t.originalPrice - t.promoPrice) * t.quantity : 0),
+        0
+      ),
+    [tickets]
+  );
+
   async function submitRating() {
     if (!ratingFor) return;
     setLoading(true);
@@ -69,6 +80,29 @@ export function ReservationsTab({ tickets, onRate, onRemove, onCancel }: Reserva
           <p className="text-xs text-slate-500">Guardados en este dispositivo, sin necesidad de cuenta</p>
         </div>
         <span className="rounded-full bg-white/5 px-3 py-1.5 text-xs font-bold text-slate-300">{tickets.length}</span>
+      </div>
+
+      {/* 🎉 Termómetro de ahorro ciudadano */}
+      <div className="mb-4 rounded-3xl border border-white/[0.08] bg-gradient-to-br from-impulso-emerald/15 via-impulso-panel to-impulso-panel p-4 shadow-[0_12px_40px_-12px_rgba(0,0,0,0.7)]">
+        {totalSaved > 0 ? (
+          <>
+            <p className="text-sm font-extrabold text-impulso-mint">🎉 Tu Ahorro en Impulso</p>
+            <p className="mt-1 text-2xl font-extrabold text-white tabular-nums tracking-tight">
+              Has ahorrado {formatCOP(totalSaved)} COP
+            </p>
+            <p className="mt-1.5 text-xs font-semibold leading-relaxed text-slate-300">
+              comprando en los comercios locales de tu pueblo. ¡Sigue así! 💚
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="text-sm font-extrabold text-impulso-mint">🎉 Tu Ahorro en Impulso</p>
+            <p className="mt-1 text-sm font-semibold leading-relaxed text-slate-300">
+              Aparta tu primera oferta con precio rebajado y este contador empezará a mostrar todo el dinero que te
+              ahorras comprando local.
+            </p>
+          </>
+        )}
       </div>
 
       {sorted.length === 0 ? (

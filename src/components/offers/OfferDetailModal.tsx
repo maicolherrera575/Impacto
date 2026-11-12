@@ -8,6 +8,7 @@ import { reserveOffer } from '../../services/reservations.service';
 import { incrementViews } from '../../services/offers.service';
 import { friendlyError } from '../../services/supabase';
 import { countdownText, cx, formatCOP, ratingAvg } from '../../utils/format';
+import type { LatLng } from '../../utils/geo';
 import { useTick } from '../../hooks/useTick';
 import { openWhatsApp } from '../../utils/whatsapp';
 import { deliveryMeta } from '../../types';
@@ -16,6 +17,8 @@ type Step = 'detail' | 'form' | 'success';
 
 interface OfferDetailModalProps {
   offer: Offer | null;
+  /** GPS activo del dispositivo (null si no lo compartió): se envía en silencio al reservar. */
+  geoPos?: LatLng | null;
   onClose: () => void;
   /** Registra el ticket en el dispositivo y en el estado de la app. */
   onReserved: (ticket: Ticket) => void;
@@ -29,7 +32,7 @@ const STEPS: Record<Step, string> = { detail: 'La oferta', form: 'Apartar', succ
  * llegar desde un enlace compartido (?oferta=UUID) y permite apartar
  * en segundos sin registro.
  */
-export function OfferDetailModal({ offer, onClose, onReserved, onViewTickets }: OfferDetailModalProps) {
+export function OfferDetailModal({ offer, geoPos, onClose, onReserved, onViewTickets }: OfferDetailModalProps) {
   const toast = useToast();
   const now = useTick(1000);
   const [step, setStep] = useState<Step>('detail');
@@ -75,6 +78,8 @@ export function OfferDetailModal({ offer, onClose, onReserved, onViewTickets }: 
         customerPhone: phone.trim(),
         quantity,
         customerNote: note.trim(),
+        clientLat: geoPos?.lat ?? null,
+        clientLng: geoPos?.lng ?? null,
       });
       const t: Ticket = {
         reservationId: result.reservation.id,
@@ -83,6 +88,7 @@ export function OfferDetailModal({ offer, onClose, onReserved, onViewTickets }: 
         offerTitle: offer!.title,
         offerEmoji: offer!.emoji_icon,
         promoPrice: Number(offer!.promo_price),
+        originalPrice: offer!.original_price != null ? Number(offer!.original_price) : undefined,
         quantity,
         customerName: result.reservation.customer_name,
         merchantId: result.merchant.id,
@@ -202,7 +208,7 @@ export function OfferDetailModal({ offer, onClose, onReserved, onViewTickets }: 
                 {offer.original_price != null && Number(offer.original_price) > Number(offer.promo_price) && (
                   <p className="text-sm font-medium text-slate-500 line-through">{formatCOP(offer.original_price)}</p>
                 )}
-                <p className="text-3xl font-extrabold tracking-tight text-impulso-mint">{formatCOP(offer.promo_price)}</p>
+                <p className="text-3xl font-extrabold tracking-tight text-impulso-mint tabular-nums">{formatCOP(offer.promo_price)}</p>
               </div>
               <p className="text-right text-xs font-semibold text-slate-400">
                 {offer.views_count} 👀 vistas
@@ -276,7 +282,7 @@ export function OfferDetailModal({ offer, onClose, onReserved, onViewTickets }: 
               />
               <div className="flex items-center justify-between rounded-2xl bg-impulso-emerald/10 px-4 py-3">
                 <span className="text-sm font-semibold text-slate-300">Total a pagar al recoger</span>
-                <span className="text-xl font-extrabold text-impulso-mint">{formatCOP(Number(offer.promo_price) * quantity)}</span>
+                <span className="text-xl font-extrabold text-impulso-mint tabular-nums tracking-tight">{formatCOP(Number(offer.promo_price) * quantity)}</span>
               </div>
               <p className="flex items-start gap-2 rounded-2xl border border-impulso-emerald/25 bg-impulso-emerald/5 p-3 text-[11px] font-semibold leading-relaxed text-impulso-mint">
                 <span className="text-sm leading-none">🔒</span>

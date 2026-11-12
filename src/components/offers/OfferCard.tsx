@@ -1,4 +1,4 @@
-import { Flag, Share2, ShieldCheck } from 'lucide-react';
+import { Flag, MessageSquareShare, Share2, ShieldCheck } from 'lucide-react';
 import type { Offer } from '../../types';
 import { categoryMeta } from '../../types';
 import { countdownText, cx, formatCOP, ratingAvg } from '../../utils/format';
@@ -11,6 +11,8 @@ interface OfferCardProps {
   distance: number | null;
   onOpen: () => void;
   onShare: () => void;
+  /** 📲 Texto magnético listo para el Estado de WhatsApp. */
+  onStatus: () => void;
   /** Reporte comunitario 🚩: 3 reportes tumban la oferta. */
   onReport: () => void;
 }
@@ -19,7 +21,7 @@ interface OfferCardProps {
  * Tarjeta de alta conversión: insignia de verificado, estrellas, distancia,
  * reloj dinámico inteligente, precios tachados y barra de stock en vivo.
  */
-export function OfferCard({ offer, distance, onOpen, onShare, onReport }: OfferCardProps) {
+export function OfferCard({ offer, distance, onOpen, onShare, onStatus, onReport }: OfferCardProps) {
   const now = useTick(1000);
   const countdown = countdownText(offer.expires_at, now);
   const merchant = offer.merchant;
@@ -30,7 +32,7 @@ export function OfferCard({ offer, distance, onOpen, onShare, onReport }: OfferC
   return (
     <article
       className={cx(
-        'card-lift relative overflow-hidden rounded-3xl border border-white/10 bg-impulso-card p-4 shadow-card',
+        'card-lift relative overflow-hidden rounded-3xl border border-white/[0.08] bg-impulso-card p-4 shadow-card transition-all duration-300 hover:border-impulso-emerald/25',
         countdown.urgent && 'border-impulso-rose/25'
       )}
     >
@@ -111,7 +113,7 @@ export function OfferCard({ offer, distance, onOpen, onShare, onReport }: OfferC
                 {formatCOP(offer.original_price)}
               </span>
             )}
-            <span className="text-xl font-extrabold tracking-tight text-impulso-mint">
+            <span className="text-xl font-extrabold tracking-tight text-impulso-mint tabular-nums">
               {formatCOP(offer.promo_price)}
             </span>
           </div>
@@ -157,6 +159,14 @@ export function OfferCard({ offer, distance, onOpen, onShare, onReport }: OfferC
           className="pressable grid h-12 w-12 place-items-center rounded-2xl border border-white/10 bg-slate-950/40 text-slate-300 hover:text-impulso-mint"
         >
           <Share2 className="h-5 w-5" />
+        </button>
+        <button
+          onClick={onStatus}
+          title="📲 Texto listo para tu Estado de WhatsApp"
+          aria-label="Estado de WhatsApp"
+          className="pressable grid h-12 w-10 place-items-center rounded-2xl border border-white/10 bg-slate-950/40 text-slate-300 transition hover:border-[#25D366]/50 hover:text-[#25D366]"
+        >
+          <MessageSquareShare className="h-4 w-4" />
         </button>
         <button
           onClick={onReport}

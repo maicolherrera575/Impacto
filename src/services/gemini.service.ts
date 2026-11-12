@@ -142,6 +142,65 @@ export function detectFraudSignals(text: string): boolean {
   return FRAUD_PATTERNS.some((p) => p.test(text));
 }
 
+/** Resultado del análisis de IA Vision sobre un comprobante de pago. */
+export interface ReceiptVerification {
+  looksReal: boolean;
+  amountCop: number | null;
+  reference: string | null;
+  note: string;
+}
+
+const RECEIPT_PROMPT = `Eres el verificador de pagos de Impulso. Analiza la imagen (captura de pantalla) de un comprobante de pago de Nequi, Daviplata o Bancolombia de Colombia.
+Devuelve ÚNICAMENTE este JSON:
+{"looks_real": true|false, "amount_cop": número entero del valor pagado o null, "reference": "código de referencia / número de transacción visible (máx 40 caracteres)" o null, "note": "fracción corta en español describiendo lo que leíste"}
+
+Criterios:
+- looks_real: true solo si la imagen parece un comprobante real de Nequi/Daviplata/Bancolombia (pantalla de la app con monto y fecha). Si es un dibujo, un meme, otra cosa o no se entiende, false.
+- amount_cop: el valor pagado en pesos (si dice $24.000, devuelve 24000).
+- reference: la referencia, código de confirmación, número de transacción o "Id de operación" visible.
+- note: descripción breve (máx 120 caracteres).`;
+
+/**
+ * 🤖 IA Vision: lee la miniatura del comprobante Nequi/Daviplata y extrae
+ * el valor pagado y la referencia en ~2 segundos, sin pasarela de pago.
+ */
+export async function verifyNequiReceiptWithAI(imageDataUrl: string): Promise<ReceiptVerification> {
+  const mimeType = imageDataUrl.startsWith('data:image/png')
+    ? 'image/png'
+    : imageDataUrl.startsWith('data:image/jpeg')
+      ? 'image/jpeg'
+      : 'image/webp';
+  const base64 = imageDataUrl.split(',')[1] ?? '';
+  if (base64.length < 100) {
+    throw new Error('La captura no se pudo leer. Sube el comprobante de nuevo');
+  }
+
+  const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+  const model = genAI.getGenerativeModel({
+    model: 'gemini-2.5-flash',
+    generationConfig: { temperature: 0.1, responseMimeType: 'application/json' },
+  });
+
+  const { response } = await model.generateContent([
+    { inlineData: { mimeType, data: base64 } },
+    { text: RECEIPT_PROMPT },
+  ]);
+  const jsonText = response.text().trim();
+
+  const parsed = JSON.parse(jsonText) as {
+    looks_real?: boolean;
+    amount_cop?: number | null;
+    reference?: string | null;
+    note?: string | null;
+  };
+  return {
+    looksReal: parsed.looks_real === true,
+    amountCop: typeof parsed.amount_cop === 'number' ? Math.round(parsed.amount_cop) : null,
+    reference: typeof parsed.reference === 'string' ? parsed.reference.trim().slice(0, 40) : null,
+    note: typeof parsed.note === 'string' ? parsed.note.trim().slice(0, 160) : 'Comprobante analizado',
+  };
+}
+
 /** Resultado del semáforo de confianza para el administrador. */
 export interface MerchantTrustResult {
   level: 'green' | 'yellow';

@@ -368,15 +368,18 @@ end;
 $$;
 
 -- 4.3 Reservar: bloqueo de fila, validación de stock, cupos y código de ticket
--- (v3: añade trazabilidad de IP/dispositivo y candados anti-sabotaje)
+-- (v3: trazabilidad de IP/dispositivo; v4: coordenadas GPS silenciosas)
 drop function if exists public.reserve_offer_rpc(uuid, text, text, integer, text);
+drop function if exists public.reserve_offer_rpc(uuid, text, text, integer, text, text);
 create or replace function public.reserve_offer_rpc(
   p_offer_id       uuid,
   p_customer_name  text,
   p_customer_phone text,
   p_quantity       integer default 1,
   p_customer_note  text default '',
-  p_device_id      text default null
+  p_device_id      text default null,
+  p_client_lat     double precision default null,
+  p_client_lng     double precision default null
 )
 returns jsonb
 language plpgsql
@@ -471,11 +474,13 @@ begin
   insert into public.reservations (
     offer_id, merchant_id, customer_name, customer_phone,
     quantity, customer_note, reservation_code, status,
-    client_ip, device_id
+    client_ip, device_id, client_lat, client_lng
   ) values (
     v_offer.id, v_offer.merchant_id, trim(p_customer_name), trim(p_customer_phone),
     p_quantity, coalesce(p_customer_note, ''), v_code, 'pending',
-    v_client_ip, v_device
+    v_client_ip, v_device,
+    coalesce(nullif(p_client_lat, 0), null),
+    coalesce(nullif(p_client_lng, 0), null)
   )
   returning * into v_res;
 
@@ -523,9 +528,19 @@ begin
 
   if p_action = 'completed' then
     update public.reservations
-       set status = 'completed'
+       set status = 'completed',
+           sales_counted = true
      where id = v_res.id
     returning * into v_res;
+
+    -- Acumulador histórico permanente (12 bytes por comerciante): el contador
+    -- de dinero ganado sobrevive a la purga de la base de datos. La bandera
+    -- sales_counted garantiza que cada venta se cuente UNA sola vez.
+    select * into v_offer from public.offers where id = v_res.offer_id;
+    update public.profiles
+       set lifetime_sales_cop    = lifetime_sales_cop + (v_res.quantity * coalesce(v_offer.promo_price, 0)),
+           lifetime_orders_count = lifetime_orders_count + 1
+     where id = v_res.merchant_id;
   else
     update public.reservations
        set status = 'released'
@@ -646,7 +661,7 @@ $$;
 grant execute on function public.is_admin()                          to anon, authenticated;
 grant execute on function public.update_my_profile_rpc(text, text, text, text, text, double precision, double precision, text, text, text) to authenticated;
 grant execute on function public.publish_offer_rpc(text, text, text, integer, text, numeric, numeric, numeric, text, double precision, double precision, text, text) to authenticated;
-grant execute on function public.reserve_offer_rpc(uuid, text, text, integer, text, text)    to anon, authenticated;
+grant execute on function public.reserve_offer_rpc(uuid, text, text, integer, text, text, double precision, double precision)    to anon, authenticated;
 grant execute on function public.merchant_update_reservation_rpc(uuid, text)           to authenticated;
 grant execute on function public.rate_reservation_rpc(uuid, text, integer)             to anon, authenticated;
 grant execute on function public.admin_manage_merchant_rpc(uuid, integer, boolean, boolean) to authenticated;
@@ -1028,6 +1043,25 @@ begin
     raise exception 'SOLO_ADMIN: esta acción está reservada al administrador';
   end if;
 
+  -- Respaldo histórico ANTES de tumbbar: las reservas se borran en cascada
+  -- con la oferta, así que sus ventas completadas no contabilizadas se suman
+  -- al acumulador permanente del comercio (nunca se pierde el contador).
+  update public.profiles p
+     set lifetime_sales_cop    = lifetime_sales_cop + agg.total_cop,
+         lifetime_orders_count = lifetime_orders_count + agg.orders
+    from (
+      select r.merchant_id,
+             sum(r.quantity * coalesce(o.promo_price, 0)) as total_cop,
+             count(*) as orders
+        from public.reservations r
+        join public.offers o on o.id = r.offer_id
+       where r.offer_id = p_offer_id
+         and r.status = 'completed'
+         and r.sales_counted = false
+       group by r.merchant_id
+    ) agg
+   where p.id = agg.merchant_id;
+
   delete from public.offers
    where id = p_offer_id
   returning id;
@@ -1055,10 +1089,45 @@ begin
     raise exception 'SOLO_ADMIN: esta acción está reservada al administrador';
   end if;
 
+  -- 1. Respaldo histórico de ventas completadas NO contabilizadas aún
+  --    (reservas hechas antes de la V4): el contador de dinero es eterno.
+  update public.profiles p
+     set lifetime_sales_cop    = lifetime_sales_cop + agg.total_cop,
+         lifetime_orders_count = lifetime_orders_count + agg.orders
+    from (
+      select r.merchant_id,
+             sum(r.quantity * coalesce(o.promo_price, 0)) as total_cop,
+             count(*) as orders
+        from public.reservations r
+        join public.offers o on o.id = r.offer_id
+       where r.status = 'completed'
+         and r.sales_counted = false
+         and r.created_at < now() - interval '14 days'
+       group by r.merchant_id
+    ) agg
+   where p.id = agg.merchant_id;
+
+  -- 2. Reservas antiguas (más de 14 días): sus ventas ya viven en los
+  --    acumuladores de profiles, borrarlas libera espacio sin perder nada.
+  delete from public.reservations
+   where created_at < now() - interval '14 days';
+
+  -- 3. Purga de todas las ofertas vencidas (incluidas sus fotos)
   delete from public.offers
    where expires_at < now();
 
   get diagnostics v_deleted = row_count;
+
+  -- 4. Pedidos de la comunidad vencidos hace más de 6 horas
+  delete from public.quick_requests
+   where expires_at < now() - interval '6 hours';
+
+  -- 5. Órdenes de crédito cerradas hace más de 30 días
+  --    (el comprobante aprobado ya se borró al aprobar)
+  delete from public.credit_orders
+   where status in ('approved', 'rejected')
+     and created_at < now() - interval '30 days';
+
   return jsonb_build_object('deleted', v_deleted);
 end;
 $$;
@@ -1178,13 +1247,19 @@ $$;
 
 -- 9.4 Publicar pedido de la comunidad: SIEMPRE vía servidor (cero inserts directos)
 --     Candados: cliente bloqueado, teléfono colombiano real, máximo 2 pedidos activos.
+--     (v4: coordenadas GPS silenciosas para el inspector forense)
+drop function if exists public.create_quick_request_rpc(text, text, text, text, text, text);
+drop function if exists public.create_quick_request_rpc(text, text, text, text, text, text, text);
 create or replace function public.create_quick_request_rpc(
   p_category          text,
   p_customer_name     text,
   p_customer_whatsapp text,
   p_need_description  text,
   p_meeting_point     text default 'parque_principal',
-  p_device_id         text default null
+  p_device_id         text default null,
+  p_municipality      text default 'Gachetá',
+  p_client_lat        double precision default null,
+  p_client_lng        double precision default null
 )
 returns jsonb
 language plpgsql
@@ -1235,10 +1310,13 @@ begin
 
   insert into public.quick_requests (
     customer_name, customer_whatsapp, municipality, category,
-    need_description, meeting_point, client_ip, device_id
+    need_description, meeting_point, client_ip, device_id, client_lat, client_lng
   ) values (
-    trim(p_customer_name), p_customer_whatsapp, 'Gachetá', p_category,
-    trim(p_need_description), p_meeting_point, v_client_ip, v_device
+    trim(p_customer_name), p_customer_whatsapp,
+    coalesce(nullif(btrim(p_municipality), ''), 'Gachetá'), p_category,
+    trim(p_need_description), p_meeting_point, v_client_ip, v_device,
+    coalesce(nullif(p_client_lat, 0), null),
+    coalesce(nullif(p_client_lng, 0), null)
   )
   returning * into v_req;
 
@@ -1434,6 +1512,7 @@ begin
     from (
       select r.id, r.offer_id, r.merchant_id, r.customer_name, r.customer_phone,
              r.quantity, r.reservation_code, r.status, r.client_ip, r.device_id,
+             r.client_lat, r.client_lng,
              r.created_at,
              (select business_name from public.profiles p where p.id = r.merchant_id) as merchant_name
         from public.reservations r
@@ -1469,7 +1548,7 @@ end;
 $$;
 
 -- 9.8 Concesión de ejecución (firmas exactas, sin paréntesis literales)
-grant execute on function public.create_quick_request_rpc(text, text, text, text, text, text) to anon, authenticated;
+grant execute on function public.create_quick_request_rpc(text, text, text, text, text, text, text, double precision, double precision) to anon, authenticated;
 grant execute on function public.cancel_my_reservation_rpc(uuid, text)                     to anon, authenticated;
 grant execute on function public.check_reservation_status_rpc(uuid[])                     to anon, authenticated;
 grant execute on function public.merchant_block_client_rpc(text, text, text, text)         to authenticated;
@@ -1477,5 +1556,210 @@ grant execute on function public.admin_block_client_rpc(text, text, text, text) 
 grant execute on function public.admin_unblock_client_rpc(uuid)                           to authenticated;
 grant execute on function public.admin_recent_reservations_rpc()                          to authenticated;
 grant execute on function public.admin_blocked_list_rpc()                                 to authenticated;
+
+-- ============================================================================
+--  10. COBRO NEQUI CON IA VISION, ACUMULADORES ETERNOS Y AUTO-COMPACTACIÓN (v4)
+--  Idempotente. Cobro asistido sin pasarela, contador de dinero que nunca
+--  muere y base de datos que se compacta sola para que la capa gratuita
+--  dure años.
+-- ============================================================================
+
+-- 10.1 Columnas: coordenadas GPS silenciosas y contadores históricos eternos
+alter table public.reservations add column if not exists sales_counted boolean not null default false;
+alter table public.reservations add column if not exists client_lat double precision default null;
+alter table public.reservations add column if not exists client_lng double precision default null;
+alter table public.quick_requests add column if not exists client_lat double precision default null;
+alter table public.quick_requests add column if not exists client_lng double precision default null;
+alter table public.profiles add column if not exists lifetime_sales_cop numeric(14,0) not null default 0;
+alter table public.profiles add column if not exists lifetime_orders_count integer not null default 0;
+
+-- 10.2 Órdenes de recarga de créditos (cobro Nequi/Daviplata asistido por IA)
+create table if not exists public.credit_orders (
+  id                   uuid primary key default gen_random_uuid(),
+  merchant_id          uuid not null references public.profiles (id) on delete cascade,
+  package_name         text not null,
+  credits_requested    integer not null check (credits_requested > 0),
+  amount_cop           numeric(12,0) not null check (amount_cop > 0),
+  payment_method       text not null default 'Nequi' check (payment_method in ('Nequi', 'Daviplata', 'Bancolombia')),
+  reference_code       text not null check (char_length(reference_code) between 3 and 40),
+  receipt_thumb        text default null check (receipt_thumb is null or char_length(receipt_thumb) <= 35000),
+  ai_verification_note text default null,
+  status               text not null default 'pending' check (status in ('pending', 'approved', 'rejected')),
+  created_at           timestamptz not null default now()
+);
+
+alter table public.credit_orders enable row level security;
+-- (Sin políticas: lectura y escritura SOLO vía funciones SECURITY DEFINER.)
+
+-- Candado anti-doble cobro: una misma referencia de comprobante solo existe una vez
+create unique index if not exists credit_orders_reference_active_idx
+  on public.credit_orders (reference_code) where status in ('pending', 'approved');
+
+-- 10.3 El comerciante envía su comprobante (tras el análisis de IA Vision)
+create or replace function public.submit_credit_order_rpc(
+  p_package_name      text,
+  p_credits_requested integer,
+  p_amount_cop        numeric,
+  p_reference_code    text,
+  p_payment_method    text default 'Nequi',
+  p_receipt_thumb     text default null,
+  p_ai_note           text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_order public.credit_orders;
+begin
+  if auth.uid() is null then
+    raise exception 'Debes iniciar sesión';
+  end if;
+  if p_credits_requested is null or p_credits_requested < 1 or p_credits_requested > 100 then
+    raise exception 'El paquete de créditos no es válido';
+  end if;
+  if p_amount_cop is null or p_amount_cop < 1000 then
+    raise exception 'El valor reportado no es válido';
+  end if;
+  if char_length(trim(p_reference_code)) < 3 or char_length(trim(p_reference_code)) > 40 then
+    raise exception 'Escribe la referencia del comprobante (entre 3 y 40 caracteres)';
+  end if;
+  if p_payment_method not in ('Nequi', 'Daviplata', 'Bancolombia') then
+    raise exception 'Método de pago inválido';
+  end if;
+  if p_receipt_thumb is not null and char_length(p_receipt_thumb) > 35000 then
+    raise exception 'El comprobante es demasiado pesado. Intenta con otra captura';
+  end if;
+
+  -- Candado anti-doble cobro (redundante con el índice único, con mensaje amable)
+  if exists (
+    select 1
+      from public.credit_orders c
+     where upper(c.reference_code) = upper(trim(p_reference_code))
+       and c.status in ('pending', 'approved')
+  ) then
+    raise exception 'REFERENCIA_YA_ENVIADA: esa referencia ya fue reportada antes. Revisa el número exacto del comprobante';
+  end if;
+
+  insert into public.credit_orders (
+    merchant_id, package_name, credits_requested, amount_cop,
+    payment_method, reference_code, receipt_thumb, ai_verification_note, status
+  ) values (
+    auth.uid(), trim(p_package_name), p_credits_requested, p_amount_cop,
+    p_payment_method, trim(p_reference_code), p_receipt_thumb, p_ai_note, 'pending'
+  )
+  returning * into v_order;
+
+  return to_jsonb(v_order);
+end;
+$$;
+
+-- 10.4 Bandeja de cobros para el administrador (con nombre del comercio)
+create or replace function public.admin_credit_orders_list_rpc()
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_list jsonb;
+begin
+  if not public.is_admin() then
+    raise exception 'SOLO_ADMIN: esta acción está reservada al administrador';
+  end if;
+
+  select coalesce(jsonb_agg(to_jsonb(x) order by x.created_at desc), '[]'::jsonb)
+    into v_list
+    from (
+      select c.*,
+             (select business_name from public.profiles p where p.id = c.merchant_id) as merchant_name
+        from public.credit_orders c
+       order by c.created_at desc
+       limit 50
+    ) x;
+  return v_list;
+end;
+$$;
+
+-- 10.5 Aprobar (acredita créditos al instante y borra el comprobante) o rechazar
+create or replace function public.admin_resolve_credit_order_rpc(
+  p_order_id   uuid,
+  p_action     text default 'approved',
+  p_admin_note text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_order public.credit_orders;
+begin
+  if not public.is_admin() then
+    raise exception 'SOLO_ADMIN: esta acción está reservada al administrador';
+  end if;
+  if p_action not in ('approved', 'rejected') then
+    raise exception 'Acción inválida';
+  end if;
+
+  select * into v_order from public.credit_orders where id = p_order_id for update;
+  if not found then
+    raise exception 'Orden no encontrada';
+  end if;
+  if v_order.status <> 'pending' then
+    raise exception 'Esta orden ya fue procesada';
+  end if;
+
+  update public.credit_orders
+     set status = p_action,
+         -- Al aprobar se borra el comprobante: cero bytes muertos en la base
+         receipt_thumb = case when p_action = 'approved' then null else receipt_thumb end,
+         ai_verification_note = coalesce(p_admin_note, ai_verification_note)
+   where id = v_order.id
+  returning * into v_order;
+
+  if p_action = 'approved' then
+    update public.profiles
+       set credits = credits + v_order.credits_requested
+     where id = v_order.merchant_id;
+  end if;
+
+  return to_jsonb(v_order);
+end;
+$$;
+
+-- 10.6 Auto-limpieza silenciosa (la llama la app 1 vez cada 12 horas)
+create or replace function public.auto_prune_expired_data_rpc()
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_expired  integer;
+  v_requests integer;
+begin
+  -- Marca como vencidas las ofertas cuyo reloj llegó a cero
+  update public.offers
+     set status = 'expired'
+   where status = 'active'
+     and expires_at < now();
+  get diagnostics v_expired = row_count;
+
+  -- Borra pedidos de la comunidad vencidos hace más de 6 horas
+  delete from public.quick_requests
+   where expires_at < now() - interval '6 hours';
+  get diagnostics v_requests = row_count;
+
+  return jsonb_build_object('offers_expired', v_expired, 'requests_deleted', v_requests);
+end;
+$$;
+
+-- 10.7 Concesión de ejecución (firmas exactas)
+grant execute on function public.submit_credit_order_rpc(text, integer, numeric, text, text, text, text) to authenticated;
+grant execute on function public.admin_credit_orders_list_rpc()                           to authenticated;
+grant execute on function public.admin_resolve_credit_order_rpc(uuid, text, text)         to authenticated;
+grant execute on function public.auto_prune_expired_data_rpc()                            to anon, authenticated;
 
 

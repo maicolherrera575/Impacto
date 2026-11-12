@@ -32,10 +32,11 @@ import { compressImageToMicroWebP, compressionSummary } from '../../services/ima
 import { updateMyProfile } from '../../services/profile.service';
 import { OfferCreator } from './OfferCreator';
 import { LocationPicker } from './LocationPicker';
+import { CreditsModal } from './CreditsModal';
 import { countdownText, cx, formatCOP, ratingAvg } from '../../utils/format';
 import { useTick } from '../../hooks/useTick';
 import { beepAlert } from '../../utils/sound';
-import { openWhatsApp } from '../../utils/whatsapp';
+import { openWhatsApp, shareUrl } from '../../utils/whatsapp';
 import { ADMIN_WHATSAPP } from '../../config/env';
 
 interface MerchantDashboardProps {
@@ -64,6 +65,7 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
   const [pickerOpen, setPickerOpen] = useState(false);
   const [logoBusy, setLogoBusy] = useState(false);
   const [confirmRelease, setConfirmRelease] = useState<MerchantReservation | null>(null);
+  const [creditsOpen, setCreditsOpen] = useState(false);
   const [nitInput, setNitInput] = useState(profile.nit_or_cedula ?? '');
   const [socialInput, setSocialInput] = useState(profile.social_or_maps_link ?? '');
   const [trustBusy, setTrustBusy] = useState(false);
@@ -138,6 +140,14 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
         { event: 'UPDATE', schema: 'public', table: 'reservations', filter: `merchant_id=eq.${profile.id}` },
         () => void refreshReservations()
       )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${profile.id}` },
+        (payload) => {
+          // Créditos verificación o suspensión aprobados por el admin: reflejo instantáneo
+          if (payload.new) onProfileChange(payload.new as unknown as Profile);
+        }
+      )
       .subscribe();
     channelRef.current = channel;
 
@@ -153,11 +163,15 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
   const activeOffers = myOffers.filter((o) => o.status === 'active' && new Date(o.expires_at).getTime() > now);
   const rating = ratingAvg(profile.rating_sum, profile.rating_count);
 
-  // ── Motor de adicción: termómetro de dinero ganado (ROI en vivo) ──────────
+  // ── Motor de adicción: termómetro de dinero ganado (ROI en vivo + eterno) ─
   const totalSales = reservations
     .filter((r) => r.status !== 'released' && r.offer)
     .reduce((sum, r) => sum + r.quantity * Number(r.offer?.promo_price ?? 0), 0);
   const totalViews = myOffers.reduce((sum, o) => sum + o.views_count, 0);
+  // Los acumuladores eternos de la BD garantizan que el contador NUNCA se
+  // borre con la purga: se muestra el mayor entre lo vivo y lo histórico.
+  const lifetimeSales = Math.max(totalSales, Number(profile.lifetime_sales_cop ?? 0));
+  const lifetimeOrders = Math.max(reservations.length, Number(profile.lifetime_orders_count ?? 0));
 
   async function handleReservation(id: string, action: 'completed' | 'released') {
     setUpdating(id);
@@ -223,6 +237,27 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
       toast.error(friendlyError(err));
     } finally {
       setTrustBusy(false);
+    }
+  }
+
+  /** 📲 Copia el texto magnético para el Estado de WhatsApp del comerciante. */
+  async function copyStatus(offer: Offer) {
+    const url = shareUrl(offer.id);
+    const lines = [
+      `${offer.emoji_icon} ${offer.title.toUpperCase()}`,
+      offer.original_price != null && Number(offer.original_price) > Number(offer.promo_price)
+        ? `❌ Antes ${formatCOP(offer.original_price)} → ✅ HOY ${formatCOP(offer.promo_price)}`
+        : `✅ HOY solo ${formatCOP(offer.promo_price)}`,
+      `🎟️ Quedan ${offer.available_quota} cupos`,
+      `🏪 ${profile.business_name} · ${profile.municipality}`,
+      `👉 ${url}`,
+      'Aparta el tuyo YA en Impulso 📲✨',
+    ];
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'));
+      toast.success('📲 Texto copiado: pégalo en tu Estado de WhatsApp y vende al instante');
+    } catch {
+      toast.error('No se pudo copiar el texto');
     }
   }
 
@@ -337,6 +372,40 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
           </div>
         )}
 
+        {/* 💰 Termómetro de impacto y ventas (ROI adictivo, histórico eterno) */}
+        <section className="rounded-3xl border border-impulso-gold/40 bg-gradient-to-br from-impulso-gold/15 via-impulso-panel to-impulso-panel p-4">
+          <p className="text-sm font-extrabold text-impulso-gold">💰 Tu Impacto y Ventas con Impulso</p>
+          <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+            <div className="rounded-2xl bg-slate-950/50 p-2.5">
+              <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Ventas generadas</p>
+              <p className="mt-0.5 text-base font-extrabold text-impulso-mint tabular-nums tracking-tight">
+                {formatCOP(lifetimeSales)}
+              </p>
+            </div>
+            <div className="rounded-2xl bg-slate-950/50 p-2.5">
+              <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Clientes</p>
+              <p className="mt-0.5 text-base font-extrabold text-white tabular-nums tracking-tight">{lifetimeOrders}</p>
+            </div>
+            <div className="rounded-2xl bg-slate-950/50 p-2.5">
+              <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Interés 👀</p>
+              <p className="mt-0.5 text-base font-extrabold text-white tabular-nums tracking-tight">{totalViews}</p>
+            </div>
+          </div>
+          <p className="mt-2.5 text-xs font-semibold leading-relaxed text-slate-300">
+            {lifetimeSales > 0
+              ? creditsLow
+                ? '🔥 ¡Tus ofertas están moviendo tu negocio! No te quedes sin créditos para el fin de semana.'
+                : '🔥 ¡Vas en racha! Sigue publicando ofertas relámpago para no perder el impulso.'
+              : '🚀 Publica tu primera oferta y este termómetro empieza a contar tu dinero en ventas.'}
+          </p>
+          <button
+            onClick={() => setCreditsOpen(true)}
+            className="pressable mt-2.5 flex w-full items-center justify-center gap-2 rounded-2xl bg-impulso-gold py-3 text-sm font-extrabold text-slate-950"
+          >
+            <MessageCircle className="h-4 w-4" /> Recargar créditos por Nequi
+          </button>
+        </section>
+
         {/* CTA principal */}
         <button
           onClick={() => {
@@ -348,36 +417,31 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
           ✨ Crear oferta con IA
         </button>
 
-        {/* Créditos bajos → recarga */}
+        {/* Créditos bajos → caja de recarga con IA Vision */}
         {creditsLow && (
           <button
-            onClick={() =>
-              openWhatsApp(
-                ADMIN_WHATSAPP,
-                `Hola! Soy ${profile.business_name} (${profile.municipality}). Quiero recargar créditos de publicación en Impulso 🚀`
-              )
-            }
+            onClick={() => setCreditsOpen(true)}
             className="pressable flex w-full items-center justify-between gap-3 rounded-3xl border border-impulso-gold/40 bg-impulso-gold/10 p-4 text-left"
           >
             <div>
               <p className="text-sm font-extrabold text-impulso-gold">⚡ Recargar créditos</p>
-              <p className="text-xs text-slate-300">Nequi / Daviplata · atención directa del administrador</p>
+              <p className="text-xs text-slate-300">Nequi / Daviplata · activación en minutos con IA</p>
             </div>
             <MessageCircle className="h-6 w-6 shrink-0 text-impulso-gold" />
           </button>
         )}
 
-        {/* Reservas en vivo */}
+        {/* Apartados pendientes por entregar (se vacían al instante, sin F5) */}
         <section>
           <h2 className="mb-2 flex items-center gap-2 text-sm font-extrabold uppercase tracking-wider text-slate-400">
-            <BellRing className="h-4 w-4 text-impulso-gold" /> Reservas en vivo
+            <BellRing className="h-4 w-4 text-impulso-gold" /> Apartados pendientes por entregar
             {pending.length > 0 && (
               <span className="rounded-full bg-impulso-gold/15 px-2 py-0.5 text-[10px] font-bold text-impulso-gold">
                 {pending.length} activas
               </span>
             )}
           </h2>
-          {reservations.length === 0 ? (
+          {pending.length === 0 ? (
             <div className="rounded-3xl border border-dashed border-white/10 bg-impulso-panel/60 p-6 text-center">
               <p className="text-2xl">🛎️</p>
               <p className="mt-1.5 text-sm font-semibold text-slate-300">
@@ -386,14 +450,8 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
             </div>
           ) : (
             <div className="space-y-2.5">
-              {reservations.slice(0, 12).map((r) => (
-                <article
-                  key={r.id}
-                  className={cx(
-                    'rounded-3xl border p-4',
-                    r.status === 'pending' ? 'border-impulso-gold/30 bg-impulso-gold/5' : 'border-white/10 bg-impulso-card opacity-75'
-                  )}
-                >
+              {pending.map((r) => (
+                <article key={r.id} className="rounded-3xl border border-impulso-gold/30 bg-impulso-gold/5 p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-extrabold text-white">
@@ -402,45 +460,91 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
                       <p className="truncate text-xs font-semibold text-slate-400">
                         👤 {r.customer_name} · 📞 {r.customer_phone}
                       </p>
+                      {(r.device_id || r.client_ip) && (
+                        <p className="truncate text-[10px] font-semibold text-slate-500">
+                          💻 {r.device_id ? `…${r.device_id.slice(-6)}` : '—'} · 🌐{' '}
+                          {r.client_ip ? `…${r.client_ip.slice(-8)}` : '—'}
+                        </p>
+                      )}
                       {r.customer_note && <p className="mt-1 text-xs italic text-slate-500">“{r.customer_note}”</p>}
                       <p className="mt-1 font-mono text-lg font-extrabold tracking-[0.2em] text-impulso-gold">
                         {r.reservation_code}
                       </p>
                     </div>
                     <span className="shrink-0 rounded-full bg-white/5 px-2.5 py-1 text-[10px] font-bold text-slate-300">
-                      {r.status === 'pending' ? '🟡 Pendiente' : r.status === 'completed' ? '✅ Entregado' : '↩️ Liberado'}
+                      🟡 Pendiente
                     </span>
                   </div>
 
-                  {r.status === 'pending' && (
-                    <div className="mt-3 flex items-center gap-2">
-                      <button
-                        onClick={() => openWhatsApp(r.customer_phone, `Hola ${r.customer_name}! Confirmamos tu reserva ${r.reservation_code} en ${profile.business_name} 🙌`)}
-                        className="pressable flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-[#25D366] py-2.5 text-xs font-extrabold text-white"
-                      >
-                        <MessageCircle className="h-4 w-4" /> Contactar
-                      </button>
-                      <button
-                        onClick={() => void handleReservation(r.id, 'completed')}
-                        disabled={updating === r.id}
-                        className="pressable flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-impulso-emerald py-2.5 text-xs font-extrabold text-white disabled:opacity-50"
-                      >
-                        <CheckCircle2 className="h-4 w-4" /> Entregado
-                      </button>
-                      <button
-                        onClick={() => void handleReservation(r.id, 'released')}
-                        disabled={updating === r.id}
-                        className="pressable flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-white/10 bg-slate-950/40 py-2.5 text-xs font-bold text-slate-300 disabled:opacity-50"
-                      >
-                        <Undo2 className="h-4 w-4" /> Liberar
-                      </button>
-                    </div>
-                  )}
+                  <div className="mt-3 flex items-center gap-2">
+                    <button
+                      onClick={() => openWhatsApp(r.customer_phone, `Hola ${r.customer_name}! Confirmamos tu reserva ${r.reservation_code} en ${profile.business_name} 🙌`)}
+                      className="pressable flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-[#25D366] py-2.5 text-xs font-extrabold text-white"
+                    >
+                      <MessageCircle className="h-4 w-4" /> Contactar
+                    </button>
+                    <button
+                      onClick={() => void handleReservation(r.id, 'completed')}
+                      disabled={updating === r.id}
+                      className="pressable flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-impulso-emerald py-2.5 text-xs font-extrabold text-white disabled:opacity-50"
+                    >
+                      <CheckCircle2 className="h-4 w-4" /> Entregado
+                    </button>
+                    <button
+                      onClick={() => setConfirmRelease(r)}
+                      disabled={updating === r.id}
+                      className="pressable flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-white/10 bg-slate-950/40 py-2.5 text-xs font-bold text-slate-300 disabled:opacity-50"
+                    >
+                      <Undo2 className="h-4 w-4" /> Liberar
+                    </button>
+                    <button
+                      onClick={() => void blockClientOf(r)}
+                      title="🚫 Bloquear cliente sospechoso (dispositivo, IP y teléfono)"
+                      className="pressable grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-impulso-rose/30 bg-impulso-rose/5 text-xs text-impulso-rose/80 hover:text-impulso-rose"
+                    >
+                      🚫
+                    </button>
+                  </div>
                 </article>
               ))}
             </div>
           )}
         </section>
+
+        {/* Historial de entregados/liberados hoy (se actualiza en vivo) */}
+        {history.length > 0 && (
+          <section>
+            <h2 className="mb-2 flex items-center gap-2 text-sm font-extrabold uppercase tracking-wider text-slate-400">
+              <History className="h-4 w-4 text-impulso-mint" /> Historial de entregados / liberados
+              <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-bold text-slate-400">
+                {history.length}
+              </span>
+            </h2>
+            <div className="space-y-2">
+              {history.slice(0, 10).map((r) => (
+                <article
+                  key={r.id}
+                  className="flex items-center gap-3 rounded-2xl border border-white/10 bg-impulso-card p-3 opacity-80"
+                >
+                  <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-slate-950/50 text-base">
+                    {r.offer?.emoji_icon ?? '🛒'}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-xs font-bold text-white">
+                      {r.offer?.title ?? 'Oferta'} · ×{r.quantity} · {r.customer_name}
+                    </p>
+                    <p className="font-mono text-[10px] font-bold tracking-[0.2em] text-slate-500">
+                      {r.reservation_code}
+                    </p>
+                  </div>
+                  <span className="shrink-0 rounded-full bg-white/5 px-2 py-1 text-[10px] font-bold text-slate-300">
+                    {r.status === 'completed' ? '✅ Entregado' : '↩️ Liberado'}
+                  </span>
+                </article>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* Historial + republicación */}
         <section>
@@ -467,6 +571,13 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
                         {o.views_count} 👀
                       </p>
                     </div>
+                    <button
+                      onClick={() => void copyStatus(o)}
+                      title="📲 Texto listo para tu Estado de WhatsApp"
+                      className="pressable grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-white/10 bg-slate-950/40 text-sm"
+                    >
+                      📲
+                    </button>
                     <button
                       onClick={() => repeatOffer(o)}
                       title="Republicar esta oferta"
@@ -555,6 +666,36 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
           <Stars value={Number(rating)} size="md" />
         </section>
 
+        {/* 🪪 Datos de confianza: el admin los audita con IA para verificar más rápido */}
+        <section className="rounded-3xl border border-white/10 bg-impulso-panel p-4">
+          <p className="text-sm font-bold text-white">🪪 Datos de confianza (recomendados)</p>
+          <p className="mt-1 text-xs leading-relaxed text-slate-400">
+            El administrador audita estos datos con IA para otorgarte la insignia ✅ Verificado más rápido: tu NIT o
+            cédula y un link de tu Facebook, Instagram o Google Maps.
+          </p>
+          <div className="mt-3 space-y-2">
+            <input
+              value={nitInput}
+              onChange={(e) => setNitInput(e.target.value)}
+              placeholder="NIT o cédula (ej: 900123456-7 o 1023456789)"
+              className="w-full rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3 text-sm font-medium text-white placeholder:text-slate-600 outline-none focus:border-impulso-emerald/60"
+            />
+            <input
+              value={socialInput}
+              onChange={(e) => setSocialInput(e.target.value)}
+              placeholder="Link de Facebook / Instagram / Google Maps"
+              className="w-full rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3 text-sm font-medium text-white placeholder:text-slate-600 outline-none focus:border-impulso-emerald/60"
+            />
+            <button
+              onClick={() => void saveTrustData()}
+              disabled={trustBusy}
+              className="pressable flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-impulso-emerald to-teal-600 py-3 text-sm font-extrabold text-white disabled:opacity-60"
+            >
+              {trustBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : '💾'} Guardar datos de confianza
+            </button>
+          </div>
+        </section>
+
         {/* Panel de Administrador: solo visible con el rol admin (asignado en la BD) */}
         {profile.role === 'admin' && onOpenAdmin && (
           <button
@@ -606,6 +747,42 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
         profile={profile}
         onProfileChange={onProfileChange}
       />
+
+      {/* Caja de recarga de créditos (Nequi + IA Vision) */}
+      <CreditsModal open={creditsOpen} onClose={() => setCreditsOpen(false)} profile={profile} />
+
+      {/* Confirmación en 2 pasos de "Liberar" (evita toques accidentales) */}
+      <ModalShell open={confirmRelease !== null} onClose={() => !updating && setConfirmRelease(null)}>
+        {confirmRelease && (
+          <div className="p-5 pt-14 text-center">
+            <p className="text-4xl">⚠️</p>
+            <h3 className="mt-2 text-lg font-extrabold text-white">
+              ¿Confirmas que {confirmRelease.customer_name} (código {confirmRelease.reservation_code}) no recogió el
+              pedido?
+            </h3>
+            <p className="mt-1 text-sm leading-relaxed text-slate-400">
+              Al confirmar, este apartado se cerrará y las {confirmRelease.quantity} unidades volverán a estar
+              disponibles en tu oferta activa.
+            </p>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button
+                onClick={() => setConfirmRelease(null)}
+                disabled={updating !== null}
+                className="pressable rounded-2xl border border-white/10 bg-slate-950/40 py-3.5 text-sm font-bold text-slate-200 disabled:opacity-50"
+              >
+                Volver
+              </button>
+              <button
+                onClick={() => void confirmReleaseAction()}
+                disabled={updating !== null}
+                className="pressable flex items-center justify-center gap-2 rounded-2xl bg-impulso-rose py-3.5 text-sm font-extrabold text-white disabled:opacity-60"
+              >
+                {updating !== null ? <Loader2 className="h-5 w-5 animate-spin" /> : 'Sí, liberar y recuperar stock'}
+              </button>
+            </div>
+          </div>
+        )}
+      </ModalShell>
     </div>
   );
 }

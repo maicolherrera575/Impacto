@@ -28,6 +28,9 @@ export interface CreateRequestInput {
   needDescription: string;
   /** Punto de encuentro seguro elegido por el cliente (obligatorio). */
   meetingPoint: string;
+  /** Coordenadas silenciosas para el inspector forense (null si no hay GPS). */
+  clientLat?: number | null;
+  clientLng?: number | null;
 }
 
 /**
@@ -43,6 +46,9 @@ export async function createQuickRequest(input: CreateRequestInput): Promise<voi
     p_need_description: input.needDescription,
     p_meeting_point: input.meetingPoint,
     p_device_id: getDeviceId(),
+    p_municipality: input.municipality,
+    p_client_lat: input.clientLat ?? null,
+    p_client_lng: input.clientLng ?? null,
   });
   if (error) throw error;
 }

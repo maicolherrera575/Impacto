@@ -12,7 +12,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import type { Offer, Profile } from '../../types';
+import type { CreditOrder, Offer, Profile } from '../../types';
 import { deliveryMeta } from '../../types';
 import { useToast } from '../ui/Toast';
 import {
@@ -27,11 +27,14 @@ import {
   manageMerchant,
 } from '../../services/admin.service';
 import type { AdminStats, BlockedClient, ForensicReservation } from '../../services/admin.service';
+import { fetchCreditOrders, resolveCreditOrder } from '../../services/credits.service';
 import { fetchActiveOffers } from '../../services/offers.service';
 import { analyzeMerchantTrust } from '../../services/gemini.service';
 import { friendlyError } from '../../services/supabase';
 import { cx, formatCOP } from '../../utils/format';
 import { openWhatsApp } from '../../utils/whatsapp';
+import { ForensicInspector } from './ForensicInspector';
+import type { ForensicData } from './ForensicInspector';
 
 interface AdminPanelProps {
   open: boolean;
@@ -42,7 +45,7 @@ interface AdminPanelProps {
   onProfileChange: (profile: Profile) => void;
 }
 
-type Tab = 'merchants' | 'moderation' | 'summary';
+type Tab = 'merchants' | 'moderation' | 'cobros' | 'summary';
 
 const CREDIT_PACKS = [1, 3, 10, 30] as const;
 
@@ -74,6 +77,10 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
   const [cleanupBusy, setCleanupBusy] = useState(false);
   const [trustBusyId, setTrustBusyId] = useState<string | null>(null);
   const [blocking, setBlocking] = useState(false);
+  const [creditOrders, setCreditOrders] = useState<CreditOrder[]>([]);
+  const [resolvingId, setResolvingId] = useState<string | null>(null);
+  /** Ficha forense abierta (inspector de IP/GPS). */
+  const [inspecting, setInspecting] = useState<ForensicData | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -91,9 +98,16 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
   const loadOffers = useCallback(async () => {
     setOffersLoading(true);
     try {
-      setOffers(await fetchActiveOffers(''));
-      setForensics(await fetchRecentReservations());
-      setBlocked(await fetchBlockedClients());
+      const [offersList, forensicsList, blockedList, ordersList] = await Promise.all([
+        fetchActiveOffers(''),
+        fetchRecentReservations(),
+        fetchBlockedClients(),
+        fetchCreditOrders(),
+      ]);
+      setOffers(offersList);
+      setForensics(forensicsList);
+      setBlocked(blockedList);
+      setCreditOrders(ordersList);
     } catch (err) {
       toast.error(friendlyError(err));
     } finally {
@@ -213,6 +227,24 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
     }
   }
 
+  /** ✅❌ Aprobar (acredita y borra el comprobante) o rechazar una orden Nequi. */
+  async function resolveOrder(order: CreditOrder, action: 'approved' | 'rejected') {
+    setResolvingId(order.id);
+    try {
+      await resolveCreditOrder(order.id, action);
+      if (action === 'approved') {
+        toast.success(`✅ Acreditados ${order.credits_requested} créditos a ${order.merchant_name ?? 'el comercio'}`);
+      } else {
+        toast.info(`❌ Orden de ${order.merchant_name ?? 'el comercio'} rechazada`);
+      }
+      setCreditOrders(await fetchCreditOrders());
+    } catch (err) {
+      toast.error(friendlyError(err));
+    } finally {
+      setResolvingId(null);
+    }
+  }
+
   /** Cola corta de un identificador forense (discreción en pantalla). */
   function tail(value: string | null, n = 6): string {
     if (!value) return '—';
@@ -279,11 +311,12 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
           </div>
 
           {/* Pestañas internas */}
-          <div className="mt-3 grid grid-cols-3 gap-1 rounded-2xl bg-slate-950/60 p-1">
+          <div className="mt-3 grid grid-cols-4 gap-1 rounded-2xl bg-slate-950/60 p-1">
             {(
               [
                 ['merchants', '🏪 Comercios'],
-                ['moderation', '📡 Moderación'],
+                ['moderation', '📡 Radar'],
+                ['cobros', '💳 Cobros'],
                 ['summary', '📊 Resumen'],
               ] as const
             ).map(([id, label]) => (
@@ -291,7 +324,7 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
                 key={id}
                 onClick={() => setTab(id)}
                 className={cx(
-                  'pressable rounded-xl py-2 text-[11px] font-extrabold transition',
+                  'pressable rounded-xl py-2 text-[10px] font-extrabold transition',
                   tab === id ? 'bg-impulso-gold/20 text-impulso-gold' : 'text-slate-400 hover:text-slate-200'
                 )}
               >
@@ -589,8 +622,27 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
                           </p>
                           <p className="truncate text-[10px] font-semibold text-slate-500">
                             💻 {tail(r.device_id)} · 🌐 {tail(r.client_ip, 8)} · {r.merchant_name ?? '—'}
+                            {r.client_lat != null ? ' · 📍GPS' : ''}
                           </p>
                         </div>
+                        <button
+                          onClick={() =>
+                            setInspecting({
+                              customerName: r.customer_name,
+                              phone: r.customer_phone,
+                              clientIp: r.client_ip,
+                              deviceId: r.device_id,
+                              clientLat: r.client_lat,
+                              clientLng: r.client_lng,
+                              code: r.reservation_code,
+                              createdAt: r.created_at,
+                            })
+                          }
+                          title="🕵️‍♂️ Investigar IP, operador y ubicación"
+                          className="pressable shrink-0 rounded-lg border border-impulso-gold/40 bg-impulso-gold/10 px-2 py-1 text-[10px] font-extrabold text-impulso-gold"
+                        >
+                          🕵️‍♂️
+                        </button>
                         <button
                           onClick={() => void blockReservation(r)}
                           disabled={busyId === r.id}
@@ -608,7 +660,100 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
           </div>
         )}
 
-        {/* ═══ Pestaña 3: Resumen y limpieza ═══ */}
+        {/* ═══ Pestaña 3: Cobros Nequi (bandeja de aprobación en 1 clic) ═══ */}
+        {tab === 'cobros' && (
+          <div className="space-y-2.5 p-4">
+            <p className="rounded-2xl border border-white/[0.08] bg-slate-950/40 p-3 text-[11px] font-semibold leading-relaxed text-slate-400">
+              💳 Comprobantes Nequi/Daviplata enviados por los comercios. La IA ya leyó cada captura: verifica contra
+              tu app Nequi y aprueba para acreditar los créditos al instante (el comprobante se borra al aprobar).
+            </p>
+
+            {offersLoading ? (
+              <div className="flex justify-center py-10">
+                <Loader2 className="h-7 w-7 animate-spin text-impulso-gold" />
+              </div>
+            ) : creditOrders.length === 0 ? (
+              <p className="py-10 text-center text-sm text-slate-400">
+                Sin órdenes de recarga por ahora. Cuando un comercio pague, aparecerá aquí 📥
+              </p>
+            ) : (
+              creditOrders.map((c) => (
+                <article
+                  key={c.id}
+                  className={cx(
+                    'rounded-3xl border bg-impulso-card p-4',
+                    c.status === 'pending' ? 'border-impulso-gold/30' : 'border-white/[0.08] opacity-70'
+                  )}
+                >
+                  <div className="flex items-start gap-3">
+                    {c.receipt_thumb ? (
+                      <img
+                        src={c.receipt_thumb}
+                        alt={`Comprobante de ${c.merchant_name ?? 'comercio'}`}
+                        className="h-16 w-16 shrink-0 cursor-zoom-in rounded-xl border border-white/10 object-cover"
+                        onClick={() => window.open(c.receipt_thumb ?? '', '_blank', 'noopener')}
+                      />
+                    ) : (
+                      <div className="grid h-16 w-16 shrink-0 place-items-center rounded-xl border border-white/10 bg-slate-950/50 text-2xl">
+                        🧾
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-extrabold text-white">{c.merchant_name ?? 'Comercio'}</p>
+                      <p className="text-xs font-bold text-impulso-mint tabular-nums tracking-tight">
+                        {formatCOP(c.amount_cop)} · {c.package_name} ({c.credits_requested} créditos)
+                      </p>
+                      <p className="mt-0.5 truncate font-mono text-[10px] font-semibold text-slate-500">
+                        Ref: {c.reference_code} · {c.payment_method}
+                      </p>
+                      {c.ai_verification_note && (
+                        <p className="mt-1 line-clamp-2 rounded-lg bg-slate-950/50 px-2 py-1 text-[10px] font-semibold text-slate-300">
+                          🤖 {c.ai_verification_note}
+                        </p>
+                      )}
+                      {c.status !== 'pending' && (
+                        <p
+                          className={cx(
+                            'mt-1 text-[10px] font-extrabold uppercase',
+                            c.status === 'approved' ? 'text-impulso-mint' : 'text-impulso-rose'
+                          )}
+                        >
+                          {c.status === 'approved' ? '✅ Aprobada' : '❌ Rechazada'}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {c.status === 'pending' && (
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => void resolveOrder(c, 'approved')}
+                        disabled={resolvingId === c.id}
+                        className="pressable flex items-center justify-center gap-1.5 rounded-xl bg-impulso-emerald py-2.5 text-xs font-extrabold text-slate-950 disabled:opacity-50"
+                      >
+                        {resolvingId === c.id ? <Loader2 className="h-4 w-4 animate-spin" /> : '✅'} Aprobar y Acreditar
+                      </button>
+                      <button
+                        onClick={() => void resolveOrder(c, 'rejected')}
+                        disabled={resolvingId === c.id}
+                        className="pressable rounded-xl border border-impulso-rose/40 bg-impulso-rose/10 py-2.5 text-xs font-extrabold text-impulso-rose disabled:opacity-50"
+                      >
+                        ❌ Rechazar
+                      </button>
+                    </div>
+                  )}
+                </article>
+              ))
+            )}
+
+            <p className="text-center text-[10px] leading-relaxed text-slate-500">
+              Venta de licencias de uso de software / créditos publicitarios prepagados bajo régimen simplificado · no
+              responsable de IVA (Art. 437 ET Colombia).
+            </p>
+          </div>
+        )}
+
+        {/* ═══ Pestaña 4: Resumen y limpieza ═══ */}
         {tab === 'summary' && (
           <div className="space-y-3 p-4">
             {stats ? (
@@ -660,6 +805,9 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
           </div>
         )}
       </div>
+
+      {/* 🕵️‍♂️ Ficha forense de IP / GPS / dispositivo */}
+      <ForensicInspector data={inspecting} onClose={() => setInspecting(null)} />
     </div>
   );
 }

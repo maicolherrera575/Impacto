@@ -8,6 +8,18 @@ export default defineConfig({
     target: 'es2022',
     sourcemap: false,
     chunkSizeWarningLimit: 900,
+    rollupOptions: {
+      output: {
+        // Divide el bundle por librería: el navegador cachea cada pieza por
+        // separado y las cargas repetidas del radar son mucho más rápidas.
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom', 'lucide-react'],
+          'vendor-supabase': ['@supabase/supabase-js'],
+          'vendor-gemini': ['@google/generative-ai'],
+          'vendor-leaflet': ['leaflet', 'react-leaflet'],
+        },
+      },
+    },
   },
   server: {
     host: true,

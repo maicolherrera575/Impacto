@@ -98,6 +98,9 @@ export interface ForensicReservation {
   status: string;
   client_ip: string | null;
   device_id: string | null;
+  /** Coordenadas GPS silenciosas (null si el usuario no compartió ubicación). */
+  client_lat: number | null;
+  client_lng: number | null;
   created_at: string;
 }
 

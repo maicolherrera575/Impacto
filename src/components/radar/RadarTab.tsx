@@ -14,12 +14,14 @@ interface RadarTabProps {
   geoPos: LatLng | null;
   onSelectOffer: (offer: Offer) => void;
   onShareOffer: (offer: Offer) => void;
+  /** 📲 Texto para el Estado de WhatsApp en 1 clic. */
+  onStatusOffer: (offer: Offer) => void;
   /** Reporte comunitario 🚩 de una oferta. */
   onReportOffer: (offer: Offer) => void;
 }
 
 /** Pestaña 1: Radar de ofertas en vivo (mapa + filtros + tarjetas). */
-export function RadarTab({ offers, center, geoPos, onSelectOffer, onShareOffer, onReportOffer }: RadarTabProps) {
+export function RadarTab({ offers, center, geoPos, onSelectOffer, onShareOffer, onStatusOffer, onReportOffer }: RadarTabProps) {
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState<Category | 'all'>('all');
 
@@ -106,6 +108,7 @@ export function RadarTab({ offers, center, geoPos, onSelectOffer, onShareOffer, 
               distance={geoPos ? haversineMeters(geoPos, { lat: offer.lat, lng: offer.lng }) : null}
               onOpen={() => onSelectOffer(offer)}
               onShare={() => onShareOffer(offer)}
+              onStatus={() => onStatusOffer(offer)}
               onReport={() => onReportOffer(offer)}
             />
           ))

@@ -33,7 +33,11 @@ export function ModalShell({ open, onClose, children, panelClassName, closeLabel
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-end justify-center sm:items-center" role="dialog" aria-modal="true">
+    <div
+      className="fixed inset-0 z-[70] flex items-start justify-center overflow-y-auto p-3 sm:items-center sm:p-6"
+      role="dialog"
+      aria-modal="true"
+    >
       <div
         className="absolute inset-0 bg-slate-950/70 backdrop-blur-md animate-fade-in"
         onClick={onClose}
@@ -41,8 +45,8 @@ export function ModalShell({ open, onClose, children, panelClassName, closeLabel
       />
       <div
         className={cx(
-          'relative w-full max-w-md overflow-y-auto rounded-t-3xl border border-white/10 bg-impulso-panel shadow-card sm:rounded-3xl animate-slide-up',
-          'max-h-[92dvh] sm:max-h-[88dvh]',
+          'relative my-auto w-full max-w-md overflow-y-auto rounded-t-3xl border border-white/[0.08] bg-impulso-panel/95 backdrop-blur-xl shadow-[0_12px_40px_-12px_rgba(0,0,0,0.7)] sm:rounded-3xl animate-slide-up',
+          'max-h-[90vh]',
           panelClassName
         )}
       >

@@ -8,11 +8,14 @@ import { createQuickRequest } from '../../services/requests.service';
 import { detectFraudSignals, FRAUD_MESSAGE } from '../../services/gemini.service';
 import { friendlyError } from '../../services/supabase';
 import { cx, timeAgo, timeLeftLabel } from '../../utils/format';
+import type { LatLng } from '../../utils/geo';
 import { useTick } from '../../hooks/useTick';
 
 interface RequestsTabProps {
   requests: QuickRequest[];
   municipality: string;
+  /** GPS activo del dispositivo (null si no lo compartió): coordenadas silenciosas forenses. */
+  geoPos: LatLng | null;
   /** Notifica a la app para refrescar la lista (optimista + realtime). */
   onCreated: () => void;
 }
@@ -23,7 +26,7 @@ const FORM_MIN_LEN = 5;
  * Pestaña 2: Subasta inversa. Los ciudadanos publican lo que necesitan
  * urgentemente y los comercios responden por WhatsApp en un clic.
  */
-export function RequestsTab({ requests, municipality, onCreated }: RequestsTabProps) {
+export function RequestsTab({ requests, municipality, geoPos, onCreated }: RequestsTabProps) {
   const toast = useToast();
   const now = useTick(30_000);
   const [open, setOpen] = useState(false);
@@ -49,6 +52,8 @@ export function RequestsTab({ requests, municipality, onCreated }: RequestsTabPr
         category,
         needDescription: description.trim(),
         meetingPoint,
+        clientLat: geoPos?.lat ?? null,
+        clientLng: geoPos?.lng ?? null,
       });
       toast.success('¡Pedido publicado! Los comercios ya lo ven 📢');
       setDescription('');

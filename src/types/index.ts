@@ -103,6 +103,9 @@ export interface Profile {
   social_or_maps_link: string | null;
   rating_sum: number;
   rating_count: number;
+  /** 💰 Acumuladores históricos eternos: sobreviven a la purga de la BD. */
+  lifetime_sales_cop: number;
+  lifetime_orders_count: number;
   accepted_terms_at: string;
   created_at: string;
 }
@@ -193,6 +196,8 @@ export interface Ticket {
   offerTitle: string;
   offerEmoji: string;
   promoPrice: number;
+  /** Precio original de la oferta (para el termómetro de ahorro ciudadano). */
+  originalPrice?: number;
   quantity: number;
   customerName: string;
   merchantId: string;
@@ -213,6 +218,55 @@ export interface ParsedPromo {
   promo_price: number;
   total_quota: number;
   duration_hours: number;
+}
+
+/** Plan de recarga de créditos (cobro Nequi asistido, sin pasarela). */
+export interface CreditPackage {
+  id: string;
+  name: string;
+  emoji: string;
+  credits: number;
+  priceCop: number;
+  note: string;
+  best?: boolean;
+}
+
+/** Los 3 planes de Impulso Comercial. */
+export const CREDIT_PACKAGES: readonly CreditPackage[] = [
+  { id: 'arranque', name: 'Plan Arranque', emoji: '🌱', credits: 5, priceCop: 10000, note: '$2.000 por oferta' },
+  {
+    id: 'activo',
+    name: 'Plan Negocio Activo',
+    emoji: '🚀',
+    credits: 15,
+    priceCop: 24000,
+    note: '$1.600 por oferta · ¡Ahorras 20%!',
+    best: true,
+  },
+  {
+    id: 'dominio',
+    name: 'Plan Dominio Municipal',
+    emoji: '👑',
+    credits: 35,
+    priceCop: 45000,
+    note: '$1.285 por oferta · ¡Ahorras 36%!',
+  },
+] as const;
+
+/** Orden de recarga enviada al administrador. */
+export interface CreditOrder {
+  id: string;
+  merchant_id: string;
+  merchant_name?: string | null;
+  package_name: string;
+  credits_requested: number;
+  amount_cop: number;
+  payment_method: string;
+  reference_code: string;
+  receipt_thumb: string | null;
+  ai_verification_note: string | null;
+  status: 'pending' | 'approved' | 'rejected';
+  created_at: string;
 }
 
 /** Formulario del Creador de Ofertas del comerciante. */
