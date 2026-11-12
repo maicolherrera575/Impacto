@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, ShieldCheck } from 'lucide-react';
 
 import type { Offer, Profile, QuickRequest, Ticket } from './types';
@@ -23,6 +23,7 @@ import { RadarTab } from './components/radar/RadarTab';
 import { RequestsTab } from './components/requests/RequestsTab';
 import { ReservationsTab } from './components/reservations/ReservationsTab';
 import { OfferDetailModal } from './components/offers/OfferDetailModal';
+import { ReportModal } from './components/offers/ReportModal';
 import { AuthModal } from './components/auth/AuthModal';
 import { LegalModal } from './components/legal/LegalModal';
 import { AdminPanel } from './components/admin/AdminPanel';
@@ -57,6 +58,18 @@ export default function App() {
   const [tickets, setTickets] = useState<Ticket[]>(() => loadTickets());
   /** Token de recentrado del mapa: sube al cambiar de municipio. */
   const [recenterToken, setRecenterToken] = useState(0);
+  /** 🛡️ Reporte comunitario: oferta esperando motivo en el ReportModal. */
+  const [reporting, setReporting] = useState<Offer | null>(null);
+  const [reportBusy, setReportBusy] = useState(false);
+  /** Ofertas ya reportadas desde este dispositivo (dedupe visual). */
+  const [reportedIds, setReportedIds] = useState<Set<string>>(() => {
+    try {
+      const raw = JSON.parse(localStorage.getItem('impulso:reported_offers') ?? '[]');
+      return new Set(Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string') : []);
+    } catch {
+      return new Set();
+    }
+  });
 
   const geo = useGeolocation();
 
@@ -135,11 +148,22 @@ export default function App() {
 
   useEffect(() => {
     void refetchOffers();
+    // Debounce de 400 ms: los eventos Realtime son ráfagas (incluido el
+    // views_count); reagruparlos evita refetch en cascada que hacía
+    // PARPADEAR los pines del mapa. Ofertas nuevas entran igual de en vivo.
+    let timer: number | null = null;
+    const scheduleRefetch = () => {
+      if (timer != null) window.clearTimeout(timer);
+      timer = window.setTimeout(() => void refetchOffers(), 400);
+    };
     const channel = supabase
       .channel('impulso:offers')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'offers' }, () => void refetchOffers())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'offers' }, scheduleRefetch)
       .subscribe();
-    return () => void supabase.removeChannel(channel);
+    return () => {
+      if (timer != null) window.clearTimeout(timer);
+      void supabase.removeChannel(channel);
+    };
   }, [refetchOffers]);
 
   // ── Pedidos de la comunidad (fetch + Realtime) ───────────────────────────
@@ -268,22 +292,55 @@ export default function App() {
     }
   }, [toast]);
 
-  /** Reporte comunitario 🚩: con 3 reportes la oferta se tumba sola. */
-  const handleReportOffer = useCallback(
-    async (offer: Offer) => {
+  // ── Ubicación EXACTA únicamente: si el navegador solo dio "aproximada",
+  // la app avisa cómo cambiarla (candado 🔒) y no la usa para nada. ──────────
+  const inexactToastedRef = useRef(false);
+  useEffect(() => {
+    if (geo.status !== 'inexact' || inexactToastedRef.current) return;
+    inexactToastedRef.current = true;
+    toast.info(
+      '📡 Tu ubicación llegó como APROXIMADA y no la usamos para no equivocarnos. Toca el candado 🔒 de la barra del navegador, elige "Ubicación exacta" y dale a Permitir.'
+    );
+  }, [geo.status, toast]);
+
+  /**
+   * Reporte comunitario v2 🛡️: llega con motivo confirmado en el modal.
+   * Doble anti-doble-conteo: el servidor deduplica por dispositivo Y
+   * localmente marcamos la oferta para deshabilitar el botón al instante.
+   */
+  const handleReportConfirm = useCallback(
+    async (reason: string, detail: string) => {
+      const offer = reporting;
+      if (!offer) return;
+      setReportBusy(true);
       try {
-        const res = await reportOffer(offer.id);
-        if (res.cancelled) {
-          toast.info('🚩 Oferta tumbada por la comunidad. Gracias por proteger el pueblo');
+        const res = await reportOffer(offer.id, reason, detail || null);
+        if (res.already) {
+          toast.info('✋ Ya habías reportado esta oferta desde este dispositivo. ¡Gracias igual! 🙏');
         } else {
-          toast.success(`🚩 Reporte registrado (${res.reports}). Con 3 se retira del radar`);
+          const next = new Set(reportedIds);
+          next.add(offer.id);
+          setReportedIds(next);
+          try {
+            localStorage.setItem('impulso:reported_offers', JSON.stringify([...next]));
+          } catch {
+            /* almacenamiento no disponible: el servidor deduplica igual */
+          }
+          if (res.cancelled) {
+            toast.info('🚩 Oferta tumbada por la comunidad. Gracias por proteger el pueblo');
+          } else {
+            toast.success(`🛡️ Reporte registrado (${res.reports}/3). Con 3 se retira del radar`);
+          }
         }
+        setReporting(null);
         void refetchOffers();
       } catch (err) {
         toast.error(friendlyError(err));
+      } finally {
+        setReportBusy(false);
       }
     },
-    [toast, refetchOffers]
+    [reporting, reportedIds, toast, refetchOffers]
   );
 
   /** 📲 Texto magnético para el Estado de WhatsApp (viral, 1 clic). */
@@ -358,7 +415,8 @@ export default function App() {
                 onSelectOffer={setSelectedOffer}
                 onShareOffer={(o) => void shareOffer(o)}
                 onStatusOffer={(o) => void handleStatusShare(o)}
-                onReportOffer={(o) => void handleReportOffer(o)}
+                onReportOffer={setReporting}
+                reportedIds={reportedIds}
               />
             )}
             {tab === 'pedir' && (
@@ -456,6 +514,12 @@ export default function App() {
         onOpenLegal={() => setLegalOpen(true)}
       />
       <LegalModal open={legalOpen} onClose={() => setLegalOpen(false)} />
+      <ReportModal
+        offer={reporting}
+        busy={reportBusy}
+        onClose={() => setReporting(null)}
+        onConfirm={(reason, detail) => void handleReportConfirm(reason, detail)}
+      />
       <AdminPanel open={adminOpen} onClose={() => setAdminOpen(false)} profile={profile} onProfileChange={setProfile} />
     </div>
   );

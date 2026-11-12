@@ -1,4 +1,4 @@
-import { Flag, MessageSquareShare, Share2, ShieldCheck } from 'lucide-react';
+import { MessageSquareShare, Share2, ShieldAlert, ShieldCheck } from 'lucide-react';
 import type { Offer } from '../../types';
 import { categoryMeta } from '../../types';
 import { countdownText, cx, formatCOP, ratingAvg } from '../../utils/format';
@@ -13,15 +13,17 @@ interface OfferCardProps {
   onShare: () => void;
   /** 📲 Texto magnético listo para el Estado de WhatsApp. */
   onStatus: () => void;
-  /** Reporte comunitario 🚩: 3 reportes tumban la oferta. */
+  /** Reporte comunitario 🛡️: abre el modal de motivos (3 reportes tumban la oferta). */
   onReport: () => void;
+  /** Este dispositivo ya reportó la oferta: el botón queda deshabilitado. */
+  reported?: boolean;
 }
 
 /**
  * Tarjeta de alta conversión: insignia de verificado, estrellas, distancia,
  * reloj dinámico inteligente, precios tachados y barra de stock en vivo.
  */
-export function OfferCard({ offer, distance, onOpen, onShare, onStatus, onReport }: OfferCardProps) {
+export function OfferCard({ offer, distance, onOpen, onShare, onStatus, onReport, reported = false }: OfferCardProps) {
   const now = useTick(1000);
   const countdown = countdownText(offer.expires_at, now);
   const merchant = offer.merchant;
@@ -168,14 +170,25 @@ export function OfferCard({ offer, distance, onOpen, onShare, onStatus, onReport
         >
           <MessageSquareShare className="h-4 w-4" />
         </button>
-        <button
-          onClick={onReport}
-          title="Reportar esta oferta (contenido falso o peligroso)"
-          aria-label="Reportar oferta"
-          className="pressable grid h-12 w-10 place-items-center rounded-2xl border border-white/10 bg-slate-950/40 text-slate-500 transition hover:border-impulso-rose/40 hover:text-impulso-rose"
-        >
-          <Flag className="h-4 w-4" />
-        </button>
+        {reported ? (
+          <button
+            disabled
+            title="Ya reportaste esta oferta desde este dispositivo"
+            aria-label="Oferta ya reportada"
+            className="grid h-12 w-10 place-items-center rounded-2xl border border-impulso-emerald/30 bg-impulso-emerald/10 text-impulso-mint opacity-80"
+          >
+            <ShieldCheck className="h-4 w-4" />
+          </button>
+        ) : (
+          <button
+            onClick={onReport}
+            title="Reportar esta oferta: elige el motivo (producto falso, precio engañoso…)"
+            aria-label="Reportar oferta"
+            className="pressable grid h-12 w-10 place-items-center rounded-2xl border border-white/10 bg-slate-950/40 text-slate-500 transition hover:border-impulso-rose/40 hover:text-impulso-rose"
+          >
+            <ShieldAlert className="h-4 w-4" />
+          </button>
+        )}
       </div>
     </article>
   );

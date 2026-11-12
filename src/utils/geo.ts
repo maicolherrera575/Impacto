@@ -28,7 +28,19 @@ export function distanceText(meters: number): string {
   return `📍 A ${(meters / 1000).toFixed(1).replace('.', ',')} km`;
 }
 
-export type GeoStatus = 'idle' | 'active' | 'denied';
+/**
+ * Estados del GPS:
+ *  - idle:      pidiendo permiso / esperando la primera señal exacta.
+ *  - active:    señal EXACTA (precisión ≤ 200 m): la app la usa con confianza.
+ *  - inexact:   el navegador solo dio ubicación APROXIMADA (> 200 m):
+ *               no la adoptamos — un pin equivocado arruina el radar —
+ *               y seguimos escuchando por si mejora a exacta.
+ *  - denied:    permiso negado o GPS apagado: fallback a Gachetá sin bloquear.
+ */
+export type GeoStatus = 'idle' | 'active' | 'inexact' | 'denied';
+
+/** Precisión mínima (en metros) para considerar la ubicación EXACTA. */
+const ACCURACY_LIMIT_M = 200;
 
 /**
  * Geolocalización con modo Google Maps:
@@ -60,6 +72,13 @@ export function useGeolocation() {
     if (watchIdRef.current != null) return;
     watchIdRef.current = navigator.geolocation.watchPosition(
       (p) => {
+        // Regla de oro: SOLO ubicación exacta. Si el navegador concede
+        // "aproximada", la descartamos (no mueve el punto azul ni ordena
+        // distancias) y mantenemos el watch por si llega una exacta.
+        if (p.coords.accuracy > ACCURACY_LIMIT_M) {
+          setStatus('inexact');
+          return;
+        }
         setPos({ lat: p.coords.latitude, lng: p.coords.longitude });
         setStatus('active');
       },

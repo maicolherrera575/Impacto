@@ -22,8 +22,10 @@ interface RadarTabProps {
   onShareOffer: (offer: Offer) => void;
   /** 📲 Texto para el Estado de WhatsApp en 1 clic. */
   onStatusOffer: (offer: Offer) => void;
-  /** Reporte comunitario 🚩 de una oferta. */
+  /** Reporte comunitario 🛡️ de una oferta (abre el modal de motivos). */
   onReportOffer: (offer: Offer) => void;
+  /** Ofertas ya reportadas desde este dispositivo (botón deshabilitado). */
+  reportedIds: Set<string>;
 }
 
 /** Pestaña 1: Radar de ofertas en vivo (mapa + filtros + tarjetas). */
@@ -38,6 +40,7 @@ export function RadarTab({
   onShareOffer,
   onStatusOffer,
   onReportOffer,
+  reportedIds,
 }: RadarTabProps) {
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState<Category | 'all'>('all');
@@ -135,6 +138,7 @@ export function RadarTab({
               onShare={() => onShareOffer(offer)}
               onStatus={() => onStatusOffer(offer)}
               onReport={() => onReportOffer(offer)}
+              reported={reportedIds.has(offer.id)}
             />
           ))
         )}

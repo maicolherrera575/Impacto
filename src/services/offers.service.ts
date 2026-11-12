@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { getDeviceId } from './deviceFingerprint';
 import type { Category, Offer } from '../types';
 
 const MERCHANT_EMBED =
@@ -89,11 +90,30 @@ export async function publishOffer(input: PublishOfferInput): Promise<Offer> {
   return data as unknown as Offer;
 }
 
-/** Reporte comunitario: 3 reportes tumban la oferta automáticamente. */
-export async function reportOffer(offerId: string): Promise<{ reports: number; cancelled: boolean }> {
-  const { data, error } = await supabase.rpc('report_offer_rpc', { p_offer_id: offerId });
+export interface ReportResult {
+  reports: number;
+  cancelled: boolean;
+  /** true = este dispositivo ya había reportado la oferta (no se vuelve a sumar). */
+  already: boolean;
+}
+
+/**
+ * Reporte comunitario con motivo: 3 reportes tumban la oferta automáticamente.
+ * El servidor deduplica por dispositivo: el doble clic jamás suma 2 reportes.
+ */
+export async function reportOffer(
+  offerId: string,
+  reason: string,
+  detail?: string | null
+): Promise<ReportResult> {
+  const { data, error } = await supabase.rpc('report_offer_rpc', {
+    p_offer_id: offerId,
+    p_reason: reason,
+    p_detail: detail ?? null,
+    p_device_id: getDeviceId(),
+  });
   if (error) throw error;
-  return data as unknown as { reports: number; cancelled: boolean };
+  return data as unknown as ReportResult;
 }
 
 /** Incremento atómico de vistas (fire-and-forget). */

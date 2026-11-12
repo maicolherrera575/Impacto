@@ -128,6 +128,27 @@ export async function fetchBlockedClients(): Promise<BlockedClient[]> {
   return (data ?? []) as unknown as BlockedClient[];
 }
 
+/** Reporte comunitario con el motivo que eligió el vecino. */
+export interface OfferReport {
+  id: string;
+  offer_id: string;
+  offer_title: string;
+  offer_status: string;
+  reason: string;
+  detail: string | null;
+  merchant_name: string | null;
+  device_id: string | null;
+  client_ip: string | null;
+  created_at: string;
+}
+
+/** Últimos 30 reportes con motivo + trazabilidad para el panel admin. */
+export async function fetchRecentReports(): Promise<OfferReport[]> {
+  const { data, error } = await supabase.rpc('admin_reports_list_rpc');
+  if (error) throw error;
+  return (data ?? []) as unknown as OfferReport[];
+}
+
 /** 🚫 Bloquea dispositivo / IP / teléfono (al menos un identificador). */
 export async function adminBlockClient(input: {
   deviceId?: string | null;

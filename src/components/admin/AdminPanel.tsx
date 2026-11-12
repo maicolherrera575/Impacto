@@ -23,10 +23,11 @@ import {
   fetchAdminStatsRpc,
   fetchBlockedClients,
   fetchMerchants,
+  fetchRecentReports,
   fetchRecentReservations,
   manageMerchant,
 } from '../../services/admin.service';
-import type { AdminStats, BlockedClient, ForensicReservation } from '../../services/admin.service';
+import type { AdminStats, BlockedClient, ForensicReservation, OfferReport } from '../../services/admin.service';
 import {
   fetchCreditOrders,
   fetchPaymentContact,
@@ -36,10 +37,11 @@ import {
 import { fetchActiveOffers } from '../../services/offers.service';
 import { analyzeMerchantTrust } from '../../services/gemini.service';
 import { friendlyError } from '../../services/supabase';
-import { cx, formatCOP } from '../../utils/format';
+import { cx, formatCOP, timeAgo } from '../../utils/format';
 import { openWhatsApp } from '../../utils/whatsapp';
 import { ForensicInspector } from './ForensicInspector';
 import type { ForensicData } from './ForensicInspector';
+import { reportReasonMeta } from '../offers/ReportModal';
 
 interface AdminPanelProps {
   open: boolean;
@@ -72,6 +74,8 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
   const [offers, setOffers] = useState<Offer[]>([]);
   const [forensics, setForensics] = useState<ForensicReservation[]>([]);
   const [blocked, setBlocked] = useState<BlockedClient[]>([]);
+  /** 🚩 Reportes de la comunidad con su motivo exacto. */
+  const [reports, setReports] = useState<OfferReport[]>([]);
   const [blockPhone, setBlockPhone] = useState('');
   const [blockDevice, setBlockDevice] = useState('');
   const [blockIp, setBlockIp] = useState('');
@@ -107,16 +111,18 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
   const loadOffers = useCallback(async () => {
     setOffersLoading(true);
     try {
-      const [offersList, forensicsList, blockedList, ordersList] = await Promise.all([
+      const [offersList, forensicsList, blockedList, ordersList, reportsList] = await Promise.all([
         fetchActiveOffers(''),
         fetchRecentReservations(),
         fetchBlockedClients(),
         fetchCreditOrders(),
+        fetchRecentReports(),
       ]);
       setOffers(offersList);
       setForensics(forensicsList);
       setBlocked(blockedList);
       setCreditOrders(ordersList);
+      setReports(reportsList);
     } catch (err) {
       toast.error(friendlyError(err));
     } finally {
@@ -556,6 +562,49 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
               <Gavel className="h-4 w-4 shrink-0 text-impulso-gold" />
               Las ofertas con 3+ reportes 🚩 se tumban automáticamente. Aquí puedes tumbar cualquiera de una vez.
             </p>
+
+            {/* ── 🚩 Reportes de la comunidad: el motivo exacto que eligió el vecino ── */}
+            <div className="mt-4 rounded-3xl border border-impulso-rose/25 bg-impulso-rose/5 p-3.5">
+              <p className="flex items-center gap-1.5 text-sm font-extrabold text-impulso-rose">
+                <Flag className="h-4 w-4" /> 🚩 Reportes de la comunidad (motivos)
+              </p>
+              <p className="mt-1 text-[11px] leading-relaxed text-slate-400">
+                Lo que la gente eligió al reportar cada oferta, con trazabilidad para detectar reportes falsos.
+                Un dispositivo solo puede reportar cada oferta 1 vez.
+              </p>
+              {offersLoading ? (
+                <div className="flex justify-center py-4">
+                  <Loader2 className="h-5 w-5 animate-spin text-impulso-rose" />
+                </div>
+              ) : reports.length === 0 ? (
+                <p className="py-3 text-center text-[11px] text-slate-500">Aún no hay reportes. Radar limpio ✨</p>
+              ) : (
+                <div className="mt-2.5 space-y-1.5">
+                  {reports.map((r) => {
+                    const meta = reportReasonMeta(r.reason);
+                    return (
+                      <div key={r.id} className="rounded-xl border border-white/10 bg-slate-950/50 px-2.5 py-2">
+                        <p className="text-[11px] font-extrabold text-white">
+                          {meta.emoji} {meta.label}
+                        </p>
+                        {r.detail && (
+                          <p className="mt-0.5 line-clamp-2 text-[10px] font-semibold italic text-slate-300">
+                            ✍️ "{r.detail}"
+                          </p>
+                        )}
+                        <p className="mt-0.5 truncate text-[10px] font-semibold text-slate-400">
+                          🛍️ {r.offer_title} · 🏪 {r.merchant_name ?? '—'}
+                          {r.offer_status === 'cancelled' ? ' · ⛔ ya tumbada' : ''}
+                        </p>
+                        <p className="truncate font-mono text-[10px] font-semibold text-slate-500">
+                          💻 {tail(r.device_id)} · 🌐 {tail(r.client_ip, 8)} · ⏱️ {timeAgo(r.created_at, Date.now())}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
 
             {/* ── Trazabilidad forense y bloqueos ── */}
             <div className="mt-4 rounded-3xl border border-impulso-rose/25 bg-impulso-rose/5 p-3.5">

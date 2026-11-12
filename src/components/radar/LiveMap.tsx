@@ -29,6 +29,25 @@ function buildPinIcon(offer: Offer): L.DivIcon {
   });
 }
 
+/**
+ * 🧠 Caché de iconos a nivel de módulo: recrear el DivIcon de un pin en cada
+ * render hace que Leaflet lo re-monte (los pines ya publicados PARPADEAN).
+ * Con la caché, los pines existentes quedan estáticos y solo las ofertas
+ * NUEVAS montan frescos y animan su salto de aparición.
+ */
+const PIN_ICON_CACHE = new Map<string, L.DivIcon>();
+
+function pinIconFor(offer: Offer): L.DivIcon {
+  const key = `${offer.id}|${offer.promo_price}`;
+  const cached = PIN_ICON_CACHE.get(key);
+  if (cached) return cached;
+  const icon = buildPinIcon(offer);
+  // Cota de seguridad: si la caché crece demasiado (raro), se reinicia.
+  if (PIN_ICON_CACHE.size > 400) PIN_ICON_CACHE.clear();
+  PIN_ICON_CACHE.set(key, icon);
+  return icon;
+}
+
 /** Punto azul "estás aquí": ubicación exacta del usuario en el radar. */
 const YOU_ARE_HERE_ICON: L.DivIcon = L.divIcon({
   className: 'imp-you-marker',
@@ -125,15 +144,19 @@ function MapController({ center, zoom, geoPos, geoStatus, onGeoRequest, recenter
       title={
         geoActive
           ? 'Punto azul activo: te seguimos en vivo mientras te mueves'
-          : geoStatus === 'denied'
-            ? 'Ubicación no disponible: toca para reintentar (el radar sigue en Gachetá)'
-            : '🎯 Activar mi punto azul de ubicación en el mapa'
+          : geoStatus === 'inexact'
+            ? '📡 Tu señal llegó APROXIMADA: cámbiala a "Ubicación exacta" en el candado 🔒 del navegador'
+            : geoStatus === 'denied'
+              ? 'Ubicación no disponible: toca para reintentar (el radar sigue en Gachetá)'
+              : '🎯 Activar mi punto azul de ubicación en el mapa'
       }
       aria-label="Centrar en mi ubicación"
       className={
         geoActive
           ? 'pressable absolute right-3 top-3 z-20 grid h-11 w-11 place-items-center rounded-full border border-blue-400/60 bg-blue-500 text-white shadow-[0_6px_18px_rgba(2,6,23,0.55)] transition hover:brightness-110'
-          : 'pressable absolute right-3 top-3 z-20 grid h-11 w-11 place-items-center rounded-full border border-white/15 bg-impulso-panel text-slate-200 shadow-[0_6px_18px_rgba(2,6,23,0.55)] transition hover:border-impulso-emerald/40 hover:text-impulso-mint'
+          : geoStatus === 'inexact'
+            ? 'pressable absolute right-3 top-3 z-20 grid h-11 w-11 place-items-center rounded-full border border-amber-400/60 bg-amber-500 text-slate-950 shadow-[0_6px_18px_rgba(2,6,23,0.55)] transition hover:brightness-110'
+            : 'pressable absolute right-3 top-3 z-20 grid h-11 w-11 place-items-center rounded-full border border-white/15 bg-impulso-panel text-slate-200 shadow-[0_6px_18px_rgba(2,6,23,0.55)] transition hover:border-impulso-emerald/40 hover:text-impulso-mint'
       }
     >
       <LocateFixed className={geoActive ? 'h-5 w-5 animate-pulse-soft' : 'h-5 w-5'} />
@@ -174,7 +197,7 @@ export function LiveMap({
     () =>
       offers.map((offer) => ({
         offer,
-        icon: buildPinIcon(offer),
+        icon: pinIconFor(offer),
         position: [offer.lat, offer.lng] as [number, number],
       })),
     [offers]

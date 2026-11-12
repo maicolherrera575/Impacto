@@ -1001,8 +1001,32 @@ alter table public.offers add column if not exists delivery_type text not null d
   constraint offers_delivery_type_check check (delivery_type in ('local_fisico', 'parque_principal', 'domicilio'));
 alter table public.offers add column if not exists reports_count integer not null default 0;
 
--- 8.2 Reporte comunitario: 3 reportes → la oferta se tumba sola del radar
-create or replace function public.report_offer_rpc(p_offer_id uuid)
+-- 8.2 Reportes comunitarios v2: motivo, detalle y dedupe por dispositivo.
+-- Cada dispositivo cuenta 1 sola vez por oferta (el doble clic NO suma 2),
+-- y el administrador ve los motivos exactos + trazabilidad en su panel.
+create table if not exists public.offer_reports (
+  id         uuid primary key default gen_random_uuid(),
+  offer_id   uuid not null references public.offers(id) on delete cascade,
+  reason     text not null,
+  detail     text,
+  device_id  text,
+  client_ip  text,
+  created_at timestamptz not null default now(),
+  constraint offer_reports_reason_check check (char_length(reason) between 1 and 60),
+  constraint offer_reports_detail_check check (detail is null or char_length(detail) <= 500)
+);
+alter table public.offer_reports enable row level security;
+create index if not exists offer_reports_offer_idx  on public.offer_reports (offer_id);
+create index if not exists offer_reports_recent_idx on public.offer_reports (created_at desc);
+
+-- Firma vieja (sin motivo ni dedupe): fuera, para que la nueva sea la única.
+drop function if exists public.report_offer_rpc(uuid);
+create or replace function public.report_offer_rpc(
+  p_offer_id uuid,
+  p_reason   text,
+  p_detail   text default null,
+  p_device_id text default null
+)
 returns jsonb
 language plpgsql
 security definer
@@ -1010,10 +1034,35 @@ set search_path = ''
 as $$
 declare
   v_reports integer;
+  v_device  text := nullif(trim(coalesce(p_device_id, '')), '');
 begin
-  if p_offer_id is null then
-    raise exception 'Oferta inválida';
+  if p_offer_id is null or coalesce(p_reason, '') = '' then
+    raise exception 'Reporte inválido: falta la oferta o el motivo';
   end if;
+
+  select reports_count into v_reports from public.offers where id = p_offer_id;
+  if v_reports is null then
+    raise exception 'Oferta no encontrada';
+  end if;
+
+  -- Anti doble conteo: 1 dispositivo = 1 reporte por oferta, siempre.
+  if v_device is not null
+     and exists (
+       select 1 from public.offer_reports
+        where offer_id = p_offer_id and device_id = v_device
+     )
+  then
+    return jsonb_build_object('reports', v_reports, 'cancelled', false, 'already', true);
+  end if;
+
+  insert into public.offer_reports (offer_id, reason, detail, device_id, client_ip)
+  values (
+    p_offer_id,
+    p_reason,
+    nullif(trim(coalesce(p_detail, '')), ''),
+    v_device,
+    public.get_client_ip()
+  );
 
   update public.offers
      set reports_count = reports_count + 1,
@@ -1022,14 +1071,41 @@ begin
      and status = 'active'
   returning reports_count into v_reports;
 
-  if not found then
-    raise exception 'Oferta no encontrada o ya moderada';
-  end if;
-
-  return jsonb_build_object('reports', v_reports, 'cancelled', v_reports >= 3);
+  return jsonb_build_object('reports', v_reports, 'cancelled', v_reports >= 3, 'already', false);
 end;
 $$;
-grant execute on function public.report_offer_rpc(uuid) to anon, authenticated;
+grant execute on function public.report_offer_rpc(uuid, text, text, text) to anon, authenticated;
+
+-- Bandeja de reportes para el administrador: motivos + oferta + comercio + trazabilidad.
+drop function if exists public.admin_reports_list_rpc();
+create or replace function public.admin_reports_list_rpc()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+begin
+  if not public.is_admin() then
+    raise exception 'Solo el administrador puede ver los reportes';
+  end if;
+  return coalesce((
+    select jsonb_agg(to_jsonb(t) order by t.created_at desc)
+    from (
+      select r.id, r.offer_id, r.reason, r.detail, r.device_id, r.client_ip, r.created_at,
+             o.title  as offer_title,
+             o.status as offer_status,
+             p.business_name as merchant_name
+      from public.offer_reports r
+      join public.offers o on o.id = r.offer_id
+      left join public.profiles p on p.id = o.merchant_id
+      order by r.created_at desc
+      limit 30
+    ) t
+  ), '[]'::jsonb);
+end;
+$$;
+grant execute on function public.admin_reports_list_rpc() to authenticated;
 
 -- 8.3 Kill-switch del administrador: tumba (borra) cualquier oferta al instante
 create or replace function public.admin_delete_offer_rpc(p_offer_id uuid)

@@ -76,19 +76,34 @@ export function Navbar({
             title={
               geoStatus === 'active'
                 ? 'Punto azul activo: ofertas ordenadas por cercanía real en vivo'
-                : geoStatus === 'denied'
-                  ? 'Ubicación no disponible: el radar se centra en Gachetá. Toca el 🎯 del mapa para reintentar'
-                  : 'Activando tu ubicación…'
+                : geoStatus === 'inexact'
+                  ? 'Tu señal llegó APROXIMADA y no la usamos para no equivocarnos. Toca el candado 🔒 de la barra del navegador, elige "Ubicación exacta" y dale a Permitir'
+                  : geoStatus === 'denied'
+                    ? 'Ubicación no disponible: el radar se centra en Gachetá. Toca el 🎯 del mapa para reintentar'
+                    : 'Activando tu ubicación…'
             }
             className={cx(
               'pressable flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-semibold',
               geoStatus === 'active'
                 ? 'border-impulso-emerald/40 bg-impulso-emerald/10 text-impulso-mint'
-                : 'border-white/10 bg-impulso-panel text-slate-300'
+                : geoStatus === 'inexact'
+                  ? 'border-amber-400/40 bg-amber-400/10 text-amber-300'
+                  : 'border-white/10 bg-impulso-panel text-slate-300'
             )}
           >
-            <Radar className={cx('h-3.5 w-3.5', geoStatus === 'active' && 'animate-pulse-soft')} />
-            {geoStatus === 'active' ? 'GPS Activo' : geoStatus === 'denied' ? 'Sin GPS' : 'GPS…'}
+            <Radar
+              className={cx(
+                'h-3.5 w-3.5',
+                (geoStatus === 'active' || geoStatus === 'inexact') && 'animate-pulse-soft'
+              )}
+            />
+            {geoStatus === 'active'
+              ? 'GPS Activo'
+              : geoStatus === 'inexact'
+                ? 'GPS Aprox ⚠️'
+                : geoStatus === 'denied'
+                  ? 'Sin GPS'
+                  : 'GPS…'}
           </button>
 
           {/* Acceso / sesión activa */}
