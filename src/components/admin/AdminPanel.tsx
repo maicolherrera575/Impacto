@@ -27,7 +27,12 @@ import {
   manageMerchant,
 } from '../../services/admin.service';
 import type { AdminStats, BlockedClient, ForensicReservation } from '../../services/admin.service';
-import { fetchCreditOrders, resolveCreditOrder } from '../../services/credits.service';
+import {
+  fetchCreditOrders,
+  fetchPaymentContact,
+  resolveCreditOrder,
+  setPaymentContact as savePaymentContactRpc,
+} from '../../services/credits.service';
 import { fetchActiveOffers } from '../../services/offers.service';
 import { analyzeMerchantTrust } from '../../services/gemini.service';
 import { friendlyError } from '../../services/supabase';
@@ -81,13 +86,17 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
   const [resolvingId, setResolvingId] = useState<string | null>(null);
   /** Ficha forense abierta (inspector de IP/GPS). */
   const [inspecting, setInspecting] = useState<ForensicData | null>(null);
+  /** 📱 Número oficial de Nequi/WhatsApp editable desde el panel. */
+  const [paymentContact, setPaymentContact] = useState('');
+  const [contactBusy, setContactBusy] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [list, s] = await Promise.all([fetchMerchants(), fetchAdminStatsRpc()]);
+      const [list, s, contact] = await Promise.all([fetchMerchants(), fetchAdminStatsRpc(), fetchPaymentContact()]);
       setMerchants(list);
       setStats(s);
+      if (contact) setPaymentContact(contact);
     } catch (err) {
       toast.error(friendlyError(err));
     } finally {
@@ -224,6 +233,24 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
       toast.error(friendlyError(err));
     } finally {
       setBusyId(null);
+    }
+  }
+
+  /** 📱 Guarda el número oficial de Nequi/WhatsApp en la base de datos. */
+  async function savePaymentContact() {
+    if (paymentContact.replace(/\D/g, '').length < 10) {
+      toast.error('Escribe el número completo (ej: 573101234567)');
+      return;
+    }
+    setContactBusy(true);
+    try {
+      const saved = await savePaymentContactRpc(paymentContact);
+      setPaymentContact(saved);
+      toast.success('📱 Número oficial guardado: todos los comercios pagarán sus recargas a ese Nequi');
+    } catch (err) {
+      toast.error(friendlyError(err));
+    } finally {
+      setContactBusy(false);
     }
   }
 
@@ -784,6 +811,30 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
                 <Loader2 className="h-7 w-7 animate-spin text-impulso-gold" />
               </div>
             )}
+
+            {/* 📱 Número oficial de recargas (protegido en la base de datos) */}
+            <section className="rounded-3xl border border-impulso-emerald/25 bg-impulso-panel p-4">
+              <p className="text-sm font-bold text-impulso-mint">📱 Mi Número Oficial de Nequi / WhatsApp para Recargas</p>
+              <p className="mt-1 text-xs leading-relaxed text-slate-400">
+                Los comercios verán este número al pagar sus créditos y te escribirán a él al enviar el comprobante.
+                Vive protegido en la base de datos: cámbialo aquí cuando quieras, sin redeploy.
+              </p>
+              <input
+                value={paymentContact}
+                onChange={(e) => setPaymentContact(e.target.value.replace(/[^\d+]/g, ''))}
+                placeholder="Ej: 573101234567"
+                inputMode="tel"
+                maxLength={13}
+                className="mt-3 w-full rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3 font-mono text-sm font-bold tracking-wider text-white placeholder:text-slate-600 outline-none focus:border-impulso-emerald/60"
+              />
+              <button
+                onClick={() => void savePaymentContact()}
+                disabled={contactBusy}
+                className="pressable mt-2 flex w-full items-center justify-center gap-2 rounded-2xl bg-impulso-emerald py-3 text-sm font-extrabold text-slate-950 disabled:opacity-60"
+              >
+                {contactBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : '💾'} Guardar número oficial
+              </button>
+            </section>
 
             <button
               onClick={() => void cleanup()}

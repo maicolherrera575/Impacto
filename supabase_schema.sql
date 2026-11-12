@@ -1762,4 +1762,72 @@ grant execute on function public.admin_credit_orders_list_rpc()                 
 grant execute on function public.admin_resolve_credit_order_rpc(uuid, text, text)         to authenticated;
 grant execute on function public.auto_prune_expired_data_rpc()                            to anon, authenticated;
 
+-- ============================================================================
+--  10.8 NÚMERO OFICIAL DE NEQUI / WHATSAPP DEL ADMIN EN BASE DE DATOS (v4.2)
+--  Idempotente. El número vive protegido en la base de datos (cero variables
+--  de entorno): los comercios autenticados lo leen para pagar sus recargas
+--  y solo el administrador puede crearlo o cambiarlo desde su panel.
+-- ============================================================================
+
+create table if not exists public.app_settings (
+  key        text primary key,
+  value      text not null,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.app_settings enable row level security;
+-- (Sin políticas directas: lectura SOLO vía get_payment_contact_rpc y
+--  escritura SOLO vía admin_set_payment_contact_rpc, ambas SECURITY DEFINER.)
+
+-- Lectura del número de pago: SOLO usuarios autenticados (protege el número
+-- personal del administrador frente a bots y visitantes anónimos).
+create or replace function public.get_payment_contact_rpc()
+returns text
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_value text;
+begin
+  if auth.uid() is null then
+    return null;
+  end if;
+  select value into v_value from public.app_settings where key = 'payment_whatsapp';
+  return v_value;
+end;
+$$;
+
+-- Guardar el número: SOLO el administrador (rol asignado desde la BD).
+-- Normaliza a puros dígitos y valida longitud para que los enlaces wa.me
+-- siempre funcionen.
+create or replace function public.admin_set_payment_contact_rpc(p_whatsapp text)
+returns text
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_digits text;
+begin
+  if not public.is_admin() then
+    raise exception 'SOLO_ADMIN: esta acción está reservada al administrador';
+  end if;
+  v_digits := coalesce(regexp_replace(p_whatsapp, '\D', '', 'g'), '');
+  if char_length(v_digits) < 10 or char_length(v_digits) > 13 then
+    raise exception 'Escribe un número válido (entre 10 y 13 dígitos, ej: 573101234567)';
+  end if;
+  insert into public.app_settings (key, value, updated_at)
+  values ('payment_whatsapp', v_digits, now())
+  on conflict (key) do update
+    set value = excluded.value,
+        updated_at = now();
+  return v_digits;
+end;
+$$;
+
+grant execute on function public.get_payment_contact_rpc()            to authenticated;
+grant execute on function public.admin_set_payment_contact_rpc(text)  to authenticated;
+
+
 

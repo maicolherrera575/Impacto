@@ -1,21 +1,25 @@
 /**
  * Configuración central del entorno.
  * Falla temprano y con mensajes claros si falta alguna variable crítica.
+ *
+ * ⚠️ Lectura ESTÁTICA (import.meta.env.VITE_X): el `define` de vite.config.ts
+ * inyecta en el build los valores SIN prefijo guardados en Vercel
+ * (SUPABASE_URL, SUPABASE_ANON_KEY…), con fallback al .env local con VITE_.
  */
 
-function requireEnv(name: keyof ImportMetaEnv): string {
-  const value = import.meta.env[name];
+function requireValue(value: string | undefined, name: string): string {
   if (!value || value.trim() === '') {
     throw new Error(
       `[Impulso] Falta la variable de entorno ${name}. ` +
-        'Copia .env.example como .env y completa los valores reales.'
+        'En Vercel guárdala SIN prefijo en modo Secreto (ej: SUPABASE_URL). ' +
+        'En desarrollo local cópiala en .env con el prefijo VITE_ (ej: VITE_SUPABASE_URL).'
     );
   }
   return value.trim();
 }
 
-export const SUPABASE_URL = requireEnv('VITE_SUPABASE_URL');
-export const SUPABASE_ANON_KEY = requireEnv('VITE_SUPABASE_ANON_KEY');
+export const SUPABASE_URL = requireValue(import.meta.env.VITE_SUPABASE_URL, 'SUPABASE_URL / VITE_SUPABASE_URL');
+export const SUPABASE_ANON_KEY = requireValue(import.meta.env.VITE_SUPABASE_ANON_KEY, 'SUPABASE_ANON_KEY / VITE_SUPABASE_ANON_KEY');
 
 /**
  * Llave de Gemini SOLO para desarrollo local (npm run dev).

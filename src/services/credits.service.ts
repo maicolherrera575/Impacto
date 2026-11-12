@@ -45,3 +45,22 @@ export async function resolveCreditOrder(orderId: string, action: 'approved' | '
   if (error) throw error;
   return data as unknown as CreditOrder;
 }
+
+/**
+ * 📱 Número oficial de Nequi/WhatsApp del administrador (protegido en la
+ * base de datos, editable desde el Panel Admin). Solo para usuarios
+ * autenticados; ante cualquier error devuelve null y el frontend usa el
+ * fallback de variables de entorno.
+ */
+export async function fetchPaymentContact(): Promise<string | null> {
+  const { data, error } = await supabase.rpc('get_payment_contact_rpc');
+  if (error) return null;
+  return typeof data === 'string' && data.trim() !== '' ? data.trim() : null;
+}
+
+/** 👑 Solo admin: guarda el número oficial de recargas (10–13 dígitos). */
+export async function setPaymentContact(whatsapp: string): Promise<string> {
+  const { data, error } = await supabase.rpc('admin_set_payment_contact_rpc', { p_whatsapp: whatsapp });
+  if (error) throw error;
+  return data as unknown as string;
+}

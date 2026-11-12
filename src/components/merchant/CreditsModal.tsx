@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { CheckCircle2, Copy, Loader2, ShieldCheck, Sparkles, Upload, X } from 'lucide-react';
 import type { Profile } from '../../types';
 import { CREDIT_PACKAGES } from '../../types';
@@ -7,7 +7,7 @@ import { useToast } from '../ui/Toast';
 import { compressImageToMicroWebP, compressionSummary } from '../../services/imageCompressor';
 import { verifyNequiReceiptWithAI } from '../../services/gemini.service';
 import type { ReceiptVerification } from '../../services/gemini.service';
-import { submitCreditOrder } from '../../services/credits.service';
+import { fetchPaymentContact, submitCreditOrder } from '../../services/credits.service';
 import { friendlyError } from '../../services/supabase';
 import { cx, formatCOP } from '../../utils/format';
 import { openWhatsApp } from '../../utils/whatsapp';
@@ -36,10 +36,25 @@ export function CreditsModal({ open, onClose, profile }: CreditsModalProps) {
   const [reference, setReference] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [compressing, setCompressing] = useState(false);
+  /** 📱 Número oficial de recargas: primero la BD, con fallback al .env. */
+  const [paymentContact, setPaymentContact] = useState('');
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    fetchPaymentContact()
+      .then((value) => {
+        if (!cancelled) setPaymentContact(value ?? '');
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
 
   const plan = CREDIT_PACKAGES[planIdx];
-  const nequiDigits = ADMIN_WHATSAPP.replace(/\D/g, '');
-  const nequiLocal = nequiDigits.startsWith('57') ? nequiDigits.slice(2) : nequiDigits;
+  const contactDigits = (paymentContact || ADMIN_WHATSAPP).replace(/\D/g, '');
+  const nequiLocal = contactDigits.startsWith('57') ? contactDigits.slice(2) : contactDigits;
 
   async function pickReceipt(file: File | undefined) {
     if (!file) return;
@@ -78,7 +93,7 @@ export function CreditsModal({ open, onClose, profile }: CreditsModalProps) {
   }
 
   async function submit() {
-    if (!/^3\d{9}$/.test(nequiDigits)) {
+    if (!/^3\d{9}$/.test(contactDigits)) {
       toast.error('El administrador aún no configuró su número de Nequi. Avísale por WhatsApp');
       return;
     }
@@ -101,7 +116,7 @@ export function CreditsModal({ open, onClose, profile }: CreditsModalProps) {
       });
       toast.success('✅ Comprobante enviado: el administrador lo activará en minutos');
       openWhatsApp(
-        ADMIN_WHATSAPP,
+        contactDigits,
         `Hola! Soy ${profile.business_name} (${profile.municipality}). Envié el comprobante ${method} por ${formatCOP(plan.priceCop)} — ${plan.name} (${plan.credits} créditos), referencia ${reference.trim()}. ¡Quedo atento a la activación! 🙌`
       );
       onClose();

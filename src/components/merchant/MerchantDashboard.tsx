@@ -33,6 +33,7 @@ import { updateMyProfile } from '../../services/profile.service';
 import { OfferCreator } from './OfferCreator';
 import { LocationPicker } from './LocationPicker';
 import { CreditsModal } from './CreditsModal';
+import { fetchPaymentContact } from '../../services/credits.service';
 import { countdownText, cx, formatCOP, ratingAvg } from '../../utils/format';
 import { useTick } from '../../hooks/useTick';
 import { beepAlert } from '../../utils/sound';
@@ -69,6 +70,21 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
   const [nitInput, setNitInput] = useState(profile.nit_or_cedula ?? '');
   const [socialInput, setSocialInput] = useState(profile.social_or_maps_link ?? '');
   const [trustBusy, setTrustBusy] = useState(false);
+  /** 📱 Número oficial de recargas/soporte (BD del admin, fallback al .env). */
+  const [paymentContact, setPaymentContact] = useState(ADMIN_WHATSAPP);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchPaymentContact()
+      .then((value) => {
+        if (!cancelled && value) setPaymentContact(value);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   /** Sube el logo comprimido a micro-WebP (160px) y lo guarda en el perfil. */
@@ -361,7 +377,7 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
             <button
               onClick={() =>
                 openWhatsApp(
-                  ADMIN_WHATSAPP,
+                  paymentContact,
                   `Hola, soy ${profile.business_name}. Mi cuenta aparece suspendida en Impulso y quiero entender por qué 🙏`
                 )
               }
