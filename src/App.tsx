@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Loader2, ShieldCheck } from 'lucide-react';
 
 import type { Offer, Profile, QuickRequest, Ticket } from './types';
@@ -19,6 +19,7 @@ import { loadTickets, patchTicket, removeTicket, saveTicket } from './utils/stor
 
 import { Navbar } from './components/layout/Navbar';
 import { BottomNav } from './components/layout/BottomNav';
+import { GpsGuideModal } from './components/layout/GpsGuideModal';
 import { RadarTab } from './components/radar/RadarTab';
 import { RequestsTab } from './components/requests/RequestsTab';
 import { ReservationsTab } from './components/reservations/ReservationsTab';
@@ -61,8 +62,7 @@ export default function App() {
   /** 🛡️ Reporte comunitario: oferta esperando motivo en el ReportModal. */
   const [reporting, setReporting] = useState<Offer | null>(null);
   const [reportBusy, setReportBusy] = useState(false);
-  /** Ofertas ya reportadas desde este dispositivo (dedupe visual). */
-  const [reportedIds, setReportedIds] = useState<Set<string>>(() => {
+  /** Ofertas ya reportadas desde este dispositivo (dedupe visual). */  const [reportedIds, setReportedIds] = useState<Set<string>>(() => {
     try {
       const raw = JSON.parse(localStorage.getItem('impulso:reported_offers') ?? '[]');
       return new Set(Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string') : []);
@@ -70,6 +70,8 @@ export default function App() {
       return new Set();
     }
   });
+  /** 📡 Guía de "Ubicación exacta" (se abre sola si el GPS llega aproximado). */
+  const [gpsGuideOpen, setGpsGuideOpen] = useState(false);
 
   const geo = useGeolocation();
 
@@ -292,16 +294,26 @@ export default function App() {
     }
   }, [toast]);
 
-  // ── Ubicación EXACTA únicamente: si el navegador solo dio "aproximada",
-  // la app avisa cómo cambiarla (candado 🔒) y no la usa para nada. ──────────
-  const inexactToastedRef = useRef(false);
+  // ── Ubicación EXACTA únicamente: si el navegador solo concedió "aproximada",
+  // la app NO la usa y abre la guía paso a paso para cambiarla. Tocar el 🎯
+  // del mapa lanza una lectura fresca: al llegar la señal exacta, todo se
+  // activa solo (sin recargar la página). ───────────────────────────────────
   useEffect(() => {
-    if (geo.status !== 'inexact' || inexactToastedRef.current) return;
-    inexactToastedRef.current = true;
-    toast.info(
-      '📡 Tu ubicación llegó como APROXIMADA y no la usamos para no equivocarnos. Toca el candado 🔒 de la barra del navegador, elige "Ubicación exacta" y dale a Permitir.'
-    );
-  }, [geo.status, toast]);
+    if (geo.status === 'inexact') setGpsGuideOpen(true);
+  }, [geo.status]);
+
+  useEffect(() => {
+    if (geo.status === 'active' && gpsGuideOpen) {
+      setGpsGuideOpen(false);
+      toast.success('🎯 ¡Ubicación exacta activada! Radar preciso en vivo');
+    }
+  }, [geo.status, gpsGuideOpen, toast]);
+
+  /** 🎯 Botón de GPS (barra superior + mapa): reintento con lectura fresca. */
+  const handleGeoRequest = useCallback(() => {
+    geo.request();
+    if (geo.status === 'inexact') setGpsGuideOpen(true);
+  }, [geo]);
 
   /**
    * Reporte comunitario v2 🛡️: llega con motivo confirmado en el modal.
@@ -390,7 +402,7 @@ export default function App() {
             municipality={municipality}
             onMunicipality={handleMunicipality}
             geoStatus={geo.status}
-            onGeoRequest={geo.request}
+            onGeoRequest={handleGeoRequest}
             profile={profile}
             onOpenAuth={() => setAuthOpen(true)}
             onOpenDashboard={() => {
@@ -410,7 +422,7 @@ export default function App() {
                 center={mapCenter}
                 geoPos={geo.status === 'active' && geo.pos ? geo.pos : null}
                 geoStatus={geo.status}
-                onGeoRequest={geo.request}
+                onGeoRequest={handleGeoRequest}
                 recenterToken={recenterToken}
                 onSelectOffer={setSelectedOffer}
                 onShareOffer={(o) => void shareOffer(o)}
@@ -514,6 +526,12 @@ export default function App() {
         onOpenLegal={() => setLegalOpen(true)}
       />
       <LegalModal open={legalOpen} onClose={() => setLegalOpen(false)} />
+      <GpsGuideModal
+        open={gpsGuideOpen}
+        onClose={() => setGpsGuideOpen(false)}
+        onRetry={handleGeoRequest}
+        retrying={geo.status === 'inexact'}
+      />
       <ReportModal
         offer={reporting}
         busy={reportBusy}

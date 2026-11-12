@@ -63,34 +63,54 @@ export function useGeolocation() {
     }
   }, []);
 
-  /** Activa el rastreo en vivo (idempotente: si ya corre, no lo duplica). */
+  /** Regla de oro: SOLO adoptamos lecturas EXACTAS (≤ 200 m). */
+  const adoptFix = useCallback((p: GeolocationPosition) => {
+    if (p.coords.accuracy > ACCURACY_LIMIT_M) {
+      // El navegador concedió "aproximada": la descartamos (no mueve el
+      // punto azul ni ordena distancias) y seguimos esperando una exacta.
+      setStatus('inexact');
+      return;
+    }
+    setPos({ lat: p.coords.latitude, lng: p.coords.longitude });
+    setStatus('active');
+  }, []);
+
+  const onError = useCallback(
+    (err: GeolocationPositionError) => {
+      // Solo el permiso NEGADO corta el rastreo; un timeout no: el GPS de
+      // los celulares puede tardar y el watch lo recupera solo.
+      if (err.code === err.PERMISSION_DENIED) {
+        setStatus('denied');
+        stop();
+      }
+    },
+    [stop]
+  );
+
+  /**
+   * Activa el rastreo en vivo y SIEMPRE lanza además una lectura fresca de
+   * alta precisión (prioridad máxima, cero caché). Así, en cuanto el
+   * usuario cambia el navegador a "Ubicación exacta", la app se activa
+   * solita — con el botón 🎯 del mapa, el GPS de la barra o al instante.
+   */
   const request = useCallback(() => {
     if (!('geolocation' in navigator)) {
       setStatus('denied');
       return;
     }
-    if (watchIdRef.current != null) return;
-    watchIdRef.current = navigator.geolocation.watchPosition(
-      (p) => {
-        // Regla de oro: SOLO ubicación exacta. Si el navegador concede
-        // "aproximada", la descartamos (no mueve el punto azul ni ordena
-        // distancias) y mantenemos el watch por si llega una exacta.
-        if (p.coords.accuracy > ACCURACY_LIMIT_M) {
-          setStatus('inexact');
-          return;
-        }
-        setPos({ lat: p.coords.latitude, lng: p.coords.longitude });
-        setStatus('active');
-      },
-      () => {
-        // Permiso negado, timeout o GPS apagado: fallback al casco urbano
-        // sin bloquear nada; el vecino puede reintentar cuando quiera.
-        setStatus('denied');
-        stop();
-      },
-      { enableHighAccuracy: true, timeout: 10_000, maximumAge: 30_000 }
-    );
-  }, [stop]);
+    if (watchIdRef.current == null) {
+      watchIdRef.current = navigator.geolocation.watchPosition(adoptFix, onError, {
+        enableHighAccuracy: true,
+        timeout: 10_000,
+        maximumAge: 30_000,
+      });
+    }
+    navigator.geolocation.getCurrentPosition(adoptFix, onError, {
+      enableHighAccuracy: true,
+      timeout: 15_000,
+      maximumAge: 0,
+    });
+  }, [adoptFix, onError]);
 
   // ── Auto-GPS: la primera acción de la app es pedir la ubicación ──────────
   useEffect(() => {
