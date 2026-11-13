@@ -324,7 +324,7 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
   return (
     <div className="fixed inset-0 z-[9999] flex items-end justify-center sm:items-center" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-slate-950/75 backdrop-blur-md animate-fade-in" onClick={onClose} aria-hidden="true" />
-      <div className="relative max-h-[94dvh] w-full max-w-xl overflow-y-auto rounded-t-3xl border border-impulso-gold/25 bg-impulso-panel shadow-card sm:rounded-3xl animate-slide-up">
+      <div className="relative max-h-[94dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl border border-impulso-gold/25 bg-impulso-panel shadow-card sm:rounded-3xl md:w-[96vw] md:max-w-[1480px] md:h-[92dvh] md:max-h-[92dvh] animate-slide-up">
         {/* Cabecera */}
         <div className="sticky top-0 z-10 border-b border-white/5 bg-impulso-panel/95 px-5 py-4 backdrop-blur-xl">
           <div className="flex items-center gap-3">

@@ -363,7 +363,29 @@ export interface MarketingVisualHooks {
   slide3_cta: string;
 }
 
+export interface CampaignHeadline {
+  /** Palabras del titular que van en blanco puro. */
+  plain: string;
+  /** Palabras clave del titular que van resaltadas en el color de acento. */
+  highlight: string;
+}
+
+export type PriceMode = 'precio' | 'servicio';
+export type CampaignFocus = 'remate' | 'prestigio' | 'confianza' | 'viral';
+
 export interface MarketingCampaign {
+  /** Sello superior sugerido para el afiche (ej: "💎 CALIDAD GARANTIZADA"). */
+  badgeText: string;
+  /** Titular de agencia a dos tonos (blanco + palabras clave en acento). */
+  headline: CampaignHeadline;
+  sub: string;
+  /** 3 beneficios ultra persuasivos con emoji incluido. */
+  benefits: string[];
+  cta: string;
+  /** Texto del bloque de precio cuando el negocio no maneja precio fijo. */
+  priceLabel: string | null;
+  /** Prompt fotográfico comercial EN INGLÉS para generar la imagen ideal. */
+  imagePromptEn: string;
   visualHooks: MarketingVisualHooks;
   whatsappStatusSequence: { status1: string; status2: string; status3: string };
   socialMediaCopy: { pas: string; aida: string };
@@ -374,19 +396,37 @@ export interface MarketingCampaign {
 export interface CampaignInput {
   businessName: string;
   slogan: string;
+  /** 🧠 Brief libre: qué hace el negocio, qué servicio promociona, público, etc. */
+  brief: string;
   product: string;
+  /** 💰 precio exacto vs 💬 servicio/cotización. */
+  priceMode: PriceMode;
   normalPrice: number | null;
   promoPrice: number | null;
+  /** Texto personalizado de cotización (ej: "Valoración Sin Costo"). */
+  priceLabel: string;
   address: string;
   municipality: string;
+  /** Enfoque psicológico del anuncio. */
+  focus: CampaignFocus;
   targetUrl: string;
 }
 
 const CAMPAIGN_PROMPT = `Eres el director creativo y estratega de growth de una agencia de marketing digital experta en municipios rurales de Colombia (Cundinamarca: Gachetá, Guatavita, Ubaté).
 Escribes con psicología de compra local: cercanía del pueblo, frescura, confianza, escasez honesta y venta por WhatsApp.
 
-Recibirás datos del negocio. Devuelve ÚNICAMENTE un JSON con esta estructura exacta:
+Recibirás el BRIEF libre del negocio (comercio registrado o cliente externo; puede ser un producto con precio exacto o un servicio profesional sin precio fijo). Devuelve ÚNICAMENTE un JSON con esta estructura exacta:
 {
+ "badge_text": "sello superior para el afiche: máximo 4 palabras en MAYÚSCULAS con 1 emoji al inicio (ej: '💎 CALIDAD GARANTIZADA')",
+ "headline": {
+   "plain": "primera parte del titular de agencia que irá en blanco (4 a 6 palabras, gancho emocional)",
+   "highlight": "segunda parte del titular, palabras clave que irán resaltadas en color de acento (1 a 4 palabras)"
+ },
+ "sub": "subtítulo breve que apoya el titular",
+ "benefits": ["beneficio ultra persuasivo que empieza con 1 emoji", "segundo beneficio", "tercer beneficio"],
+ "cta": "llamado a la acción urgente y claro",
+ "price_label": "si el negocio NO maneja precio fijo: texto para el bloque de precio (ej: '💬 Cotiza gratis por WhatsApp', 'Valoración Sin Costo', 'Desde $25.000'). Si SÍ hay precio de oferta devuelve null",
+ "image_prompt_en": "commercial photography prompt IN ENGLISH for the perfect advertising photo: subject, setting, lighting, mood, lens (no text in image, high resolution)",
  "visualHooks": {
    "slide1_hook": "titular magnético de 4 a 7 palabras que detiene el scroll (pregunta o afirmación provocadora)",
    "slide1_sub": "subtítulo provocador corto",
@@ -396,7 +436,7 @@ Recibirás datos del negocio. Devuelve ÚNICAMENTE un JSON con esta estructura e
  },
  "whatsappStatusSequence": {
    "status1": "Estado de WhatsApp de la mañana: curiosidad o problema (máx 2 líneas)",
-   "status2": "texto que acompaña la imagen de la oferta: revelación + precio (máx 3 líneas)",
+   "status2": "texto que acompaña la imagen de la oferta: revelación + precio o servicio (máx 3 líneas)",
    "status3": "Estado de la tarde/noche: escasez + prueba social + 👉 link"
  },
  "socialMediaCopy": {
@@ -405,25 +445,45 @@ Recibirás datos del negocio. Devuelve ÚNICAMENTE un JSON con esta estructura e
  },
  "videoReelScript": {
    "t0_3": "segundos 0-3: plano visual exacto y frase gancho hablada",
-   "t3_10": "segundos 3-10: demostración del producto + beneficio",
+   "t3_10": "segundos 3-10: demostración del producto o servicio + beneficio",
    "t10_15": "segundos 10-15: llamado a la acción mostrando dirección y WhatsApp"
  },
  "salesClosingTemplates": {
-   "priceReply": "respuesta lista cuando el cliente pregunta ¿precio?: da el precio y ofrece combo o domicilio",
+   "priceReply": "respuesta lista cuando el cliente pregunta ¿precio?: da el precio o invita a cotizar y ofrece combo/domicilio",
    "hesitantReply": "respuesta para clientes indecisos con escasez o garantía",
    "dispatchUpsell": "confirmación de despacho + venta cruzada (upsell) natural"
  }
 }
-Todo en español colombiano cercano y honesto. Si no hay precio promo, no inventes precios.`;
+Adapta TODO el tono al enfoque psicológico indicado en el brief (remate/urgencia, prestigio/alta gama, confianza/tradición local, impacto moderno/viral). Español colombiano cercano y honesto; image_prompt_en en inglés.`;
 
-/** Normaliza la respuesta de la IA contra el contrato de la campaña. */
-function normalizeCampaign(raw: Partial<MarketingCampaign>): MarketingCampaign {
+/** Normaliza la respuesta de la IA contra el contrato V7 de la campaña. */
+function normalizeCampaign(raw: Partial<MarketingCampaign> & Record<string, unknown>, input: CampaignInput): MarketingCampaign {
   const vh = (raw.visualHooks ?? {}) as Partial<MarketingVisualHooks>;
   const ws = (raw.whatsappStatusSequence ?? {}) as Partial<MarketingCampaign['whatsappStatusSequence']>;
   const sc = (raw.socialMediaCopy ?? {}) as Partial<MarketingCampaign['socialMediaCopy']>;
   const vr = (raw.videoReelScript ?? {}) as Partial<MarketingCampaign['videoReelScript']>;
   const cl = (raw.salesClosingTemplates ?? {}) as Partial<MarketingCampaign['salesClosingTemplates']>;
+  const hl = (raw.headline ?? {}) as Partial<CampaignHeadline>;
+  const isService = input.priceMode === 'servicio';
+  const customLabel = input.priceLabel.trim();
   return {
+    badgeText:
+      (typeof raw.badge_text === 'string' && raw.badge_text.trim()) ||
+      (isService ? '⭐ ESPECIALIDAD DE LA CASA' : '💎 CALIDAD GARANTIZADA'),
+    headline: {
+      plain: (hl.plain ?? '').trim() || `Lo mejor de ${input.businessName || 'el pueblo'}`,
+      highlight: (hl.highlight ?? '').trim() || (input.product.trim() ? input.product.trim() : 'HOY'),
+    },
+    sub: (typeof raw.sub === 'string' && raw.sub.trim()) || input.slogan.trim() || 'Calidad del pueblo, atención de primera',
+    benefits:
+      Array.isArray(raw.benefits) && raw.benefits.length > 0
+        ? (raw.benefits as unknown[]).filter((b): b is string => typeof b === 'string' && b.trim() !== '').slice(0, 3)
+        : ['🥇 Calidad garantizada', '🤝 Atención cercana', '⚡ Respuesta rápida'],
+    cta: (typeof raw.cta === 'string' && raw.cta.trim()) || (isService ? '💬 Cotiza gratis por WhatsApp' : '¡Pide el tuyo HOY! Toca y escríbenos 👉'),
+    priceLabel: isService ? customLabel || (typeof raw.price_label === 'string' && raw.price_label.trim()) || '💬 Cotiza gratis por WhatsApp' : null,
+    imagePromptEn:
+      (typeof raw.image_prompt_en === 'string' && raw.image_prompt_en.trim()) ||
+      `professional advertising photo of ${input.product.trim() || input.businessName || 'a local Colombian business'}, warm inviting lighting, shallow depth of field, high resolution, no text`,
     visualHooks: {
       slide1_hook: (vh.slide1_hook ?? '').trim() || '¿Lo más rico del pueblo HOY?',
       slide1_sub: (vh.slide1_sub ?? '').trim() || 'Fresquito y recién hecho',
@@ -456,51 +516,102 @@ function normalizeCampaign(raw: Partial<MarketingCampaign>): MarketingCampaign {
   };
 }
 
+/** Moods fotográficos por enfoque psicológico (para imagePromptEn). */
+const FOCUS_PHOTO_MOODS: Record<CampaignFocus, string> = {
+  remate: 'dynamic bold advertising shot, high contrast dramatic lighting, urgent energetic mood',
+  prestigio: 'luxury editorial photography, elegant soft golden lighting, premium sophisticated mood',
+  confianza: 'authentic warm documentary style, natural daylight, friendly family business mood',
+  viral: 'trendy vibrant modern shot, punchy saturated colors, social media viral mood',
+};
+
+/** Sello por defecto según el enfoque psicológico. */
+const FOCUS_BADGES: Record<CampaignFocus, string> = {
+  remate: '🔥 OFERTA POR TIEMPO LIMITADO',
+  prestigio: '💎 PRESTIGIO Y CALIDAD',
+  confianza: '⭐ ESPECIALIDAD DE LA CASA',
+  viral: '⚡ LO QUE TODOS COMENTAN',
+};
+
 /** Fallback local ultra-completo: el estudio JAMÁS se queda sin campaña. */
 function localCampaignFallback(input: CampaignInput): MarketingCampaign {
-  const prod = input.product.trim() || `lo mejor de ${input.businessName || 'nuestro negocio'}`;
+  const brief = input.brief.trim();
+  const prod = input.product.trim() || (brief ? brief.slice(0, 48) : `lo mejor de ${input.businessName || 'nuestro negocio'}`);
   const biz = input.businessName.trim() || 'nuestro negocio';
   const place = input.municipality.trim() || 'el pueblo';
+  const isService = input.priceMode === 'servicio';
   const price = input.promoPrice != null ? `$${input.promoPrice.toLocaleString('es-CO')}` : '';
   const priceTxt = price ? ` a solo ${price}` : '';
   const before = input.normalPrice != null && input.promoPrice != null ? ` (antes $${input.normalPrice.toLocaleString('es-CO')})` : '';
+  const label = input.priceLabel.trim() || '💬 Cotiza gratis por WhatsApp';
   const link = input.targetUrl || '👇 escríbenos por WhatsApp';
+  const mood = FOCUS_PHOTO_MOODS[input.focus];
+  const subject = input.product.trim() || biz;
 
-  return normalizeCampaign({
-    visualHooks: {
-      slide1_hook: `¿Ya probaste ${prod}?`,
-      slide1_sub: `${biz} · ${place} · fresquito HOY`,
-      slide2_headline: price ? `${prod}${priceTxt}${before}` : `${prod}: el favorito de ${place}`,
-      slide2_bullets: ['🥇 Calidad garantizada', '🚚 Domicilio disponible', '⏰ Solo por HOY'],
-      slide3_cta: price ? `¡Pide el tuyo HOY${priceTxt}! Escríbenos 👉` : '¡Aparta el tuyo HOY! Escríbenos 👉',
-    },
-    whatsappStatusSequence: {
-      status1: `👀 ¿Se te antojó ${prod} hoy? Mira esto…`,
-      status2: `🔥 ${prod} en ${biz}${priceTxt}. Escríbenos y te lo apartamos ${link}`,
-      status3: `🚨 ¡Últimas unidades de ${prod}! El pueblo ya está apartando. ${link}`,
-    },
-    socialMediaCopy: {
-      pas: `¿Se te antoja ${prod} y no quieres desplazarte? 😩 En ${place} pasa todos los días… Hoy tienes la solución a un mensaje: ${biz} te lo lleva fresco${priceTxt}. Escríbenos 👉 ${link}`,
-      aida: `🔥 ATENCIÓN ${place}: ${prod} disponible HOY.\n👀 Interés: recién hecho, de confianza.\n😍 Deseo: pídelo sin salir de casa${priceTxt}.\n⚡ Acción: escríbenos YA ${link}`,
-    },
-    videoReelScript: {
-      t0_3: `Segundos 0-3: plano cercano del producto + voz: "¿Esto te lo imaginas en tu mesa hoy?"`,
-      t3_10: `Segundos 3-10: muestra ${prod} bien servido + voz: "en ${biz} es fresquito, como en casa"`,
-      t10_15: `Segundos 10-15: plano del local o la moto + voz: "escríbenos por WhatsApp y te lo llevamos hoy ${input.address || place}"`,
-    },
-    salesClosingTemplates: {
-      priceReply: price
-        ? `¡Claro que sí! 😊 ${prod} está en ${price}${before}. Si pides 2 te incluyo el domicilio en ${place}. ¿Te lo aparto?`
-        : `¡Claro que sí! 😊 Cuéntame cuántos necesitas y te paso el valor al toque. ¿Te aparto uno ya?`,
-      hesitantReply: `Te entiendo 👍 Hoy solo nos quedan unas pocas unidades y mañana ya no hay — por eso te lo estoy apartando con tu nombre. ¿Confirmamos?`,
-      dispatchUpsell: `¡Listo, tu pedido va en camino 🛵! ¿Te incluyo una bebida bien fría o un extra por un poquito más?`,
-    },
-  });
+  return normalizeCampaign(
+    {
+      badge_text: FOCUS_BADGES[input.focus],
+      headline: {
+        plain: isService ? `${biz} te lo resuelve` : 'Del pueblo, hecho con',
+        highlight: isService ? 'HOY' : prod,
+      },
+      sub: input.slogan.trim() || brief.slice(0, 60) || `${biz} · ${place}`,
+      benefits: isService
+        ? ['🤝 Atención personalizada', '⏱️ Respuesta rápida', '📍 Cerca de ti en el pueblo']
+        : ['🥇 Calidad garantizada', '🚚 Domicilio disponible', '⏰ Solo por HOY'],
+      cta: isService ? label : price ? `¡Pide el tuyo HOY${priceTxt}! Escríbenos 👉` : '¡Aparta el tuyo HOY! Escríbenos 👉',
+      price_label: isService ? label : null,
+      image_prompt_en: `professional advertising photo of ${subject}, ${mood}, high resolution commercial quality, no text in image`,
+      visualHooks: {
+        slide1_hook: `¿Ya probaste ${prod}?`,
+        slide1_sub: `${biz} · ${place} · disponible HOY`,
+        slide2_headline: isService ? `${prod}: hecho a tu medida` : price ? `${prod}${priceTxt}${before}` : `${prod}: el favorito de ${place}`,
+        slide2_bullets: isService
+          ? ['🤝 Atención personalizada', '⏱️ Respuesta rápida', '📍 Cerca de ti en el pueblo']
+          : ['🥇 Calidad garantizada', '🚚 Domicilio disponible', '⏰ Solo por HOY'],
+        slide3_cta: isService ? `${label} 👉` : price ? `¡Pide el tuyo HOY${priceTxt}! Escríbenos 👉` : '¡Aparta el tuyo HOY! Escríbenos 👉',
+      },
+      whatsappStatusSequence: {
+        status1: `👀 ¿Necesitas ${prod} hoy? Mira esto…`,
+        status2: `🔥 ${prod} en ${biz}${isService ? '' : priceTxt}. Escríbenos y te lo apartamos ${link}`,
+        status3: `🚨 ${prod}: el pueblo ya está escribiendo. No te quedes por fuera. ${link}`,
+      },
+      socialMediaCopy: {
+        pas: `¿Se te complica conseguir ${prod}? 😩 En ${place} pasa todos los días… Hoy tienes la solución a un mensaje: ${biz} te atiende de primera${isService ? '' : priceTxt}. Escríbenos 👉 ${link}`,
+        aida: `🔥 ATENCIÓN ${place}: ${prod} disponible HOY.\n👀 Interés: calidad de confianza, del pueblo.\n😍 Deseo: resuélvelo sin dar una vuelta${isService ? '' : priceTxt}.\n⚡ Acción: escríbenos YA ${link}`,
+      },
+      videoReelScript: {
+        t0_3: `Segundos 0-3: plano cercano del producto o el servicio en acción + voz: "¿Esto te lo imaginas hoy?"`,
+        t3_10: `Segundos 3-10: muestra ${prod} trabajando + voz: "en ${biz} es en serio, como en casa"`,
+        t10_15: `Segundos 10-15: plano del local o la moto + voz: "escríbenos por WhatsApp y te atendemos hoy ${input.address || place}"`,
+      },
+      salesClosingTemplates: {
+        priceReply: isService
+          ? `¡Con gusto! 😊 Cada caso es distinto: cuéntame qué necesitas y te paso la cotización al toque, sin compromiso. ¿Te ayudo ahora?`
+          : price
+            ? `¡Claro que sí! 😊 ${prod} está en ${price}${before}. Si pides 2 te incluyo el domicilio en ${place}. ¿Te lo aparto?`
+            : `¡Claro que sí! 😊 Cuéntame cuántos necesitas y te paso el valor al toque. ¿Te aparto uno ya?`,
+        hesitantReply: `Te entiendo 👍 Hoy solo nos quedan unos pocos cupos y mañana ya no hay — por eso te lo estoy apartando con tu nombre. ¿Confirmamos?`,
+        dispatchUpsell: `¡Listo, tu pedido va en camino 🛵! ¿Te incluyo un extra por un poquito más?`,
+      },
+    } as Partial<MarketingCampaign> & Record<string, unknown>,
+    input
+  );
 }
 
 const CAMPAIGN_SCHEMA: Record<string, unknown> = {
   type: SchemaType.OBJECT,
   properties: {
+    badge_text: { type: SchemaType.STRING },
+    headline: {
+      type: SchemaType.OBJECT,
+      properties: { plain: { type: SchemaType.STRING }, highlight: { type: SchemaType.STRING } },
+      required: ['plain', 'highlight'],
+    },
+    sub: { type: SchemaType.STRING },
+    benefits: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
+    cta: { type: SchemaType.STRING },
+    price_label: { type: SchemaType.STRING, nullable: true },
+    image_prompt_en: { type: SchemaType.STRING },
     visualHooks: {
       type: SchemaType.OBJECT,
       properties: {
@@ -537,26 +648,32 @@ const CAMPAIGN_SCHEMA: Record<string, unknown> = {
       required: ['priceReply', 'hesitantReply', 'dispatchUpsell'],
     },
   },
-  required: ['visualHooks', 'whatsappStatusSequence', 'socialMediaCopy', 'videoReelScript', 'salesClosingTemplates'],
+  required: ['badge_text', 'headline', 'sub', 'benefits', 'cta', 'image_prompt_en', 'visualHooks', 'whatsappStatusSequence', 'socialMediaCopy', 'videoReelScript', 'salesClosingTemplates'],
 };
 
 /**
- * Genera la campaña estratégica completa de un negocio: hooks para las 3
- * piezas gráficas, secuencia de Estados de WhatsApp, copy PAS/AIDA, guion
- * de Reel cámara por cámara y plantillas de cierre de venta.
+ * Genera la campaña estratégica completa de un negocio: sello, titular a dos
+ * tonos, beneficios, CTA, etiqueta de precio/servicio, prompt fotográfico en
+ * inglés, secuencia de Estados, copy PAS/AIDA, guion de Reel y cierres de venta.
  * Con fallback local: si la IA falla, SIEMPRE devuelve una campaña usable.
  */
 export async function generateFullMarketingCampaign(input: CampaignInput): Promise<MarketingCampaign> {
   const facts = [
     `Negocio/marca: ${input.businessName}`,
     `Eslogan o rubro: ${input.slogan || '(no hay)'}`,
-    `Producto/promoción estrella: ${input.product || '(no hay, elige un enfoque)'}`,
+    `🧠 BRIEF LIBRE del negocio (úsalo como fuente principal de la estrategia): ${input.brief || '(no hay brief, deduce del producto)'}`,
+    `Producto/promoción estrella: ${input.product || '(no hay, elige un enfoque del brief)'}`,
+    `Modalidad de precio: ${input.priceMode === 'servicio' ? 'SERVICIO/COTIZACIÓN (no inventes precios tachados, genera price_label)' : 'PRECIO DE OFERTA exacto'}`,
+    input.priceMode === 'servicio' && input.priceLabel.trim() ? `Etiqueta de precio personalizada del admin: "${input.priceLabel.trim()}"` : '',
     `Precio normal: ${input.normalPrice != null ? `$${input.normalPrice.toLocaleString('es-CO')}` : '(no aplica)'}`,
     `Precio promoción: ${input.promoPrice != null ? `$${input.promoPrice.toLocaleString('es-CO')}` : '(no aplica)'}`,
     `Dirección o referencia: ${input.address || '(no hay)'}`,
     `Municipio: ${input.municipality}`,
+    `Enfoque psicológico del anuncio: ${input.focus}`,
     `Enlace/WhatsApp de destino: ${input.targetUrl}`,
-  ].join('\n');
+  ]
+    .filter(Boolean)
+    .join('\n');
 
   try {
     const jsonText = await callGemini({
@@ -565,7 +682,7 @@ export async function generateFullMarketingCampaign(input: CampaignInput): Promi
       temperature: 0.85,
       responseSchema: CAMPAIGN_SCHEMA,
     });
-    return normalizeCampaign(JSON.parse(jsonText) as Partial<MarketingCampaign>);
+    return normalizeCampaign(JSON.parse(jsonText) as Partial<MarketingCampaign> & Record<string, unknown>, input);
   } catch {
     // Sin conexión o IA caída: campaña local de nivel agencia (jamás falla).
     return localCampaignFallback(input);
