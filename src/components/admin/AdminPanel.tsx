@@ -41,6 +41,7 @@ import { cx, formatCOP, timeAgo } from '../../utils/format';
 import { openWhatsApp } from '../../utils/whatsapp';
 import { ForensicInspector } from './ForensicInspector';
 import type { ForensicData } from './ForensicInspector';
+import { MarketingStudio } from './MarketingStudio';
 import { reportReasonMeta } from '../offers/ReportModal';
 
 interface AdminPanelProps {
@@ -52,7 +53,7 @@ interface AdminPanelProps {
   onProfileChange: (profile: Profile) => void;
 }
 
-type Tab = 'merchants' | 'moderation' | 'cobros' | 'summary';
+type Tab = 'studio' | 'merchants' | 'moderation' | 'cobros' | 'summary';
 
 const CREDIT_PACKS = [1, 3, 10, 30] as const;
 
@@ -321,7 +322,7 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-end justify-center sm:items-center" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-[9999] flex items-end justify-center sm:items-center" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-slate-950/75 backdrop-blur-md animate-fade-in" onClick={onClose} aria-hidden="true" />
       <div className="relative max-h-[94dvh] w-full max-w-xl overflow-y-auto rounded-t-3xl border border-impulso-gold/25 bg-impulso-panel shadow-card sm:rounded-3xl animate-slide-up">
         {/* Cabecera */}
@@ -344,9 +345,10 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
           </div>
 
           {/* Pestañas internas */}
-          <div className="mt-3 grid grid-cols-4 gap-1 rounded-2xl bg-slate-950/60 p-1">
+          <div className="mt-3 grid grid-cols-5 gap-1 rounded-2xl bg-slate-950/60 p-1">
             {(
               [
+                ['studio', '🚀 Agencia'],
                 ['merchants', '🏪 Comercios'],
                 ['moderation', '📡 Radar'],
                 ['cobros', '💳 Cobros'],
@@ -358,7 +360,13 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
                 onClick={() => setTab(id)}
                 className={cx(
                   'pressable rounded-xl py-2 text-[10px] font-extrabold transition',
-                  tab === id ? 'bg-impulso-gold/20 text-impulso-gold' : 'text-slate-400 hover:text-slate-200'
+                  tab === id
+                    ? id === 'studio'
+                      ? 'bg-impulso-emerald/20 text-impulso-mint'
+                      : 'bg-impulso-gold/20 text-impulso-gold'
+                    : id === 'studio'
+                      ? 'text-impulso-mint/70 hover:text-impulso-mint'
+                      : 'text-slate-400 hover:text-slate-200'
                 )}
               >
                 {label}
@@ -366,6 +374,9 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
             ))}
           </div>
         </div>
+
+        {/* ═══ Pestaña 0: 🚀 Agencia IA & Multi-WhatsApp Studio (exclusiva admin) ═══ */}
+        {tab === 'studio' && <MarketingStudio merchants={merchants} offers={offers} />}
 
         {/* ═══ Pestaña 1: Comercios y Créditos ═══ */}
         {tab === 'merchants' && (

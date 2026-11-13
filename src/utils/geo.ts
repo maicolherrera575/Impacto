@@ -101,8 +101,8 @@ export function useGeolocation() {
     if (watchIdRef.current == null) {
       watchIdRef.current = navigator.geolocation.watchPosition(adoptFix, onError, {
         enableHighAccuracy: true,
-        timeout: 10_000,
-        maximumAge: 30_000,
+        timeout: 12_000,
+        maximumAge: 10_000,
       });
     }
     navigator.geolocation.getCurrentPosition(adoptFix, onError, {

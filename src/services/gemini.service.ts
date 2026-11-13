@@ -350,3 +350,224 @@ export async function analyzeMerchantTrust(input: {
     warnings: Array.isArray(parsed.warnings) ? parsed.warnings.filter((w): w is string => typeof w === 'string' && w.trim() !== '') : [],
   };
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 🚀 AGENCIA IA — Campaña estratégica 360° (hooks, estados, copy, reel, cierre)
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface MarketingVisualHooks {
+  slide1_hook: string;
+  slide1_sub: string;
+  slide2_headline: string;
+  slide2_bullets: string[];
+  slide3_cta: string;
+}
+
+export interface MarketingCampaign {
+  visualHooks: MarketingVisualHooks;
+  whatsappStatusSequence: { status1: string; status2: string; status3: string };
+  socialMediaCopy: { pas: string; aida: string };
+  videoReelScript: { t0_3: string; t3_10: string; t10_15: string };
+  salesClosingTemplates: { priceReply: string; hesitantReply: string; dispatchUpsell: string };
+}
+
+export interface CampaignInput {
+  businessName: string;
+  slogan: string;
+  product: string;
+  normalPrice: number | null;
+  promoPrice: number | null;
+  address: string;
+  municipality: string;
+  targetUrl: string;
+}
+
+const CAMPAIGN_PROMPT = `Eres el director creativo y estratega de growth de una agencia de marketing digital experta en municipios rurales de Colombia (Cundinamarca: Gachetá, Guatavita, Ubaté).
+Escribes con psicología de compra local: cercanía del pueblo, frescura, confianza, escasez honesta y venta por WhatsApp.
+
+Recibirás datos del negocio. Devuelve ÚNICAMENTE un JSON con esta estructura exacta:
+{
+ "visualHooks": {
+   "slide1_hook": "titular magnético de 4 a 7 palabras que detiene el scroll (pregunta o afirmación provocadora)",
+   "slide1_sub": "subtítulo provocador corto",
+   "slide2_headline": "promesa de valor + beneficio irresistible (máx 10 palabras)",
+   "slide2_bullets": ["beneficio corto con emoji", "beneficio corto con emoji", "beneficio corto con emoji"],
+   "slide3_cta": "llamado a la acción urgente con gatillo de escasez"
+ },
+ "whatsappStatusSequence": {
+   "status1": "Estado de WhatsApp de la mañana: curiosidad o problema (máx 2 líneas)",
+   "status2": "texto que acompaña la imagen de la oferta: revelación + precio (máx 3 líneas)",
+   "status3": "Estado de la tarde/noche: escasez + prueba social + 👉 link"
+ },
+ "socialMediaCopy": {
+   "pas": "fórmula PAS (Problema - Agitación - Solución) para Facebook/Instagram del municipio, máx 5 líneas, con emojis",
+   "aida": "fórmula AIDA flash (Atención - Interés - Deseo - Acción) para grupos de WhatsApp y clasificados, máx 5 líneas, con emojis"
+ },
+ "videoReelScript": {
+   "t0_3": "segundos 0-3: plano visual exacto y frase gancho hablada",
+   "t3_10": "segundos 3-10: demostración del producto + beneficio",
+   "t10_15": "segundos 10-15: llamado a la acción mostrando dirección y WhatsApp"
+ },
+ "salesClosingTemplates": {
+   "priceReply": "respuesta lista cuando el cliente pregunta ¿precio?: da el precio y ofrece combo o domicilio",
+   "hesitantReply": "respuesta para clientes indecisos con escasez o garantía",
+   "dispatchUpsell": "confirmación de despacho + venta cruzada (upsell) natural"
+ }
+}
+Todo en español colombiano cercano y honesto. Si no hay precio promo, no inventes precios.`;
+
+/** Normaliza la respuesta de la IA contra el contrato de la campaña. */
+function normalizeCampaign(raw: Partial<MarketingCampaign>): MarketingCampaign {
+  const vh = (raw.visualHooks ?? {}) as Partial<MarketingVisualHooks>;
+  const ws = (raw.whatsappStatusSequence ?? {}) as Partial<MarketingCampaign['whatsappStatusSequence']>;
+  const sc = (raw.socialMediaCopy ?? {}) as Partial<MarketingCampaign['socialMediaCopy']>;
+  const vr = (raw.videoReelScript ?? {}) as Partial<MarketingCampaign['videoReelScript']>;
+  const cl = (raw.salesClosingTemplates ?? {}) as Partial<MarketingCampaign['salesClosingTemplates']>;
+  return {
+    visualHooks: {
+      slide1_hook: (vh.slide1_hook ?? '').trim() || '¿Lo más rico del pueblo HOY?',
+      slide1_sub: (vh.slide1_sub ?? '').trim() || 'Fresquito y recién hecho',
+      slide2_headline: (vh.slide2_headline ?? '').trim() || 'El favorito del municipio',
+      slide2_bullets:
+        Array.isArray(vh.slide2_bullets) && vh.slide2_bullets.length > 0
+          ? vh.slide2_bullets.filter((b): b is string => typeof b === 'string' && b.trim() !== '').slice(0, 3)
+          : ['🥇 Calidad garantizada', '🚚 Domicilio disponible', '⏰ Solo por HOY'],
+      slide3_cta: (vh.slide3_cta ?? '').trim() || '¡Pide el tuyo HOY! Toca y escríbenos 👉',
+    },
+    whatsappStatusSequence: {
+      status1: (ws.status1 ?? '').trim() || '👀 ¿Ya sabes qué vas a almorzar hoy? Te va a encantar esto…',
+      status2: (ws.status2 ?? '').trim() || '🔥 Hoy lo tienes a precio de amigo. Escríbenos y te lo apartamos 👉',
+      status3: (ws.status3 ?? '').trim() || '🚨 ¡Últimas unidades! El pueblo ya está apartando. Escríbenos aquí 👉',
+    },
+    socialMediaCopy: {
+      pas: (sc.pas ?? '').trim() || '¿Se te antoja algo rico y no quieres cocinar? 😩 Todos los días pasa igual… pero hoy tienes la solución a un mensaje de distancia. Escríbenos por WhatsApp 👉',
+      aida: (sc.aida ?? '').trim() || '🔥 ATENCIÓN: salió lo que estabas esperando. 👀 Interésate: es fresquito y del pueblo. 😍 Desea: pídelo sin salir de casa. ⚡ Acción: escríbenos YA 👉',
+    },
+    videoReelScript: {
+      t0_3: (vr.t0_3 ?? '').trim() || 'Plano cercano del producto humeando + voz: "¿Esto te lo imaginas en tu mesa hoy?"',
+      t3_10: (vr.t3_10 ?? '').trim() || 'Demostración: muestra el producto, la porción y la frescura + voz: "recién hecho, como en casa"',
+      t10_15: (vr.t10_15 ?? '').trim() || 'Plano del local o la moto del domicilio + voz: "escríbenos por WhatsApp y te lo llevamos hoy 👉"',
+    },
+    salesClosingTemplates: {
+      priceReply: (cl.priceReply ?? '').trim() || '¡Claro que sí! 😊 El valor es $X. Si pides 2 te incluyo domicilio en el pueblo. ¿Te lo aparto?',
+      hesitantReply: (cl.hesitantReply ?? '').trim() || 'Te entiendo 👍 Hoy solo nos quedan unas pocas unidades y mañana ya no hay. Por eso te las estoy apartando con tu nombre — ¿confirmamos?',
+      dispatchUpsell: (cl.dispatchUpsell ?? '').trim() || '¡Listo, tu pedido va en camino 🛵! ¿Te incluyo una bebida bien fría por solo $X más?',
+    },
+  };
+}
+
+/** Fallback local ultra-completo: el estudio JAMÁS se queda sin campaña. */
+function localCampaignFallback(input: CampaignInput): MarketingCampaign {
+  const prod = input.product.trim() || `lo mejor de ${input.businessName || 'nuestro negocio'}`;
+  const biz = input.businessName.trim() || 'nuestro negocio';
+  const place = input.municipality.trim() || 'el pueblo';
+  const price = input.promoPrice != null ? `$${input.promoPrice.toLocaleString('es-CO')}` : '';
+  const priceTxt = price ? ` a solo ${price}` : '';
+  const before = input.normalPrice != null && input.promoPrice != null ? ` (antes $${input.normalPrice.toLocaleString('es-CO')})` : '';
+  const link = input.targetUrl || '👇 escríbenos por WhatsApp';
+
+  return normalizeCampaign({
+    visualHooks: {
+      slide1_hook: `¿Ya probaste ${prod}?`,
+      slide1_sub: `${biz} · ${place} · fresquito HOY`,
+      slide2_headline: price ? `${prod}${priceTxt}${before}` : `${prod}: el favorito de ${place}`,
+      slide2_bullets: ['🥇 Calidad garantizada', '🚚 Domicilio disponible', '⏰ Solo por HOY'],
+      slide3_cta: price ? `¡Pide el tuyo HOY${priceTxt}! Escríbenos 👉` : '¡Aparta el tuyo HOY! Escríbenos 👉',
+    },
+    whatsappStatusSequence: {
+      status1: `👀 ¿Se te antojó ${prod} hoy? Mira esto…`,
+      status2: `🔥 ${prod} en ${biz}${priceTxt}. Escríbenos y te lo apartamos ${link}`,
+      status3: `🚨 ¡Últimas unidades de ${prod}! El pueblo ya está apartando. ${link}`,
+    },
+    socialMediaCopy: {
+      pas: `¿Se te antoja ${prod} y no quieres desplazarte? 😩 En ${place} pasa todos los días… Hoy tienes la solución a un mensaje: ${biz} te lo lleva fresco${priceTxt}. Escríbenos 👉 ${link}`,
+      aida: `🔥 ATENCIÓN ${place}: ${prod} disponible HOY.\n👀 Interés: recién hecho, de confianza.\n😍 Deseo: pídelo sin salir de casa${priceTxt}.\n⚡ Acción: escríbenos YA ${link}`,
+    },
+    videoReelScript: {
+      t0_3: `Segundos 0-3: plano cercano del producto + voz: "¿Esto te lo imaginas en tu mesa hoy?"`,
+      t3_10: `Segundos 3-10: muestra ${prod} bien servido + voz: "en ${biz} es fresquito, como en casa"`,
+      t10_15: `Segundos 10-15: plano del local o la moto + voz: "escríbenos por WhatsApp y te lo llevamos hoy ${input.address || place}"`,
+    },
+    salesClosingTemplates: {
+      priceReply: price
+        ? `¡Claro que sí! 😊 ${prod} está en ${price}${before}. Si pides 2 te incluyo el domicilio en ${place}. ¿Te lo aparto?`
+        : `¡Claro que sí! 😊 Cuéntame cuántos necesitas y te paso el valor al toque. ¿Te aparto uno ya?`,
+      hesitantReply: `Te entiendo 👍 Hoy solo nos quedan unas pocas unidades y mañana ya no hay — por eso te lo estoy apartando con tu nombre. ¿Confirmamos?`,
+      dispatchUpsell: `¡Listo, tu pedido va en camino 🛵! ¿Te incluyo una bebida bien fría o un extra por un poquito más?`,
+    },
+  });
+}
+
+const CAMPAIGN_SCHEMA: Record<string, unknown> = {
+  type: SchemaType.OBJECT,
+  properties: {
+    visualHooks: {
+      type: SchemaType.OBJECT,
+      properties: {
+        slide1_hook: { type: SchemaType.STRING },
+        slide1_sub: { type: SchemaType.STRING },
+        slide2_headline: { type: SchemaType.STRING },
+        slide2_bullets: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
+        slide3_cta: { type: SchemaType.STRING },
+      },
+      required: ['slide1_hook', 'slide1_sub', 'slide2_headline', 'slide2_bullets', 'slide3_cta'],
+    },
+    whatsappStatusSequence: {
+      type: SchemaType.OBJECT,
+      properties: {
+        status1: { type: SchemaType.STRING },
+        status2: { type: SchemaType.STRING },
+        status3: { type: SchemaType.STRING },
+      },
+      required: ['status1', 'status2', 'status3'],
+    },
+    socialMediaCopy: {
+      type: SchemaType.OBJECT,
+      properties: { pas: { type: SchemaType.STRING }, aida: { type: SchemaType.STRING } },
+      required: ['pas', 'aida'],
+    },
+    videoReelScript: {
+      type: SchemaType.OBJECT,
+      properties: { t0_3: { type: SchemaType.STRING }, t3_10: { type: SchemaType.STRING }, t10_15: { type: SchemaType.STRING } },
+      required: ['t0_3', 't3_10', 't10_15'],
+    },
+    salesClosingTemplates: {
+      type: SchemaType.OBJECT,
+      properties: { priceReply: { type: SchemaType.STRING }, hesitantReply: { type: SchemaType.STRING }, dispatchUpsell: { type: SchemaType.STRING } },
+      required: ['priceReply', 'hesitantReply', 'dispatchUpsell'],
+    },
+  },
+  required: ['visualHooks', 'whatsappStatusSequence', 'socialMediaCopy', 'videoReelScript', 'salesClosingTemplates'],
+};
+
+/**
+ * Genera la campaña estratégica completa de un negocio: hooks para las 3
+ * piezas gráficas, secuencia de Estados de WhatsApp, copy PAS/AIDA, guion
+ * de Reel cámara por cámara y plantillas de cierre de venta.
+ * Con fallback local: si la IA falla, SIEMPRE devuelve una campaña usable.
+ */
+export async function generateFullMarketingCampaign(input: CampaignInput): Promise<MarketingCampaign> {
+  const facts = [
+    `Negocio/marca: ${input.businessName}`,
+    `Eslogan o rubro: ${input.slogan || '(no hay)'}`,
+    `Producto/promoción estrella: ${input.product || '(no hay, elige un enfoque)'}`,
+    `Precio normal: ${input.normalPrice != null ? `$${input.normalPrice.toLocaleString('es-CO')}` : '(no aplica)'}`,
+    `Precio promoción: ${input.promoPrice != null ? `$${input.promoPrice.toLocaleString('es-CO')}` : '(no aplica)'}`,
+    `Dirección o referencia: ${input.address || '(no hay)'}`,
+    `Municipio: ${input.municipality}`,
+    `Enlace/WhatsApp de destino: ${input.targetUrl}`,
+  ].join('\n');
+
+  try {
+    const jsonText = await callGemini({
+      systemInstruction: CAMPAIGN_PROMPT,
+      prompt: facts,
+      temperature: 0.85,
+      responseSchema: CAMPAIGN_SCHEMA,
+    });
+    return normalizeCampaign(JSON.parse(jsonText) as Partial<MarketingCampaign>);
+  } catch {
+    // Sin conexión o IA caída: campaña local de nivel agencia (jamás falla).
+    return localCampaignFallback(input);
+  }
+}

@@ -34,7 +34,7 @@ export function ModalShell({ open, onClose, children, panelClassName, closeLabel
 
   return (
     <div
-      className="fixed inset-0 z-[70] flex items-start justify-center overflow-y-auto p-3 sm:items-center sm:p-6"
+      className="fixed inset-0 z-[9999] flex items-start justify-center overflow-y-auto p-3 sm:items-center sm:p-6"
       role="dialog"
       aria-modal="true"
     >
@@ -46,7 +46,7 @@ export function ModalShell({ open, onClose, children, panelClassName, closeLabel
       <div
         className={cx(
           'relative my-auto w-full max-w-md overflow-y-auto rounded-t-3xl border border-white/[0.08] bg-impulso-panel/95 backdrop-blur-xl shadow-[0_12px_40px_-12px_rgba(0,0,0,0.7)] sm:rounded-3xl animate-slide-up',
-          'max-h-[90vh]',
+          'max-h-[90dvh]',
           panelClassName
         )}
       >

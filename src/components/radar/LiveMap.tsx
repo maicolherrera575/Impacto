@@ -51,7 +51,7 @@ function pinIconFor(offer: Offer): L.DivIcon {
 /** Punto azul "estás aquí": ubicación exacta del usuario en el radar. */
 const YOU_ARE_HERE_ICON: L.DivIcon = L.divIcon({
   className: 'imp-you-marker',
-  html: '<div class="imp-you-dot"></div>',
+  html: '<div class="imp-you-halo"></div><div class="imp-you-dot"></div><div class="imp-you-label">📍 Estás aquí</div>',
   iconSize: [18, 18],
   iconAnchor: [9, 9],
 });
@@ -204,7 +204,7 @@ export function LiveMap({
   );
 
   return (
-    <div className="imp-map relative h-[300px] w-full overflow-hidden rounded-3xl border border-white/10 shadow-card">
+    <div className="imp-map relative z-0 isolate h-[300px] w-full overflow-hidden rounded-3xl border border-white/10 shadow-card">
       <MapContainer
         center={[center.lat, center.lng]}
         zoom={zoom}
