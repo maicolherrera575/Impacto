@@ -405,7 +405,7 @@ const INDUSTRY_IDS: IndustryType[] = [
 ];
 
 const THEME_IDS = ['cyber', 'obsidian', 'brasa', 'clinic', 'emerald', 'terra', 'sunset', 'titanium'] as const;
-const LAYOUT_IDS = ['bento', 'magazine', 'diagonal', 'swiss'] as const;
+const LAYOUT_IDS = ['bento', 'magazine', 'diagonal', 'swiss', 'split', 'showcase', 'poster', 'strip'] as const;
 
 /** Dirección de arte por defecto de cada rubro (nunca siempre el mismo tema). */
 export const INDUSTRY_ART: Record<IndustryType, { themeId: string; layoutId: string }> = {
@@ -444,6 +444,10 @@ export interface ArtDirection {
   industryType: IndustryType;
   themeId: string;
   layoutId: string;
+  /** Nombre comercial deducido del brief por la IA. */
+  brandName: string;
+  /** Título del servicio/producto estrella deducido del brief. */
+  productTitle: string;
   valueProposition: string;
   imagePromptEn: string;
 }
@@ -492,6 +496,9 @@ export interface CampaignInput {
   targetUrl: string;
   /** Categoría del comercio registrado (ayuda a la PASADA 1 a clasificar). */
   categoryHint?: string;
+  /** Tema/layout de la generación anterior: la IA debe variarlos SIEMPRE. */
+  previousThemeId?: string;
+  previousLayoutId?: string;
 }
 
 /** Normaliza espacios: NUNCA dos palabras pegadas, NUNCA bordes sucios. */
@@ -545,33 +552,58 @@ function campaignFacts(input: CampaignInput): string {
 // ── PASADA 1 · Análisis estratégico y dirección de arte ────────────────────
 
 const ART_SYSTEM_PROMPT = `Eres el Director de Arte y Estratega de Growth de una agencia de publicidad de alto nivel especializada en municipios rurales de Colombia (Cundinamarca).
-Analizarás el brief de un negocio (puede ser un servicio de marketing nuevo, una odontología, un restaurante, una ferretería o agroinsumos) y definirás la ESTRATEGIA VISUAL y COMERCIAL. Devuelve ÚNICAMENTE un JSON exacto:
+El BRIEF del negocio es tu FUENTE MAESTRA ABSOLUTA: de él deduces el nombre, el producto/servicio estrella, el rubro, la promesa y la fotografía (aunque sea una sola frase como "Es un servicio de marketing digital nuevo" o "Vendemos trucha arcoíris y almuerzos campestres").
+Analizarás el brief y definirás la ESTRATEGIA VISUAL y COMERCIAL. Devuelve ÚNICAMENTE un JSON exacto:
 {
  "industry_type": uno de [digital_tech, gastronomia, salud_belleza, agro_campo, transporte_logistica, comercio_retail, servicios_profesionales, construccion_hogar],
+ "brand_name": "nombre comercial corto y potente del negocio (1 a 3 palabras): si el brief ya lo da, devuélvelo limpio; si NO lo da, crea uno creíble y memorable para el giro deducido",
+ "product_title": "título del servicio o producto estrella DEDUCIDO del brief (máx 6 palabras, reescrito con vocabulario de agencia, no literal)",
  "theme_id": uno de [cyber, obsidian, brasa, clinic, emerald, terra, sunset, titanium]. Elige el que mejor pegue con el giro y VARÍA entre generaciones: tecnología/marketing/IA → cyber; servicios premium/abogados/finanzas → obsidian; comida/asaderos → brasa; salud/odontología/estética → clinic; comercio local/turismo → emerald; agro/veterinaria/transporte de campo → terra; promociones virales/moda/belleza → sunset; construcción/logística/industrial → titanium. NUNCA elijas siempre el mismo.
- "layout_id": uno de [bento, magazine, diagonal, swiss]. Rota la composición según el giro para que cada generación sea visualmente única.
+ "layout_id": uno de [bento, magazine, diagonal, swiss, split, showcase, poster, strip]. Rota la composición según el giro para que cada generación sea visualmente única.
  "value_proposition": "la promesa comercial de alto calibre del negocio: transforma la idea básica del brief en un beneficio concreto, específico y creíble. PROHIBIDO copiar frases literales del brief: reescríbelas con vocabulario de agencia senior",
- "image_prompt_en": "hyper-detailed commercial editorial photography prompt IN ENGLISH: subject, environment, cinematic 8k lighting setup, lens and mood. The image must NEVER contain text, logos or watermarks"
-}`;
+ "image_prompt_en": "hyper-detailed commercial editorial photography prompt IN ENGLISH: subject, environment, cinematic 8k lighting setup, lens and mood, derivado del rubro deducido del brief. The image must NEVER contain text, logos or watermarks"
+}
+En el prompt recibirás además una SEMILLA CREATIVA y el tema/layout de la generación ANTERIOR: usa un ángulo creativo fresco y NUNCA repitas ese tema ni ese layout.`;
 
 const ART_SCHEMA: Record<string, unknown> = {
   type: SchemaType.OBJECT,
   properties: {
     industry_type: { type: SchemaType.STRING, format: 'enum', enum: INDUSTRY_IDS },
+    brand_name: { type: SchemaType.STRING },
+    product_title: { type: SchemaType.STRING },
     theme_id: { type: SchemaType.STRING, format: 'enum', enum: [...THEME_IDS] },
     layout_id: { type: SchemaType.STRING, format: 'enum', enum: [...LAYOUT_IDS] },
     value_proposition: { type: SchemaType.STRING },
     image_prompt_en: { type: SchemaType.STRING },
   },
-  required: ['industry_type', 'theme_id', 'layout_id', 'value_proposition', 'image_prompt_en'],
+  required: ['industry_type', 'brand_name', 'product_title', 'theme_id', 'layout_id', 'value_proposition', 'image_prompt_en'],
 };
 
-/** 🧠 PASADA 1: analiza el brief y devuelve rubro + tema + layout + promesa. */
+/** Nombres de marca de reserva por rubro (solo si la IA omite brand_name). */
+const INDUSTRY_NAMES: Record<IndustryType, string> = {
+  digital_tech: 'Impulso Digital',
+  gastronomia: 'Sabor del Pueblo',
+  salud_belleza: 'Vitalidad',
+  agro_campo: 'Tierra Viva',
+  transporte_logistica: 'Ruta Segura',
+  comercio_retail: 'El Almacén',
+  servicios_profesionales: 'Primera Clase',
+  construccion_hogar: 'Obra Maestra',
+};
+
+/** 🧠 PASADA 1: analiza el brief (fuente maestra) y devuelve rubro + marca +
+ *  producto + tema + layout + promesa. Con semilla creativa y evitación del
+ *  tema/layout anterior para que CADA clic genere algo 100% diferente. */
 export async function generateArtDirection(input: CampaignInput): Promise<ArtDirection> {
+  const seedLine = `SEMILLA CREATIVA #${Math.floor(Math.random() * 9000 + 1000)}: usa un ángulo creativo, una metáfora y una composición totalmente nuevas en esta generación.`;
+  const avoidLine =
+    input.previousThemeId || input.previousLayoutId
+      ? `La generación ANTERIOR usó tema "${input.previousThemeId ?? '—'}" y layout "${input.previousLayoutId ?? '—'}": ELIGE tema y layout DIFERENTES esta vez.`
+      : '';
   const jsonText = await callGemini({
     systemInstruction: ART_SYSTEM_PROMPT,
-    prompt: campaignFacts(input),
-    temperature: 0.65,
+    prompt: [campaignFacts(input), seedLine, avoidLine].filter(Boolean).join('\n\n'),
+    temperature: 0.85,
     responseSchema: ART_SCHEMA,
   });
   let raw: Record<string, unknown>;
@@ -585,6 +617,8 @@ export async function generateArtDirection(input: CampaignInput): Promise<ArtDir
     : industryFromHint(input.categoryHint);
   const art: ArtDirection = {
     industryType: industry,
+    brandName: normSpaces(raw.brand_name) || input.businessName.trim() || INDUSTRY_NAMES[industry],
+    productTitle: normSpaces(raw.product_title) || input.product.trim() || INDUSTRY_NAMES[industry],
     themeId: THEME_IDS.includes(raw.theme_id as (typeof THEME_IDS)[number])
       ? (raw.theme_id as string)
       : INDUSTRY_ART[industry].themeId,
@@ -683,9 +717,7 @@ function normalizeCampaign(raw: Partial<MarketingCampaign> & Record<string, unkn
     sub: normSpaces(raw.sub) || art.valueProposition,
     benefits,
     cta: normSpaces(raw.cta) || (isService ? '💬 Escríbenos por WhatsApp' : '👉 Escríbenos por WhatsApp'),
-    priceLabel: isService
-      ? customLabel || normSpaces(raw.price_label) || '💬 Escríbenos por WhatsApp'
-      : null,
+    priceLabel: customLabel || normSpaces(raw.price_label) || (input.promoPrice == null ? '💬 Escríbenos por WhatsApp' : null),
     imagePromptEn: art.imagePromptEn,
     visualHooks: {
       slide1_hook: normSpaces(vh.slide1_hook),
@@ -777,6 +809,8 @@ export async function generateCampaignCopy(input: CampaignInput, art: ArtDirecti
   const strategy = [
     `ESTRATEGIA DE LA PASADA 1 (úsala como eje de TODO el copy):`,
     `· Rubro detectado: ${art.industryType}`,
+    `· Nombre de marca: ${art.brandName}`,
+    `· Producto/servicio estrella deducido: ${art.productTitle}`,
     `· Promesa de valor central: ${art.valueProposition}`,
     `· Tema visual: ${art.themeId} · Layout: ${art.layoutId}`,
     '',
