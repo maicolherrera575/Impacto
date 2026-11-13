@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Camera, Loader2, Mic, MicOff, Sparkles, Trash2, Wand2 } from 'lucide-react';
 import type { OfferForm, Profile } from '../../types';
 import { CATEGORIES, DURATION_OPTIONS, DELIVERY_TYPES } from '../../types';
@@ -10,8 +10,17 @@ import { friendlyError } from '../../services/supabase';
 import { compressImageToMicroWebP, compressionSummary } from '../../services/imageCompressor';
 import { useSpeechRecognition } from '../../hooks/useSpeechRecognition';
 import { cx, formatCOP } from '../../utils/format';
+import { clearDraft, loadDraft, saveDraft } from '../../utils/draft';
 
 const EMOJI_CHOICES = ['🔥', '🍽️', '🥐', '🍕', '☕', '🚚', '🌱', '🥩', '🏨', '🏠', '💄', '💊', '🛠️', '🧺', '🐑'] as const;
+
+/** Clave de autoguardado del formulario de oferta (cero pérdida de datos). */
+const OFFER_DRAFT_KEY = 'impulso_draft_offer';
+
+interface OfferDraft {
+  freeText?: string;
+  form?: OfferForm;
+}
 
 export const EMPTY_FORM: OfferForm = {
   emoji_icon: '🔥',
@@ -49,15 +58,39 @@ export function OfferCreator({ open, onClose, profile, onPublished, initialForm 
   const [publishing, setPublishing] = useState(false);
   const [compressing, setCompressing] = useState(false);
   const speech = useSpeechRecognition((text) => setFreeText(text));
+  /** Evita que el autoguardado pise el borrador con vacíos antes de restaurar. */
+  const draftReadyRef = useRef(false);
 
   useEffect(() => {
-    if (open) {
+    if (!open) {
+      draftReadyRef.current = false;
+      return;
+    }
+    // Republicación: precarga el formulario y descarta cualquier borrador viejo.
+    if (initialForm) {
       setFreeText('');
-      setForm(initialForm ?? EMPTY_FORM);
+      setForm(initialForm);
+      setAiFilled(true);
+      clearDraft(OFFER_DRAFT_KEY);
+      draftReadyRef.current = true;
+      return;
+    }
+    // Apertura normal: restaura el borrador autoguardado (cero pérdida).
+    const draft = loadDraft<OfferDraft>(OFFER_DRAFT_KEY);
+    if (draft) {
+      if (typeof draft.freeText === 'string') setFreeText(draft.freeText);
+      if (draft.form) setForm({ ...EMPTY_FORM, ...draft.form });
       setAiFilled(false);
     }
+    draftReadyRef.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initialForm]);
+
+  // Autoguardado instantáneo de cada cambio del formulario.
+  useEffect(() => {
+    if (!open || !draftReadyRef.current) return;
+    saveDraft(OFFER_DRAFT_KEY, { freeText, form });
+  }, [open, freeText, form]);
 
   function patch(p: Partial<OfferForm>) {
     setForm((prev) => ({ ...prev, ...p }));
@@ -132,6 +165,7 @@ export function OfferCreator({ open, onClose, profile, onPublished, initialForm 
         deliveryType: form.delivery_type,
       });
       toast.success('¡Oferta en el radar! 🚀 Se descontó 1 crédito');
+      clearDraft(OFFER_DRAFT_KEY);
       onPublished();
       onClose();
     } catch (err) {

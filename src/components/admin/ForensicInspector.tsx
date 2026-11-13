@@ -148,7 +148,7 @@ export function ForensicInspector({ data, onClose }: { data: ForensicData | null
   }
 
   return (
-    <ModalShell open onClose={onClose} closeLabel="Cerrar inspector" panelClassName="max-w-md">
+    <ModalShell open onClose={onClose} escClose closeLabel="Cerrar inspector" panelClassName="max-w-md">
       <div className="p-5 pt-14">
         <div className="flex items-start justify-between gap-3">
           <div>

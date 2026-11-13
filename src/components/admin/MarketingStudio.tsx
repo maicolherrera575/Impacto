@@ -8,6 +8,7 @@ import type { CampaignFocus, MarketingCampaign, PriceMode } from '../../services
 import { useToast } from '../ui/Toast';
 import { cx, formatCOP } from '../../utils/format';
 import { waLink } from '../../utils/whatsapp';
+import { clearDraft, loadDraft, saveDraft } from '../../utils/draft';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 🚀 AGENCIA IA & MULTI-WHATSAPP STUDIO V7 (exclusivo del administrador)
@@ -935,6 +936,45 @@ const COPY_FALLBACK = {
 
 type CopyTab = 'pas' | 'aida' | 'estados' | 'reel' | 'cierres';
 
+/** Clave de autoguardado del estudio (cero pérdida de datos del admin). */
+const MARKETING_DRAFT_KEY = 'impulso_draft_marketing_v7';
+
+interface MktDraft {
+  mode?: 'plataforma' | 'externo';
+  merchantId?: string;
+  offerId?: string;
+  extName?: string;
+  extSlogan?: string;
+  extProduct?: string;
+  extNormalPrice?: string;
+  extPromoPrice?: string;
+  extAddress?: string;
+  extUrl?: string;
+  lines?: WaLine[];
+  briefText?: string;
+  priceMode?: PriceMode;
+  focus?: CampaignFocus;
+  texts?: Texts;
+  themeIdx?: number;
+  format?: Format;
+  layout?: Layout;
+  piece?: Piece;
+  badgeMode?: string;
+  badgeCustom?: string;
+  showPrice?: boolean;
+  showBenefits?: boolean;
+  showQr?: boolean;
+  customPhoto?: string | null;
+  photoZoom?: number;
+  photoPosY?: number;
+}
+
+const DEFAULT_LINES: WaLine[] = [
+  { title: 'Línea 1 · Ventas directas', hint: 'Recibe los pedidos del anuncio', number: '', message: '¡Hola! Vi la promoción de {producto} en {negocio} y quiero pedir el mío 🙌' },
+  { title: 'Línea 2 · Domicilios / veredas', hint: 'Despachos a domicilio', number: '', message: '¡Hola! Quiero pedir {producto} a domicilio 🛵. Mi dirección es:' },
+  { title: 'Línea 3 · Reservas / mayoristas', hint: 'Eventos, fincas, cantidades', number: '', message: '¡Hola! Necesito {producto} en cantidad para un evento 📦. ¿Me dan precio mayorista?' },
+];
+
 /** Bloque de copy listo para copiar (usado en las pestañas de copywriting). */
 function CopyBlock({
   text,
@@ -986,11 +1026,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
   const [extUrl, setExtUrl] = useState('');
 
   // ── Multi-WhatsApp ──
-  const [lines, setLines] = useState<WaLine[]>([
-    { title: 'Línea 1 · Ventas directas', hint: 'Recibe los pedidos del anuncio', number: '', message: '¡Hola! Vi la promoción de {producto} en {negocio} y quiero pedir el mío 🙌' },
-    { title: 'Línea 2 · Domicilios / veredas', hint: 'Despachos a domicilio', number: '', message: '¡Hola! Quiero pedir {producto} a domicilio 🛵. Mi dirección es:' },
-    { title: 'Línea 3 · Reservas / mayoristas', hint: 'Eventos, fincas, cantidades', number: '', message: '¡Hola! Necesito {producto} en cantidad para un evento 📦. ¿Me dan precio mayorista?' },
-  ]);
+  const [lines, setLines] = useState<WaLine[]>(DEFAULT_LINES);
 
   // ── Campaña IA + brief ──
   const [campaign, setCampaign] = useState<MarketingCampaign | null>(null);
@@ -1023,6 +1059,128 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
   const [photoBusy, setPhotoBusy] = useState(false);
   const [photoImg, setPhotoImg] = useState<HTMLImageElement | null>(null);
   const [qrImg, setQrImg] = useState<HTMLImageElement | null>(null);
+
+  // ── Autoguardado instantáneo (cero pérdida de datos del admin) ──
+  /** Evita que el autoguardado pise el borrador con vacíos antes de restaurar. */
+  const draftReadyRef = useRef(false);
+
+  // Restaurar el borrador al montar el estudio.
+  useEffect(() => {
+    const d = loadDraft<MktDraft>(MARKETING_DRAFT_KEY);
+    if (!d) {
+      draftReadyRef.current = true;
+      return;
+    }
+    if (d.mode === 'plataforma' || d.mode === 'externo') setMode(d.mode);
+    if (typeof d.merchantId === 'string') setMerchantId(d.merchantId);
+    if (typeof d.offerId === 'string') setOfferId(d.offerId);
+    if (typeof d.extName === 'string') setExtName(d.extName);
+    if (typeof d.extSlogan === 'string') setExtSlogan(d.extSlogan);
+    if (typeof d.extProduct === 'string') setExtProduct(d.extProduct);
+    if (typeof d.extNormalPrice === 'string') setExtNormalPrice(d.extNormalPrice);
+    if (typeof d.extPromoPrice === 'string') setExtPromoPrice(d.extPromoPrice);
+    if (typeof d.extAddress === 'string') setExtAddress(d.extAddress);
+    if (typeof d.extUrl === 'string') setExtUrl(d.extUrl);
+    if (Array.isArray(d.lines) && d.lines.length === 3) setLines(d.lines as WaLine[]);
+    if (typeof d.briefText === 'string') setBriefText(d.briefText);
+    if (d.priceMode === 'precio' || d.priceMode === 'servicio') setPriceMode(d.priceMode);
+    if (d.focus === 'remate' || d.focus === 'prestigio' || d.focus === 'confianza' || d.focus === 'viral') setFocus(d.focus);
+    if (d.texts) {
+      setTexts({
+        plain: typeof d.texts.plain === 'string' ? d.texts.plain : '',
+        highlight: typeof d.texts.highlight === 'string' ? d.texts.highlight : '',
+        sub: typeof d.texts.sub === 'string' ? d.texts.sub : '',
+        benefits:
+          Array.isArray(d.texts.benefits) && d.texts.benefits.length === 3
+            ? d.texts.benefits.map((b) => (typeof b === 'string' ? b : ''))
+            : ['', '', ''],
+        cta: typeof d.texts.cta === 'string' ? d.texts.cta : '',
+        priceLabel: typeof d.texts.priceLabel === 'string' ? d.texts.priceLabel : '💬 Cotiza gratis por WhatsApp',
+      });
+    }
+    if (typeof d.themeIdx === 'number' && d.themeIdx >= 0 && d.themeIdx < THEMES.length) setThemeIdx(d.themeIdx);
+    if (d.format === 'story' || d.format === 'square') setFormat(d.format);
+    if (d.layout === 'bento' || d.layout === 'magazine' || d.layout === 'diagonal' || d.layout === 'swiss') setLayout(d.layout);
+    if (d.piece === 0 || d.piece === 1 || d.piece === 2 || d.piece === 3) setPiece(d.piece);
+    if (typeof d.badgeMode === 'string') setBadgeMode(d.badgeMode);
+    if (typeof d.badgeCustom === 'string') setBadgeCustom(d.badgeCustom);
+    if (typeof d.showPrice === 'boolean') setShowPrice(d.showPrice);
+    if (typeof d.showBenefits === 'boolean') setShowBenefits(d.showBenefits);
+    if (typeof d.showQr === 'boolean') setShowQr(d.showQr);
+    if (typeof d.customPhoto === 'string' || d.customPhoto === null) setCustomPhoto(d.customPhoto);
+    if (typeof d.photoZoom === 'number' && d.photoZoom >= 1 && d.photoZoom <= 2.2) setPhotoZoom(d.photoZoom);
+    if (typeof d.photoPosY === 'number' && d.photoPosY >= 0 && d.photoPosY <= 1) setPhotoPosY(d.photoPosY);
+    draftReadyRef.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Guardar cada cambio al instante.
+  useEffect(() => {
+    if (!draftReadyRef.current) return;
+    saveDraft(MARKETING_DRAFT_KEY, {
+      mode,
+      merchantId,
+      offerId,
+      extName,
+      extSlogan,
+      extProduct,
+      extNormalPrice,
+      extPromoPrice,
+      extAddress,
+      extUrl,
+      lines,
+      briefText,
+      priceMode,
+      focus,
+      texts,
+      themeIdx,
+      format,
+      layout,
+      piece,
+      badgeMode,
+      badgeCustom,
+      showPrice,
+      showBenefits,
+      showQr,
+      customPhoto,
+      photoZoom,
+      photoPosY,
+    });
+  }, [mode, merchantId, offerId, extName, extSlogan, extProduct, extNormalPrice, extPromoPrice, extAddress, extUrl, lines, briefText, priceMode, focus, texts, themeIdx, format, layout, piece, badgeMode, badgeCustom, showPrice, showBenefits, showQr, customPhoto, photoZoom, photoPosY]);
+
+  /** 🧹 Empieza el estudio desde cero (borra el autoguardado). */
+  function clearAllDraft(): void {
+    clearDraft(MARKETING_DRAFT_KEY);
+    setMode('plataforma');
+    setMerchantId('');
+    setOfferId('');
+    setExtName('');
+    setExtSlogan('');
+    setExtProduct('');
+    setExtNormalPrice('');
+    setExtPromoPrice('');
+    setExtAddress('');
+    setExtUrl('');
+    setLines(DEFAULT_LINES);
+    setBriefText('');
+    setPriceMode('precio');
+    setFocus('remate');
+    setTexts({ plain: '', highlight: '', sub: '', benefits: ['', '', ''], cta: '', priceLabel: '💬 Cotiza gratis por WhatsApp' });
+    setThemeIdx(1);
+    setFormat('story');
+    setLayout('bento');
+    setPiece(0);
+    setBadgeMode('calidad');
+    setBadgeCustom('');
+    setShowPrice(true);
+    setShowBenefits(true);
+    setShowQr(true);
+    setCustomPhoto(null);
+    setPhotoZoom(1);
+    setPhotoPosY(0.5);
+    setCampaign(null);
+    toast.success('🧹 Borrador limpio: estudio en blanco');
+  }
 
   const merchantOffers = useMemo(() => offers.filter((o) => o.merchant?.id === merchantId), [offers, merchantId]);
 
@@ -1422,8 +1580,14 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
         </p>
         <p className="mt-1 text-[11px] leading-relaxed text-slate-400">
           Suite profesional: brief IA, fotografía publicitaria generada en el navegador, 4 layouts editoriales y piezas HD
-          1080p con QR real — 0 bytes en la base de datos.
+          1080p con QR real — 0 bytes en la base de datos. Todo se autoguarda mientras trabajas.
         </p>
+        <button
+          onClick={clearAllDraft}
+          className="pressable mt-2 flex items-center gap-1.5 rounded-xl border border-white/10 bg-slate-950/40 px-3 py-1.5 text-[10px] font-bold text-slate-400 hover:text-impulso-rose"
+        >
+          <Trash2 className="h-3 w-3" /> Limpiar borrador (empezar desde cero)
+        </button>
       </div>
 
       {/* ═══ COLUMNA IZQUIERDA: datos, brief IA, foto y diseño ═══ */}
@@ -1760,7 +1924,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       </div>
 
       {/* ═══ COLUMNA CENTRAL: lienzo en vivo ═══ */}
-      <div className="lg:sticky lg:top-2 lg:col-span-4">
+      <div className="lg:sticky lg:top-4 lg:col-span-4">
         <div className="space-y-3">
           <div className="flex rounded-2xl bg-slate-950/60 p-1">
             {(

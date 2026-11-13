@@ -323,8 +323,9 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-end justify-center sm:items-center" role="dialog" aria-modal="true">
-      <div className="absolute inset-0 bg-slate-950/75 backdrop-blur-md animate-fade-in" onClick={onClose} aria-hidden="true" />
-      <div className="relative max-h-[94dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl border border-impulso-gold/25 bg-impulso-panel shadow-card sm:rounded-3xl md:w-[96vw] md:max-w-[1480px] md:h-[92dvh] md:max-h-[92dvh] animate-slide-up">
+      {/* Sin onClick: tocar el fondo NUNCA cierra el Súper Panel (protege el trabajo del admin). */}
+      <div className="absolute inset-0 bg-slate-950/75 backdrop-blur-md animate-fade-in" aria-hidden="true" />
+      <div className="relative max-h-[94dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl border border-impulso-gold/25 bg-impulso-panel shadow-card sm:rounded-3xl md:w-[96vw] md:max-w-[1440px] md:h-[92dvh] md:max-h-[92dvh] animate-slide-up">
         {/* Cabecera */}
         <div className="sticky top-0 z-10 border-b border-white/5 bg-impulso-panel/95 px-5 py-4 backdrop-blur-xl">
           <div className="flex items-center gap-3">
@@ -392,7 +393,7 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
                 />
               </div>
             </div>
-            <div className="space-y-2.5 p-4">
+            <div className="grid gap-4 p-4 md:grid-cols-2 xl:grid-cols-3 md:items-start">
               {loading ? (
                 <div className="flex justify-center py-10">
                   <Loader2 className="h-7 w-7 animate-spin text-impulso-gold" />
@@ -520,7 +521,8 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
 
         {/* ═══ Pestaña 2: Moderación en vivo (kill-switch) ═══ */}
         {tab === 'moderation' && (
-          <div className="space-y-2.5 p-4">
+          <div className="p-4 lg:grid lg:grid-cols-2 lg:gap-6 lg:items-start">
+            <div className="space-y-2.5">
             {offersLoading ? (
               <div className="flex justify-center py-10">
                 <Loader2 className="h-7 w-7 animate-spin text-impulso-gold" />
@@ -573,7 +575,9 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
               <Gavel className="h-4 w-4 shrink-0 text-impulso-gold" />
               Las ofertas con 3+ reportes 🚩 se tumban automáticamente. Aquí puedes tumbar cualquiera de una vez.
             </p>
+            </div>
 
+            <div className="mt-4 space-y-4 lg:mt-0">
             {/* ── 🚩 Reportes de la comunidad: el motivo exacto que eligió el vecino ── */}
             <div className="mt-4 rounded-3xl border border-impulso-rose/25 bg-impulso-rose/5 p-3.5">
               <p className="flex items-center gap-1.5 text-sm font-extrabold text-impulso-rose">
@@ -745,6 +749,7 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
               </div>
             </div>
           </div>
+            </div>
         )}
 
         {/* ═══ Pestaña 3: Cobros Nequi (bandeja de aprobación en 1 clic) ═══ */}
@@ -764,7 +769,8 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
                 Sin órdenes de recarga por ahora. Cuando un comercio pague, aparecerá aquí 📥
               </p>
             ) : (
-              creditOrders.map((c) => (
+              <div className="grid gap-2.5 md:grid-cols-2 xl:grid-cols-3 md:items-start">
+              {creditOrders.map((c) => (
                 <article
                   key={c.id}
                   className={cx(
@@ -830,7 +836,8 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
                     </div>
                   )}
                 </article>
-              ))
+              ))}
+              </div>
             )}
 
             <p className="text-center text-[10px] leading-relaxed text-slate-500">
@@ -844,7 +851,7 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
         {tab === 'summary' && (
           <div className="space-y-3 p-4">
             {stats ? (
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
                 <div className="rounded-2xl bg-slate-950/50 p-3 text-center">
                   <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Comercios</p>
                   <p className="text-xl font-extrabold text-white">{stats.merchants}</p>
@@ -861,7 +868,7 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
                   <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Reservas hoy</p>
                   <p className="text-xl font-extrabold text-white">{stats.reservationsToday}</p>
                 </div>
-                <div className="col-span-2 rounded-2xl border border-impulso-rose/25 bg-impulso-rose/5 p-3 text-center">
+                <div className="col-span-2 lg:col-span-4 rounded-2xl border border-impulso-rose/25 bg-impulso-rose/5 p-3 text-center">
                   <p className="text-[10px] font-bold uppercase tracking-wider text-impulso-rose/70">🚩 Reportes activos</p>
                   <p className="text-xl font-extrabold text-impulso-rose">{stats.openReports}</p>
                 </div>

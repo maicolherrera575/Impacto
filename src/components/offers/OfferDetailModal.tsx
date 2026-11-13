@@ -110,7 +110,7 @@ export function OfferDetailModal({ offer, geoPos, onClose, onReserved, onViewTic
   }
 
   return (
-    <ModalShell open onClose={onClose} panelClassName="max-w-md">
+    <ModalShell open onClose={onClose} escClose panelClassName="max-w-md">
       <div className="p-5 pt-14">
         {/* Encabezado contextual */}
         <p className="mb-3 text-[11px] font-bold uppercase tracking-widest text-slate-500">{STEPS[step]}</p>

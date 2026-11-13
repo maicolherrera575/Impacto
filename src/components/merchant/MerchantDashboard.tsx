@@ -299,7 +299,7 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
     <div className="min-h-dvh pb-24">
       {/* Cabecera del panel */}
       <header className="sticky top-0 z-30 border-b border-white/5 bg-impulso-night/90 px-3 pt-3 backdrop-blur-xl">
-        <div className="mx-auto max-w-xl">
+        <div className="mx-auto max-w-xl lg:max-w-[1440px]">
           <div className="flex items-center gap-3 pb-3">
             <button
               onClick={onExit}
@@ -366,7 +366,8 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
         </div>
       </header>
 
-      <main className="mx-auto max-w-xl space-y-5 px-3 pt-4">
+      <main className="mx-auto max-w-xl space-y-5 px-3 pt-4 lg:max-w-[1440px] lg:grid lg:grid-cols-12 lg:gap-6 lg:space-y-0 lg:items-start lg:px-4">
+        <div className="space-y-5 lg:col-span-7">
         {/* Suspensión → aviso claro y canal directo */}
         {!profile.is_active && (
           <div className="rounded-3xl border border-impulso-rose/40 bg-impulso-rose/10 p-4">
@@ -609,6 +610,10 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
         </section>
 
         {/* Ubicación y legal */}
+        </div>
+
+        <div className="space-y-5 lg:col-span-5">
+        {/* Ubicación y legal */}
         <section className="flex items-center justify-between rounded-3xl border border-white/10 bg-impulso-panel p-4">
           <div className="min-w-0">
             <p className="flex items-center gap-1.5 text-sm font-bold text-white">
@@ -731,6 +736,7 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
             </span>
           </button>
         )}
+        </div>
       </main>
 
       {/* Creador Mágico */}

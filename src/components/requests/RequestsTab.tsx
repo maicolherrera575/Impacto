@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Loader2, MessageCircle } from 'lucide-react';
 import type { Category, QuickRequest } from '../../types';
 import { CATEGORIES, MEETING_POINTS, categoryMeta, meetingPointMeta } from '../../types';
@@ -10,6 +10,18 @@ import { friendlyError } from '../../services/supabase';
 import { cx, timeAgo, timeLeftLabel } from '../../utils/format';
 import type { LatLng } from '../../utils/geo';
 import { useTick } from '../../hooks/useTick';
+import { clearDraft, loadDraft, saveDraft } from '../../utils/draft';
+
+/** Clave de autoguardado del pedido rápido (cero pérdida de datos). */
+const REQUEST_DRAFT_KEY = 'impulso_draft_request';
+
+interface RequestDraft {
+  name?: string;
+  whatsapp?: string;
+  category?: string;
+  description?: string;
+  meetingPoint?: string;
+}
 
 interface RequestsTabProps {
   requests: QuickRequest[];
@@ -36,6 +48,29 @@ export function RequestsTab({ requests, municipality, geoPos, onCreated }: Reque
   const [description, setDescription] = useState('');
   const [meetingPoint, setMeetingPoint] = useState('parque_principal');
   const [loading, setLoading] = useState(false);
+  /** Evita que el autoguardado pise el borrador con vacíos antes de restaurar. */
+  const draftReadyRef = useRef(false);
+
+  // Restaurar el borrador autoguardado al abrir la pestaña (cero pérdida).
+  useEffect(() => {
+    const d = loadDraft<RequestDraft>(REQUEST_DRAFT_KEY);
+    if (!d) {
+      draftReadyRef.current = true;
+      return;
+    }
+    if (typeof d.name === 'string') setName(d.name);
+    if (typeof d.whatsapp === 'string') setWhatsapp(d.whatsapp);
+    if (typeof d.category === 'string' && CATEGORIES.some((c) => c.id === d.category)) setCategory(d.category as Category);
+    if (typeof d.description === 'string') setDescription(d.description);
+    if (typeof d.meetingPoint === 'string' && MEETING_POINTS.some((m) => m.id === d.meetingPoint)) setMeetingPoint(d.meetingPoint);
+    draftReadyRef.current = true;
+  }, []);
+
+  // Autoguardado instantáneo de cada cambio.
+  useEffect(() => {
+    if (!draftReadyRef.current) return;
+    saveDraft(REQUEST_DRAFT_KEY, { name, whatsapp, category, description, meetingPoint });
+  }, [name, whatsapp, category, description, meetingPoint]);
 
   async function submit() {
     if (name.trim().length < 2) return toast.error('Escribe tu nombre');
@@ -57,6 +92,7 @@ export function RequestsTab({ requests, municipality, geoPos, onCreated }: Reque
       });
       toast.success('¡Pedido publicado! Los comercios ya lo ven 📢');
       setDescription('');
+      clearDraft(REQUEST_DRAFT_KEY);
       setOpen(false);
       onCreated();
     } catch (err) {

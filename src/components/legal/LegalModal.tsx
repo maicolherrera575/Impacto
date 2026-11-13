@@ -12,7 +12,7 @@ interface LegalModalProps {
  */
 export function LegalModal({ open, onClose }: LegalModalProps) {
   return (
-    <ModalShell open={open} onClose={onClose} panelClassName="max-w-lg">
+    <ModalShell open={open} onClose={onClose} escClose panelClassName="max-w-lg">
       <div className="p-5 pt-14">
         <h3 className="text-xl font-extrabold text-white">Términos y Política de Datos</h3>
         <p className="mt-1 text-xs font-semibold text-slate-500">
