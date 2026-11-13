@@ -25,8 +25,6 @@ Responde ÚNICAMENTE con el objeto JSON.`;
 // existe, intenta /api/gemini (útil con `vercel dev`).
 
 const MODEL_ID = 'gemini-2.5-flash';
-/** true cuando el bundle es de producción (build de Vercel). */
-const IS_PROD = import.meta.env.PROD === true;
 
 type SdkModel = ReturnType<GoogleGenerativeAI['getGenerativeModel']>;
 type SdkRequest = Parameters<SdkModel['generateContent']>[0];
@@ -97,21 +95,28 @@ async function callProxy(options: GeminiCallOptions): Promise<string> {
   return text;
 }
 
-/** Punto único de llamada a Gemini para toda la app. */
+/** Llamada directa con el SDK (requiere GEMINI_API_KEY disponible). */
+async function callSdk(options: GeminiCallOptions): Promise<string> {
+  const { response } = await getSdkModel().generateContent(buildPayload(options) as unknown as SdkRequest);
+  const text = response.text().trim();
+  if (!text) throw new Error('La IA no respondió con contenido. Intenta de nuevo');
+  return text;
+}
+
+/**
+ * Punto único de llamada a Gemini para toda la app (V8).
+ * 1) Intenta SIEMPRE el proxy serverless /api/gemini (la llave privada vive en Vercel).
+ * 2) Si el proxy falla y existe una llave VITE_GEMINI_API_KEY disponible, reintenta
+ *    directo con el SDK para que la respuesta sea SIEMPRE de Gemini real.
+ * 3) Si ambos fallan, propaga el error técnico EXACTO (lo muestra el toast).
+ */
 async function callGemini(options: GeminiCallOptions): Promise<string> {
-  // Producción: SIEMPRE por el proxy. La llave jamás toca el navegador.
-  if (IS_PROD) return callProxy(options);
-
-  // Desarrollo local con llave en .env: SDK directo (rápido, sin proxy).
-  if (GEMINI_API_KEY) {
-    const { response } = await getSdkModel().generateContent(buildPayload(options) as unknown as SdkRequest);
-    const text = response.text().trim();
-    if (text) return text;
-    throw new Error('La IA no respondió con contenido. Intenta de nuevo');
+  try {
+    return await callProxy(options);
+  } catch (proxyErr) {
+    if (GEMINI_API_KEY) return callSdk(options);
+    throw proxyErr;
   }
-
-  // Desarrollo sin llave en el .env: intenta el proxy (ej: `vercel dev`).
-  return callProxy(options);
 }
 
 /** Esquema JSON del Creador Mágico (compatible SDK + REST). */
@@ -352,7 +357,11 @@ export async function analyzeMerchantTrust(input: {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 🚀 AGENCIA IA — Campaña estratégica 360° (hooks, estados, copy, reel, cierre)
+// 🚀 AGENCIA IA V8 — Pipeline multi-pasada: PASADA 1 (estrategia y dirección
+// de arte) → PASADA 2 (copywriting senior). PROHIBIDO el fallback tonto:
+// si la IA falla se lanza un error con el motivo técnico EXACTO (el estudio
+// lo muestra en un toast). Jamás se fabrica una campaña pegando el brief del
+// usuario dentro de plantillas prefabricadas.
 // ═══════════════════════════════════════════════════════════════════════════
 
 export interface MarketingVisualHooks {
@@ -373,8 +382,79 @@ export interface CampaignHeadline {
 export type PriceMode = 'precio' | 'servicio';
 export type CampaignFocus = 'remate' | 'prestigio' | 'confianza' | 'viral';
 
+/** Rubros que la IA detecta en el brief (dirigen tema, layout y foto). */
+export type IndustryType =
+  | 'digital_tech'
+  | 'gastronomia'
+  | 'salud_belleza'
+  | 'agro_campo'
+  | 'transporte_logistica'
+  | 'comercio_retail'
+  | 'servicios_profesionales'
+  | 'construccion_hogar';
+
+const INDUSTRY_IDS: IndustryType[] = [
+  'digital_tech',
+  'gastronomia',
+  'salud_belleza',
+  'agro_campo',
+  'transporte_logistica',
+  'comercio_retail',
+  'servicios_profesionales',
+  'construccion_hogar',
+];
+
+const THEME_IDS = ['cyber', 'obsidian', 'brasa', 'clinic', 'emerald', 'terra', 'sunset', 'titanium'] as const;
+const LAYOUT_IDS = ['bento', 'magazine', 'diagonal', 'swiss'] as const;
+
+/** Dirección de arte por defecto de cada rubro (nunca siempre el mismo tema). */
+export const INDUSTRY_ART: Record<IndustryType, { themeId: string; layoutId: string }> = {
+  digital_tech: { themeId: 'cyber', layoutId: 'diagonal' },
+  gastronomia: { themeId: 'brasa', layoutId: 'bento' },
+  salud_belleza: { themeId: 'clinic', layoutId: 'swiss' },
+  agro_campo: { themeId: 'terra', layoutId: 'swiss' },
+  transporte_logistica: { themeId: 'titanium', layoutId: 'bento' },
+  comercio_retail: { themeId: 'emerald', layoutId: 'bento' },
+  servicios_profesionales: { themeId: 'obsidian', layoutId: 'swiss' },
+  construccion_hogar: { themeId: 'titanium', layoutId: 'diagonal' },
+};
+
+/** Prompt fotográfico editorial curado por rubro (en inglés, sin texto). */
+export const INDUSTRY_PHOTO_PROMPTS: Record<IndustryType, string> = {
+  digital_tech:
+    'modern digital marketing agency workspace, laptops with glowing analytics dashboards, neon indigo and violet rim light, cinematic depth of field, 8k commercial photography, no text, no logos',
+  gastronomia:
+    'gourmet dish hero shot on rustic wooden table, warm ember lighting, steam rising, shallow depth of field, 8k editorial food photography, no text, no logos',
+  salud_belleza:
+    'bright modern clinic interior, cyan and white palette, soft clinical daylight, professional dental and beauty equipment, 8k commercial photography, no text, no logos',
+  agro_campo:
+    'golden hour over green andean farmland, farmer hands holding fresh produce, cinematic warm light, 8k editorial photography, no text, no logos',
+  transporte_logistica:
+    'reliable cargo truck on a rural highway at dawn, graphite tones with subtle lime accents, cinematic wide shot, 8k commercial photography, no text, no logos',
+  comercio_retail:
+    'vibrant local storefront with fresh products and warm welcoming light, emerald green accents, 8k retail editorial photography, no text, no logos',
+  servicios_profesionales:
+    'elegant professional consulting meeting, obsidian and champagne gold tones, dramatic soft lighting, 8k corporate photography, no text, no logos',
+  construccion_hogar:
+    'professional construction site with tools and blueprints, graphite palette with lime accents, dramatic side light, 8k commercial photography, no text, no logos',
+};
+
+/** Estrategia visual devuelta por la PASADA 1. */
+export interface ArtDirection {
+  industryType: IndustryType;
+  themeId: string;
+  layoutId: string;
+  valueProposition: string;
+  imagePromptEn: string;
+}
+
 export interface MarketingCampaign {
-  /** Sello superior sugerido para el afiche (ej: "💎 CALIDAD GARANTIZADA"). */
+  industryType: IndustryType;
+  themeId: string;
+  layoutId: string;
+  /** Promesa comercial de alto calibre (reescritura del brief por la IA). */
+  valueProposition: string;
+  /** Sello superior sugerido para el afiche (ej: "💎 ALTA PRECISIÓN"). */
   badgeText: string;
   /** Titular de agencia a dos tonos (blanco + palabras clave en acento). */
   headline: CampaignHeadline;
@@ -410,25 +490,133 @@ export interface CampaignInput {
   /** Enfoque psicológico del anuncio. */
   focus: CampaignFocus;
   targetUrl: string;
+  /** Categoría del comercio registrado (ayuda a la PASADA 1 a clasificar). */
+  categoryHint?: string;
 }
 
-const CAMPAIGN_PROMPT = `Eres el director creativo y estratega de growth de una agencia de marketing digital experta en municipios rurales de Colombia (Cundinamarca: Gachetá, Guatavita, Ubaté).
-Escribes con psicología de compra local: cercanía del pueblo, frescura, confianza, escasez honesta y venta por WhatsApp.
+/** Normaliza espacios: NUNCA dos palabras pegadas, NUNCA bordes sucios. */
+export function normSpaces(v: unknown): string {
+  return typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : '';
+}
 
-Recibirás el BRIEF libre del negocio (comercio registrado o cliente externo; puede ser un producto con precio exacto o un servicio profesional sin precio fijo). Devuelve ÚNICAMENTE un JSON con esta estructura exacta:
+/** Mapea la categoría del comercio a un rubro de agencia. */
+export function industryFromHint(categoryHint?: string): IndustryType {
+  switch (categoryHint) {
+    case 'comida':
+      return 'gastronomia';
+    case 'transporte_flete':
+      return 'transporte_logistica';
+    case 'agro_mercado':
+      return 'agro_campo';
+    case 'hoteles_turismo':
+      return 'comercio_retail';
+    case 'salud_belleza':
+      return 'salud_belleza';
+    case 'hogar_construccion':
+      return 'construccion_hogar';
+    case 'servicios_comercios':
+      return 'servicios_profesionales';
+    default:
+      return 'comercio_retail';
+  }
+}
+
+/** Ficha de hechos del negocio (fuente única para las 2 pasadas). */
+function campaignFacts(input: CampaignInput): string {
+  return [
+    `Negocio/marca: ${input.businessName}`,
+    `Eslogan o rubro: ${input.slogan || '(no hay)'}`,
+    `🧠 BRIEF LIBRE del negocio (analízalo en profundidad, NO lo copies literal): ${input.brief || '(no hay brief, deduce del producto)'}`,
+    `Producto/promoción estrella: ${input.product || '(no hay, elige un enfoque del brief)'}`,
+    `Categoría registrada: ${input.categoryHint ?? '(no hay)'}`,
+    `Modalidad de precio: ${input.priceMode === 'servicio' ? 'SERVICIO/COTIZACIÓN (no inventes precios tachados, genera price_label)' : 'PRECIO DE OFERTA exacto'}`,
+    input.priceMode === 'servicio' && input.priceLabel.trim() ? `Etiqueta de precio personalizada del admin: "${input.priceLabel.trim()}"` : '',
+    `Precio normal: ${input.normalPrice != null ? `$${input.normalPrice.toLocaleString('es-CO')}` : '(no aplica)'}`,
+    `Precio promoción: ${input.promoPrice != null ? `$${input.promoPrice.toLocaleString('es-CO')}` : '(no aplica)'}`,
+    `Dirección o referencia: ${input.address || '(no hay)'}`,
+    `Municipio: ${input.municipality}`,
+    `Enfoque psicológico del anuncio: ${input.focus}`,
+    `Enlace/WhatsApp de destino: ${input.targetUrl}`,
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+// ── PASADA 1 · Análisis estratégico y dirección de arte ────────────────────
+
+const ART_SYSTEM_PROMPT = `Eres el Director de Arte y Estratega de Growth de una agencia de publicidad de alto nivel especializada en municipios rurales de Colombia (Cundinamarca).
+Analizarás el brief de un negocio (puede ser un servicio de marketing nuevo, una odontología, un restaurante, una ferretería o agroinsumos) y definirás la ESTRATEGIA VISUAL y COMERCIAL. Devuelve ÚNICAMENTE un JSON exacto:
 {
- "badge_text": "sello superior para el afiche: máximo 4 palabras en MAYÚSCULAS con 1 emoji al inicio (ej: '💎 CALIDAD GARANTIZADA')",
+ "industry_type": uno de [digital_tech, gastronomia, salud_belleza, agro_campo, transporte_logistica, comercio_retail, servicios_profesionales, construccion_hogar],
+ "theme_id": uno de [cyber, obsidian, brasa, clinic, emerald, terra, sunset, titanium]. Elige el que mejor pegue con el giro y VARÍA entre generaciones: tecnología/marketing/IA → cyber; servicios premium/abogados/finanzas → obsidian; comida/asaderos → brasa; salud/odontología/estética → clinic; comercio local/turismo → emerald; agro/veterinaria/transporte de campo → terra; promociones virales/moda/belleza → sunset; construcción/logística/industrial → titanium. NUNCA elijas siempre el mismo.
+ "layout_id": uno de [bento, magazine, diagonal, swiss]. Rota la composición según el giro para que cada generación sea visualmente única.
+ "value_proposition": "la promesa comercial de alto calibre del negocio: transforma la idea básica del brief en un beneficio concreto, específico y creíble. PROHIBIDO copiar frases literales del brief: reescríbelas con vocabulario de agencia senior",
+ "image_prompt_en": "hyper-detailed commercial editorial photography prompt IN ENGLISH: subject, environment, cinematic 8k lighting setup, lens and mood. The image must NEVER contain text, logos or watermarks"
+}`;
+
+const ART_SCHEMA: Record<string, unknown> = {
+  type: SchemaType.OBJECT,
+  properties: {
+    industry_type: { type: SchemaType.STRING, format: 'enum', enum: INDUSTRY_IDS },
+    theme_id: { type: SchemaType.STRING, format: 'enum', enum: [...THEME_IDS] },
+    layout_id: { type: SchemaType.STRING, format: 'enum', enum: [...LAYOUT_IDS] },
+    value_proposition: { type: SchemaType.STRING },
+    image_prompt_en: { type: SchemaType.STRING },
+  },
+  required: ['industry_type', 'theme_id', 'layout_id', 'value_proposition', 'image_prompt_en'],
+};
+
+/** 🧠 PASADA 1: analiza el brief y devuelve rubro + tema + layout + promesa. */
+export async function generateArtDirection(input: CampaignInput): Promise<ArtDirection> {
+  const jsonText = await callGemini({
+    systemInstruction: ART_SYSTEM_PROMPT,
+    prompt: campaignFacts(input),
+    temperature: 0.65,
+    responseSchema: ART_SCHEMA,
+  });
+  let raw: Record<string, unknown>;
+  try {
+    raw = JSON.parse(jsonText) as Record<string, unknown>;
+  } catch {
+    throw new Error('La IA (pasada 1) no devolvió un JSON de estrategia válido. Intenta de nuevo.');
+  }
+  const industry: IndustryType = INDUSTRY_IDS.includes(raw.industry_type as IndustryType)
+    ? (raw.industry_type as IndustryType)
+    : industryFromHint(input.categoryHint);
+  const art: ArtDirection = {
+    industryType: industry,
+    themeId: THEME_IDS.includes(raw.theme_id as (typeof THEME_IDS)[number])
+      ? (raw.theme_id as string)
+      : INDUSTRY_ART[industry].themeId,
+    layoutId: LAYOUT_IDS.includes(raw.layout_id as (typeof LAYOUT_IDS)[number])
+      ? (raw.layout_id as string)
+      : INDUSTRY_ART[industry].layoutId,
+    valueProposition: normSpaces(raw.value_proposition),
+    imagePromptEn:
+      normSpaces(raw.image_prompt_en) || INDUSTRY_PHOTO_PROMPTS[industry],
+  };
+  if (!art.valueProposition) {
+    throw new Error('La IA (pasada 1) no definió la promesa de valor. Pulsa ✨ de nuevo.');
+  }
+  return art;
+}
+
+// ── PASADA 2 · Copywriting senior de agencia con la estrategia de la 1 ──────
+
+const COPY_SYSTEM_PROMPT = `Eres el Copywriter Senior y Director Creativo de una agencia de publicidad experta en municipios rurales de Colombia (Gachetá, Cundinamarca).
+Recibirás la ESTRATEGIA de la campaña (rubro, promesa de valor, tema y layout) y los datos del negocio. Escribes la campaña completa. Devuelve ÚNICAMENTE un JSON con esta estructura exacta:
+{
+ "badge_text": "sello superior ESPECÍFICO del giro: máximo 4 palabras en MAYÚSCULAS con 1 emoji al inicio (ej: '🚀 IMPULSA TUS VENTAS', '💎 ALTA PRECISIÓN', '🔥 SABOR ARTESANAL')",
  "headline": {
-   "plain": "primera parte del titular de agencia que irá en blanco (4 a 6 palabras, gancho emocional)",
-   "highlight": "segunda parte del titular, palabras clave que irán resaltadas en color de acento (1 a 4 palabras)"
+   "plain": "3 a 6 palabras IMPACTANTES que irán en blanco, SIEMPRE separadas por espacios correctos (ej: 'Multiplica tus clientes y')",
+   "highlight": "3 a 5 palabras de cierre poderoso con espacios correctos, irán resaltadas en el color de acento (ej: 'domina las redes hoy')"
  },
- "sub": "subtítulo breve que apoya el titular",
- "benefits": ["beneficio ultra persuasivo que empieza con 1 emoji", "segundo beneficio", "tercer beneficio"],
+ "sub": "una línea ejecutiva elegante que explica el servicio/producto",
+ "benefits": ["3 beneficios 100% ESPECÍFICOS del negocio, cada uno empieza con 1 emoji ideal del rubro (nada genérico)"],
  "cta": "llamado a la acción urgente y claro",
- "price_label": "si el negocio NO maneja precio fijo: texto para el bloque de precio (ej: '💬 Cotiza gratis por WhatsApp', 'Valoración Sin Costo', 'Desde $25.000'). Si SÍ hay precio de oferta devuelve null",
- "image_prompt_en": "commercial photography prompt IN ENGLISH for the perfect advertising photo: subject, setting, lighting, mood, lens (no text in image, high resolution)",
+ "price_label": "si el negocio NO maneja precio fijo: texto inteligente de cotización/acción (ej: 'Diagnóstico digital gratis', 'Agenda tu asesoría hoy', 'Valoración sin costo'). Si SÍ hay precio de oferta devuelve null",
  "visualHooks": {
-   "slide1_hook": "titular magnético de 4 a 7 palabras que detiene el scroll (pregunta o afirmación provocadora)",
+   "slide1_hook": "titular magnético de 4 a 7 palabras que detiene el scroll",
    "slide1_sub": "subtítulo provocador corto",
    "slide2_headline": "promesa de valor + beneficio irresistible (máx 10 palabras)",
    "slide2_bullets": ["beneficio corto con emoji", "beneficio corto con emoji", "beneficio corto con emoji"],
@@ -454,10 +642,14 @@ Recibirás el BRIEF libre del negocio (comercio registrado o cliente externo; pu
    "dispatchUpsell": "confirmación de despacho + venta cruzada (upsell) natural"
  }
 }
-Adapta TODO el tono al enfoque psicológico indicado en el brief (remate/urgencia, prestigio/alta gama, confianza/tradición local, impacto moderno/viral). Español colombiano cercano y honesto; image_prompt_en en inglés.`;
+REGLAS DE ORO:
+- PROHIBIDO copiar frases literales del brief del usuario ni rellenar con plantillas genéricas: todo el copy debe nacer de la promesa de valor de la estrategia.
+- Los beneficios deben describir algo que SOLO ese negocio puede decir.
+- headliness y textos SIEMPRE con espacios correctos entre palabras.
+- Español colombiano cercano y honesto; adapta el tono al enfoque psicológico indicado.`;
 
-/** Normaliza la respuesta de la IA contra el contrato V7 de la campaña. */
-function normalizeCampaign(raw: Partial<MarketingCampaign> & Record<string, unknown>, input: CampaignInput): MarketingCampaign {
+/** Normaliza la respuesta de la PASADA 2 contra el contrato V8. */
+function normalizeCampaign(raw: Partial<MarketingCampaign> & Record<string, unknown>, input: CampaignInput, art: ArtDirection): MarketingCampaign {
   const vh = (raw.visualHooks ?? {}) as Partial<MarketingVisualHooks>;
   const ws = (raw.whatsappStatusSequence ?? {}) as Partial<MarketingCampaign['whatsappStatusSequence']>;
   const sc = (raw.socialMediaCopy ?? {}) as Partial<MarketingCampaign['socialMediaCopy']>;
@@ -465,137 +657,63 @@ function normalizeCampaign(raw: Partial<MarketingCampaign> & Record<string, unkn
   const cl = (raw.salesClosingTemplates ?? {}) as Partial<MarketingCampaign['salesClosingTemplates']>;
   const hl = (raw.headline ?? {}) as Partial<CampaignHeadline>;
   const isService = input.priceMode === 'servicio';
+
+  const plain = normSpaces(hl.plain);
+  const highlight = normSpaces(hl.highlight);
+  if (!plain || !highlight) {
+    throw new Error('La IA (pasada 2) no devolvió un titular completo. Pulsa ✨ de nuevo.');
+  }
+  const benefits = Array.isArray(raw.benefits)
+    ? (raw.benefits as unknown[]).filter((b): b is string => typeof b === 'string' && b.trim() !== '').slice(0, 3)
+    : [];
+  if (benefits.length < 3) {
+    throw new Error('La IA (pasada 2) no devolvió los 3 beneficios del negocio. Pulsa ✨ de nuevo.');
+  }
   const customLabel = input.priceLabel.trim();
+  const listStr = (v: unknown): string[] =>
+    Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.trim() !== '').slice(0, 3) : [];
+
   return {
-    badgeText:
-      (typeof raw.badge_text === 'string' && raw.badge_text.trim()) ||
-      (isService ? '⭐ ESPECIALIDAD DE LA CASA' : '💎 CALIDAD GARANTIZADA'),
-    headline: {
-      plain: (hl.plain ?? '').trim() || `Lo mejor de ${input.businessName || 'el pueblo'}`,
-      highlight: (hl.highlight ?? '').trim() || (input.product.trim() ? input.product.trim() : 'HOY'),
-    },
-    sub: (typeof raw.sub === 'string' && raw.sub.trim()) || input.slogan.trim() || 'Calidad del pueblo, atención de primera',
-    benefits:
-      Array.isArray(raw.benefits) && raw.benefits.length > 0
-        ? (raw.benefits as unknown[]).filter((b): b is string => typeof b === 'string' && b.trim() !== '').slice(0, 3)
-        : ['🥇 Calidad garantizada', '🤝 Atención cercana', '⚡ Respuesta rápida'],
-    cta: (typeof raw.cta === 'string' && raw.cta.trim()) || (isService ? '💬 Cotiza gratis por WhatsApp' : '¡Pide el tuyo HOY! Toca y escríbenos 👉'),
-    priceLabel: isService ? customLabel || (typeof raw.price_label === 'string' && raw.price_label.trim()) || '💬 Cotiza gratis por WhatsApp' : null,
-    imagePromptEn:
-      (typeof raw.image_prompt_en === 'string' && raw.image_prompt_en.trim()) ||
-      `professional advertising photo of ${input.product.trim() || input.businessName || 'a local Colombian business'}, warm inviting lighting, shallow depth of field, high resolution, no text`,
+    industryType: art.industryType,
+    themeId: art.themeId,
+    layoutId: art.layoutId,
+    valueProposition: art.valueProposition,
+    badgeText: normSpaces(raw.badge_text) || `⭐ ${input.municipality ? `${input.municipality.toUpperCase()}` : 'NEGOCIO DESTACADO'}`,
+    headline: { plain, highlight },
+    sub: normSpaces(raw.sub) || art.valueProposition,
+    benefits,
+    cta: normSpaces(raw.cta) || (isService ? '💬 Escríbenos por WhatsApp' : '👉 Escríbenos por WhatsApp'),
+    priceLabel: isService
+      ? customLabel || normSpaces(raw.price_label) || '💬 Escríbenos por WhatsApp'
+      : null,
+    imagePromptEn: art.imagePromptEn,
     visualHooks: {
-      slide1_hook: (vh.slide1_hook ?? '').trim() || '¿Lo más rico del pueblo HOY?',
-      slide1_sub: (vh.slide1_sub ?? '').trim() || 'Fresquito y recién hecho',
-      slide2_headline: (vh.slide2_headline ?? '').trim() || 'El favorito del municipio',
-      slide2_bullets:
-        Array.isArray(vh.slide2_bullets) && vh.slide2_bullets.length > 0
-          ? vh.slide2_bullets.filter((b): b is string => typeof b === 'string' && b.trim() !== '').slice(0, 3)
-          : ['🥇 Calidad garantizada', '🚚 Domicilio disponible', '⏰ Solo por HOY'],
-      slide3_cta: (vh.slide3_cta ?? '').trim() || '¡Pide el tuyo HOY! Toca y escríbenos 👉',
+      slide1_hook: normSpaces(vh.slide1_hook),
+      slide1_sub: normSpaces(vh.slide1_sub),
+      slide2_headline: normSpaces(vh.slide2_headline),
+      slide2_bullets: listStr(vh.slide2_bullets),
+      slide3_cta: normSpaces(vh.slide3_cta),
     },
     whatsappStatusSequence: {
-      status1: (ws.status1 ?? '').trim() || '👀 ¿Ya sabes qué vas a almorzar hoy? Te va a encantar esto…',
-      status2: (ws.status2 ?? '').trim() || '🔥 Hoy lo tienes a precio de amigo. Escríbenos y te lo apartamos 👉',
-      status3: (ws.status3 ?? '').trim() || '🚨 ¡Últimas unidades! El pueblo ya está apartando. Escríbenos aquí 👉',
+      status1: normSpaces(ws.status1),
+      status2: normSpaces(ws.status2),
+      status3: normSpaces(ws.status3),
     },
     socialMediaCopy: {
-      pas: (sc.pas ?? '').trim() || '¿Se te antoja algo rico y no quieres cocinar? 😩 Todos los días pasa igual… pero hoy tienes la solución a un mensaje de distancia. Escríbenos por WhatsApp 👉',
-      aida: (sc.aida ?? '').trim() || '🔥 ATENCIÓN: salió lo que estabas esperando. 👀 Interésate: es fresquito y del pueblo. 😍 Desea: pídelo sin salir de casa. ⚡ Acción: escríbenos YA 👉',
+      pas: normSpaces(sc.pas),
+      aida: normSpaces(sc.aida),
     },
     videoReelScript: {
-      t0_3: (vr.t0_3 ?? '').trim() || 'Plano cercano del producto humeando + voz: "¿Esto te lo imaginas en tu mesa hoy?"',
-      t3_10: (vr.t3_10 ?? '').trim() || 'Demostración: muestra el producto, la porción y la frescura + voz: "recién hecho, como en casa"',
-      t10_15: (vr.t10_15 ?? '').trim() || 'Plano del local o la moto del domicilio + voz: "escríbenos por WhatsApp y te lo llevamos hoy 👉"',
+      t0_3: normSpaces(vr.t0_3),
+      t3_10: normSpaces(vr.t3_10),
+      t10_15: normSpaces(vr.t10_15),
     },
     salesClosingTemplates: {
-      priceReply: (cl.priceReply ?? '').trim() || '¡Claro que sí! 😊 El valor es $X. Si pides 2 te incluyo domicilio en el pueblo. ¿Te lo aparto?',
-      hesitantReply: (cl.hesitantReply ?? '').trim() || 'Te entiendo 👍 Hoy solo nos quedan unas pocas unidades y mañana ya no hay. Por eso te las estoy apartando con tu nombre — ¿confirmamos?',
-      dispatchUpsell: (cl.dispatchUpsell ?? '').trim() || '¡Listo, tu pedido va en camino 🛵! ¿Te incluyo una bebida bien fría por solo $X más?',
+      priceReply: normSpaces(cl.priceReply),
+      hesitantReply: normSpaces(cl.hesitantReply),
+      dispatchUpsell: normSpaces(cl.dispatchUpsell),
     },
   };
-}
-
-/** Moods fotográficos por enfoque psicológico (para imagePromptEn). */
-const FOCUS_PHOTO_MOODS: Record<CampaignFocus, string> = {
-  remate: 'dynamic bold advertising shot, high contrast dramatic lighting, urgent energetic mood',
-  prestigio: 'luxury editorial photography, elegant soft golden lighting, premium sophisticated mood',
-  confianza: 'authentic warm documentary style, natural daylight, friendly family business mood',
-  viral: 'trendy vibrant modern shot, punchy saturated colors, social media viral mood',
-};
-
-/** Sello por defecto según el enfoque psicológico. */
-const FOCUS_BADGES: Record<CampaignFocus, string> = {
-  remate: '🔥 OFERTA POR TIEMPO LIMITADO',
-  prestigio: '💎 PRESTIGIO Y CALIDAD',
-  confianza: '⭐ ESPECIALIDAD DE LA CASA',
-  viral: '⚡ LO QUE TODOS COMENTAN',
-};
-
-/** Fallback local ultra-completo: el estudio JAMÁS se queda sin campaña. */
-function localCampaignFallback(input: CampaignInput): MarketingCampaign {
-  const brief = input.brief.trim();
-  const prod = input.product.trim() || (brief ? brief.slice(0, 48) : `lo mejor de ${input.businessName || 'nuestro negocio'}`);
-  const biz = input.businessName.trim() || 'nuestro negocio';
-  const place = input.municipality.trim() || 'el pueblo';
-  const isService = input.priceMode === 'servicio';
-  const price = input.promoPrice != null ? `$${input.promoPrice.toLocaleString('es-CO')}` : '';
-  const priceTxt = price ? ` a solo ${price}` : '';
-  const before = input.normalPrice != null && input.promoPrice != null ? ` (antes $${input.normalPrice.toLocaleString('es-CO')})` : '';
-  const label = input.priceLabel.trim() || '💬 Cotiza gratis por WhatsApp';
-  const link = input.targetUrl || '👇 escríbenos por WhatsApp';
-  const mood = FOCUS_PHOTO_MOODS[input.focus];
-  const subject = input.product.trim() || biz;
-
-  return normalizeCampaign(
-    {
-      badge_text: FOCUS_BADGES[input.focus],
-      headline: {
-        plain: isService ? `${biz} te lo resuelve` : 'Del pueblo, hecho con',
-        highlight: isService ? 'HOY' : prod,
-      },
-      sub: input.slogan.trim() || brief.slice(0, 60) || `${biz} · ${place}`,
-      benefits: isService
-        ? ['🤝 Atención personalizada', '⏱️ Respuesta rápida', '📍 Cerca de ti en el pueblo']
-        : ['🥇 Calidad garantizada', '🚚 Domicilio disponible', '⏰ Solo por HOY'],
-      cta: isService ? label : price ? `¡Pide el tuyo HOY${priceTxt}! Escríbenos 👉` : '¡Aparta el tuyo HOY! Escríbenos 👉',
-      price_label: isService ? label : null,
-      image_prompt_en: `professional advertising photo of ${subject}, ${mood}, high resolution commercial quality, no text in image`,
-      visualHooks: {
-        slide1_hook: `¿Ya probaste ${prod}?`,
-        slide1_sub: `${biz} · ${place} · disponible HOY`,
-        slide2_headline: isService ? `${prod}: hecho a tu medida` : price ? `${prod}${priceTxt}${before}` : `${prod}: el favorito de ${place}`,
-        slide2_bullets: isService
-          ? ['🤝 Atención personalizada', '⏱️ Respuesta rápida', '📍 Cerca de ti en el pueblo']
-          : ['🥇 Calidad garantizada', '🚚 Domicilio disponible', '⏰ Solo por HOY'],
-        slide3_cta: isService ? `${label} 👉` : price ? `¡Pide el tuyo HOY${priceTxt}! Escríbenos 👉` : '¡Aparta el tuyo HOY! Escríbenos 👉',
-      },
-      whatsappStatusSequence: {
-        status1: `👀 ¿Necesitas ${prod} hoy? Mira esto…`,
-        status2: `🔥 ${prod} en ${biz}${isService ? '' : priceTxt}. Escríbenos y te lo apartamos ${link}`,
-        status3: `🚨 ${prod}: el pueblo ya está escribiendo. No te quedes por fuera. ${link}`,
-      },
-      socialMediaCopy: {
-        pas: `¿Se te complica conseguir ${prod}? 😩 En ${place} pasa todos los días… Hoy tienes la solución a un mensaje: ${biz} te atiende de primera${isService ? '' : priceTxt}. Escríbenos 👉 ${link}`,
-        aida: `🔥 ATENCIÓN ${place}: ${prod} disponible HOY.\n👀 Interés: calidad de confianza, del pueblo.\n😍 Deseo: resuélvelo sin dar una vuelta${isService ? '' : priceTxt}.\n⚡ Acción: escríbenos YA ${link}`,
-      },
-      videoReelScript: {
-        t0_3: `Segundos 0-3: plano cercano del producto o el servicio en acción + voz: "¿Esto te lo imaginas hoy?"`,
-        t3_10: `Segundos 3-10: muestra ${prod} trabajando + voz: "en ${biz} es en serio, como en casa"`,
-        t10_15: `Segundos 10-15: plano del local o la moto + voz: "escríbenos por WhatsApp y te atendemos hoy ${input.address || place}"`,
-      },
-      salesClosingTemplates: {
-        priceReply: isService
-          ? `¡Con gusto! 😊 Cada caso es distinto: cuéntame qué necesitas y te paso la cotización al toque, sin compromiso. ¿Te ayudo ahora?`
-          : price
-            ? `¡Claro que sí! 😊 ${prod} está en ${price}${before}. Si pides 2 te incluyo el domicilio en ${place}. ¿Te lo aparto?`
-            : `¡Claro que sí! 😊 Cuéntame cuántos necesitas y te paso el valor al toque. ¿Te aparto uno ya?`,
-        hesitantReply: `Te entiendo 👍 Hoy solo nos quedan unos pocos cupos y mañana ya no hay — por eso te lo estoy apartando con tu nombre. ¿Confirmamos?`,
-        dispatchUpsell: `¡Listo, tu pedido va en camino 🛵! ¿Te incluyo un extra por un poquito más?`,
-      },
-    } as Partial<MarketingCampaign> & Record<string, unknown>,
-    input
-  );
 }
 
 const CAMPAIGN_SCHEMA: Record<string, unknown> = {
@@ -611,7 +729,6 @@ const CAMPAIGN_SCHEMA: Record<string, unknown> = {
     benefits: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
     cta: { type: SchemaType.STRING },
     price_label: { type: SchemaType.STRING, nullable: true },
-    image_prompt_en: { type: SchemaType.STRING },
     visualHooks: {
       type: SchemaType.OBJECT,
       properties: {
@@ -648,43 +765,34 @@ const CAMPAIGN_SCHEMA: Record<string, unknown> = {
       required: ['priceReply', 'hesitantReply', 'dispatchUpsell'],
     },
   },
-  required: ['badge_text', 'headline', 'sub', 'benefits', 'cta', 'image_prompt_en', 'visualHooks', 'whatsappStatusSequence', 'socialMediaCopy', 'videoReelScript', 'salesClosingTemplates'],
+  required: ['badge_text', 'headline', 'sub', 'benefits', 'cta', 'visualHooks', 'whatsappStatusSequence', 'socialMediaCopy', 'videoReelScript', 'salesClosingTemplates'],
 };
 
 /**
- * Genera la campaña estratégica completa de un negocio: sello, titular a dos
- * tonos, beneficios, CTA, etiqueta de precio/servicio, prompt fotográfico en
- * inglés, secuencia de Estados, copy PAS/AIDA, guion de Reel y cierres de venta.
- * Con fallback local: si la IA falla, SIEMPRE devuelve una campaña usable.
+ * 🎬 PASADA 2: copywriting senior de agencia usando la estrategia de la PASADA 1.
+ * Si la IA falla lanza el error técnico exacto (el estudio lo muestra en un
+ * toast): NUNCA devuelve una campaña fabricada con plantillas prefabricadas.
  */
-export async function generateFullMarketingCampaign(input: CampaignInput): Promise<MarketingCampaign> {
-  const facts = [
-    `Negocio/marca: ${input.businessName}`,
-    `Eslogan o rubro: ${input.slogan || '(no hay)'}`,
-    `🧠 BRIEF LIBRE del negocio (úsalo como fuente principal de la estrategia): ${input.brief || '(no hay brief, deduce del producto)'}`,
-    `Producto/promoción estrella: ${input.product || '(no hay, elige un enfoque del brief)'}`,
-    `Modalidad de precio: ${input.priceMode === 'servicio' ? 'SERVICIO/COTIZACIÓN (no inventes precios tachados, genera price_label)' : 'PRECIO DE OFERTA exacto'}`,
-    input.priceMode === 'servicio' && input.priceLabel.trim() ? `Etiqueta de precio personalizada del admin: "${input.priceLabel.trim()}"` : '',
-    `Precio normal: ${input.normalPrice != null ? `$${input.normalPrice.toLocaleString('es-CO')}` : '(no aplica)'}`,
-    `Precio promoción: ${input.promoPrice != null ? `$${input.promoPrice.toLocaleString('es-CO')}` : '(no aplica)'}`,
-    `Dirección o referencia: ${input.address || '(no hay)'}`,
-    `Municipio: ${input.municipality}`,
-    `Enfoque psicológico del anuncio: ${input.focus}`,
-    `Enlace/WhatsApp de destino: ${input.targetUrl}`,
-  ]
-    .filter(Boolean)
-    .join('\n');
-
+export async function generateCampaignCopy(input: CampaignInput, art: ArtDirection): Promise<MarketingCampaign> {
+  const strategy = [
+    `ESTRATEGIA DE LA PASADA 1 (úsala como eje de TODO el copy):`,
+    `· Rubro detectado: ${art.industryType}`,
+    `· Promesa de valor central: ${art.valueProposition}`,
+    `· Tema visual: ${art.themeId} · Layout: ${art.layoutId}`,
+    '',
+    campaignFacts(input),
+  ].join('\n');
+  const jsonText = await callGemini({
+    systemInstruction: COPY_SYSTEM_PROMPT,
+    prompt: strategy,
+    temperature: 0.9,
+    responseSchema: CAMPAIGN_SCHEMA,
+  });
+  let raw: Partial<MarketingCampaign> & Record<string, unknown>;
   try {
-    const jsonText = await callGemini({
-      systemInstruction: CAMPAIGN_PROMPT,
-      prompt: facts,
-      temperature: 0.85,
-      responseSchema: CAMPAIGN_SCHEMA,
-    });
-    return normalizeCampaign(JSON.parse(jsonText) as Partial<MarketingCampaign> & Record<string, unknown>, input);
+    raw = JSON.parse(jsonText) as Partial<MarketingCampaign> & Record<string, unknown>;
   } catch {
-    // Sin conexión o IA caída: campaña local de nivel agencia (jamás falla).
-    return localCampaignFallback(input);
+    throw new Error('La IA (pasada 2) no devolvió un JSON de campaña válido. Intenta de nuevo.');
   }
+  return normalizeCampaign(raw, input, art);
 }

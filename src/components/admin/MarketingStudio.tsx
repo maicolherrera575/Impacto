@@ -3,8 +3,8 @@ import * as QRCode from 'qrcode';
 import { Check, Copy, Dices, Download, ImagePlus, Loader2, Send, Sparkles, Trash2, Wand2 } from 'lucide-react';
 import type { Offer, Profile } from '../../types';
 import { categoryMeta } from '../../types';
-import { generateFullMarketingCampaign } from '../../services/gemini.service';
-import type { CampaignFocus, MarketingCampaign, PriceMode } from '../../services/gemini.service';
+import { generateArtDirection, generateCampaignCopy, industryFromHint, normSpaces } from '../../services/gemini.service';
+import type { ArtDirection, CampaignFocus, IndustryType, MarketingCampaign, PriceMode } from '../../services/gemini.service';
 import { useToast } from '../ui/Toast';
 import { cx, formatCOP } from '../../utils/format';
 import { waLink } from '../../utils/whatsapp';
@@ -56,6 +56,8 @@ type Format = 'story' | 'square';
 type Layout = 'bento' | 'magazine' | 'diagonal' | 'swiss';
 type Piece = 0 | 1 | 2 | 3;
 type PhotoMode = 'card' | 'full' | 'diag' | 'window';
+/** Textura vectorial de fondo propia de cada tema (dibujada 100% en canvas). */
+type ThemePattern = 'iso' | 'deco' | 'ember' | 'clinic' | 'topo' | 'rows' | 'burst' | 'mono';
 
 interface Theme {
   id: string;
@@ -65,23 +67,28 @@ interface Theme {
   glow: string;
   glow2: string;
   accent: string;
+  accent2: string;
   text: string;
   sub: string;
+  pattern: ThemePattern;
 }
 
 const THEMES: Theme[] = [
-  { id: 'obsidian', label: '🥂 Obsidian Gold', bg1: '#0b0b10', bg2: '#191924', glow: 'rgba(245,196,81,0.28)', glow2: 'rgba(255,255,255,0.10)', accent: '#f5c451', text: '#fff7e6', sub: '#cfc8b8' },
-  { id: 'esmeralda', label: '🌿 Esmeralda Andino', bg1: '#06231c', bg2: '#0c4232', glow: 'rgba(52,211,153,0.30)', glow2: 'rgba(16,220,160,0.16)', accent: '#34d399', text: '#eafff5', sub: '#a7d8c4' },
-  { id: 'brasa', label: '🔥 Brasa & Sabor', bg1: '#2b1004', bg2: '#5c1c06', glow: 'rgba(251,146,60,0.32)', glow2: 'rgba(239,68,68,0.18)', accent: '#fb923c', text: '#fff3e4', sub: '#e6c4a3' },
-  { id: 'agro', label: '🚜 Agro & Tierra', bg1: '#1c250c', bg2: '#3d4d19', glow: 'rgba(234,214,122,0.28)', glow2: 'rgba(163,230,53,0.14)', accent: '#ead679', text: '#fdfbee', sub: '#cfcfa8' },
-  { id: 'cyber', label: '⚡ Cyber Flash', bg1: '#05070f', bg2: '#0d1633', glow: 'rgba(34,211,238,0.36)', glow2: 'rgba(168,85,247,0.20)', accent: '#22d3ee', text: '#eafcff', sub: '#9ec5d4' },
+  { id: 'cyber', label: '🚀 Cyber Indigo', bg1: '#090d16', bg2: '#101a3a', glow: 'rgba(99,102,241,0.35)', glow2: 'rgba(168,85,247,0.22)', accent: '#22d3ee', accent2: '#a855f7', text: '#eaf2ff', sub: '#9fb3d9', pattern: 'iso' },
+  { id: 'obsidian', label: '🥂 Obsidian Gold', bg1: '#08080a', bg2: '#141118', glow: 'rgba(245,158,11,0.26)', glow2: 'rgba(255,255,255,0.08)', accent: '#f59e0b', accent2: '#fde68a', text: '#fff7e6', sub: '#cfc8b8', pattern: 'deco' },
+  { id: 'brasa', label: '🔥 Crimson Ember', bg1: '#180808', bg2: '#3b0d06', glow: 'rgba(249,115,22,0.30)', glow2: 'rgba(239,68,68,0.18)', accent: '#f97316', accent2: '#fbbf24', text: '#fff3e4', sub: '#e6c4a3', pattern: 'ember' },
+  { id: 'clinic', label: '🩺 Clinical Cyan', bg1: '#081420', bg2: '#0e2a3c', glow: 'rgba(6,182,212,0.28)', glow2: 'rgba(255,255,255,0.10)', accent: '#06b6d4', accent2: '#7dd3fc', text: '#eafbff', sub: '#a5c8d7', pattern: 'clinic' },
+  { id: 'emerald', label: '🌿 Emerald Andean', bg1: '#061812', bg2: '#0e3a2a', glow: 'rgba(16,185,129,0.30)', glow2: 'rgba(52,211,153,0.16)', accent: '#10b981', accent2: '#a7f3d0', text: '#eafff5', sub: '#a7d8c4', pattern: 'topo' },
+  { id: 'terra', label: '🚜 Terra Harvest', bg1: '#14180b', bg2: '#2e3712', glow: 'rgba(234,179,8,0.26)', glow2: 'rgba(163,230,53,0.14)', accent: '#eab308', accent2: '#fde047', text: '#fdfbee', sub: '#cfcfa8', pattern: 'rows' },
+  { id: 'sunset', label: '⚡ Sunset Magenta', bg1: '#1b0b2e', bg2: '#4a1259', glow: 'rgba(236,72,153,0.32)', glow2: 'rgba(251,146,60,0.22)', accent: '#ec4899', accent2: '#fb923c', text: '#fff0fa', sub: '#e3b8d9', pattern: 'burst' },
+  { id: 'titanium', label: '🏛️ Titanium Pro', bg1: '#111318', bg2: '#23262e', glow: 'rgba(255,255,255,0.10)', glow2: 'rgba(132,204,22,0.18)', accent: '#ffffff', accent2: '#84cc16', text: '#ffffff', sub: '#b9bec9', pattern: 'mono' },
 ];
 
 const LAYOUTS: Array<{ id: Layout; label: string; hint: string }> = [
   { id: 'bento', label: '🏆 Master Bento', hint: 'Todo en uno (recomendado)' },
-  { id: 'magazine', label: '📸 Full-Bleed', hint: 'Portada de revista' },
-  { id: 'diagonal', label: '⚡ Diagonal', hint: 'Spotlight dinámico' },
-  { id: 'swiss', label: '🏛️ Swiss Minimal', hint: 'Servicios y agro' },
+  { id: 'magazine', label: '📸 Full-Bleed Magazine', hint: 'Portada de revista' },
+  { id: 'diagonal', label: '⚡ Asymmetric Diagonal', hint: 'Spotlight dinámico' },
+  { id: 'swiss', label: '🏛️ Executive Card Grid', hint: 'Servicios y agro' },
 ];
 
 const BADGE_PRESETS: Array<{ id: string; label: string }> = [
@@ -120,6 +127,112 @@ const FOCUS_PHOTO_MOODS: Record<CampaignFocus, string> = {
 
 const PRESET_URL = (id: string): string =>
   `https://images.unsplash.com/${id}?w=1080&q=80&fm=jpg&fit=crop`;
+
+// ── Librería de 40 fotografías editoriales HD (5 por rubro, rotación aleatoria)
+// Se cargan al instante para que el lienzo JAMÁS quede vacío; la foto IA a
+// medida de pollinations llega después y reemplaza suavemente la instantánea.
+const INDUSTRY_LABELS: Record<IndustryType, string> = {
+  digital_tech: '💻 Marketing/Tech',
+  gastronomia: '🍽️ Gastronomía',
+  salud_belleza: '🩺 Salud/Belleza',
+  agro_campo: '🚜 Agro/Campo',
+  transporte_logistica: '🛻 Transporte',
+  comercio_retail: '🛍️ Comercio',
+  servicios_profesionales: '💼 Servicios Pro',
+  construccion_hogar: '🏗️ Construcción',
+};
+
+const INDUSTRY_PHOTOS: Record<IndustryType, string[]> = {
+  digital_tech: [
+    'photo-1518770660439-4636190af55',
+    'photo-1461749280684-dccba630e2f6',
+    'photo-1519389950473-47ba0277781c',
+    'photo-1550745165-9bc0b252726f',
+    'photo-1531297484001-80022131f5a1',
+  ],
+  gastronomia: [
+    'photo-1568901346375-23c9450c5869',
+    'photo-1509440159596-0249088772ff',
+    'photo-1544025162-d76694265947',
+    'photo-1565299624946-b28f40a0ae38',
+    'photo-1555939594-58d7cb561ad1',
+  ],
+  salud_belleza: [
+    'photo-1606811841689-23dfddce3e95',
+    'photo-1560066984-138dadb34c00',
+    'photo-1596462502278-27bfdc403348',
+    'photo-1576091160399-112ba8d25d1d',
+    'photo-1588776814546-1ffcf47267a5',
+  ],
+  agro_campo: [
+    'photo-1500595046743-cd271d694d30',
+    'photo-1500382017468-9049fed747ef',
+    'photo-1560493676-04071c5f467b',
+    'photo-1625246333195-78d9c8adad30',
+    'photo-1574943320219-553eb213f72d',
+  ],
+  transporte_logistica: [
+    'photo-1501700493788-fa1a4fc9fe62',
+    'photo-1601584115197-04ecc0da31d7',
+    'photo-1519003722824-194ddf4c2e91',
+    'photo-1568607918850-51c8d6ac40e5',
+    'photo-1558618666-fcd25c85cd64',
+  ],
+  comercio_retail: [
+    'photo-1441986300917-64674bd600d8',
+    'photo-1483985988355-763728e1935b',
+    'photo-1472851294608-062f824d29cc',
+    'photo-1607083206968-1361166ea65e',
+    'photo-1555529669-e69e7aa0ba9a',
+  ],
+  servicios_profesionales: [
+    'photo-1450101499163-c8848c66ca85',
+    'photo-1521791136064-7986c2920216',
+    'photo-1507003211169-0a1dd7228f2d',
+    'photo-1573496359142-b8d87734a5a2',
+    'photo-1560264280-88b68371db39',
+  ],
+  construccion_hogar: [
+    'photo-1504148455328-c376907d081c',
+    'photo-1541888946425-d81bb19240f5',
+    'photo-1581094794329-c8112a89af12',
+    'photo-1600585154340-be6161a56a0c',
+    'photo-1416331108676-a22ccb276e35',
+  ],
+};
+
+/** Adivina el rubro por palabras clave del brief (cliente externo sin categoría). */
+function guessIndustry(text: string): IndustryType {
+  const t = text.toLowerCase();
+  if (/marketing|digital|redes|software|pagina|p[aá]gina|web|tecnolog|publicidad|agencia/.test(t)) return 'digital_tech';
+  if (/restaurante|comida|pizza|asado|panader|caf[eé]|almuerzo|men[uú]|sabor/.test(t)) return 'gastronomia';
+  if (/odont|dental|salud|m[eé]dico|belleza|spa|est[eé]tica|peluquer|farmacia|droguer/.test(t)) return 'salud_belleza';
+  if (/agro|campo|veterinar|finca|ganado|cultivo|abono|semilla|concentrado/.test(t)) return 'agro_campo';
+  if (/transporte|flete|domicilio|camion|moto|despacho|log[ií]stica/.test(t)) return 'transporte_logistica';
+  if (/tienda|ropa|venta|almac[eé]n|boutique|supermercado|comercio/.test(t)) return 'comercio_retail';
+  if (/construcci[oó]n|obra|ferreter|alba[nñ]il|hogar|mueble|electricis|plomero/.test(t)) return 'construccion_hogar';
+  return 'servicios_profesionales';
+}
+
+/** Carga en rotación aleatoria una foto editorial del rubro; prueba las 5. */
+async function loadCuratedIndustryPhoto(industry: IndustryType): Promise<string | null> {
+  const ids = [...INDUSTRY_PHOTOS[industry]].sort(() => Math.random() - 0.5);
+  for (const id of ids) {
+    try {
+      const img = await loadImage(PRESET_URL(id));
+      const off = document.createElement('canvas');
+      off.width = 1080;
+      off.height = 1080;
+      const octx = off.getContext('2d');
+      if (!octx) return null;
+      octx.drawImage(img, 0, 0, 1080, 1080);
+      return off.toDataURL('image/jpeg', 0.9);
+    } catch {
+      // Foto no disponible: prueba la siguiente del rubro.
+    }
+  }
+  return null;
+}
 
 // ── Utilidades de dibujo y teléfono ────────────────────────────────────────
 
@@ -280,6 +393,255 @@ function swissGrid(ctx: CanvasRenderingContext2D, W: number, H: number, fs: numb
   }
 }
 
+/** Textura vectorial única de cada tema (8 estilos, cero fondos repetidos). */
+function drawThemePattern(ctx: CanvasRenderingContext2D, W: number, H: number, t: Theme, fs: number): void {
+  ctx.save();
+  switch (t.pattern) {
+    case 'iso': {
+      // Retícula isométrica tecnológica + destellos neón en cruz.
+      ctx.strokeStyle = alpha(t.accent, 0.10);
+      ctx.lineWidth = Math.max(1, 1.5 * fs);
+      const step = 150 * fs;
+      for (let x = -H; x < W + H; x += step) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x + H * 0.55, H);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(x + H * 0.55, 0);
+        ctx.lineTo(x, H);
+        ctx.stroke();
+      }
+      ctx.strokeStyle = alpha(t.accent2, 0.55);
+      ctx.lineWidth = Math.max(1.2, 2.5 * fs);
+      for (const [px, py, s] of [[W * 0.14, H * 0.3, 20], [W * 0.82, H * 0.16, 26], [W * 0.1, H * 0.78, 18]] as Array<[number, number, number]>) {
+        ctx.beginPath();
+        ctx.moveTo(px - s * fs, py);
+        ctx.lineTo(px + s * fs, py);
+        ctx.moveTo(px, py - s * fs);
+        ctx.lineTo(px, py + s * fs);
+        ctx.stroke();
+      }
+      break;
+    }
+    case 'deco': {
+      // Arcos art-déco concéntricos + líneas verticales de champán.
+      ctx.strokeStyle = alpha(t.accent, 0.16);
+      ctx.lineWidth = Math.max(1, 2 * fs);
+      for (let r = 120 * fs; r < W * 0.9; r += 110 * fs) {
+        ctx.beginPath();
+        ctx.arc(W * 0.5, -W * 0.32, r, 0, Math.PI);
+        ctx.stroke();
+      }
+      ctx.strokeStyle = alpha(t.accent, 0.10);
+      for (let x = 70 * fs; x < W; x += 90 * fs) {
+        ctx.beginPath();
+        ctx.moveTo(x, H * 0.62);
+        ctx.lineTo(x, H);
+        ctx.stroke();
+      }
+      break;
+    }
+    case 'ember': {
+      // Brasas ascendentes con halo cálido.
+      const spots: Array<[number, number, number]> = [
+        [W * 0.12, H * 0.2, 10], [W * 0.24, H * 0.34, 6], [W * 0.86, H * 0.24, 8], [W * 0.78, H * 0.4, 12],
+        [W * 0.08, H * 0.62, 7], [W * 0.9, H * 0.58, 9], [W * 0.5, H * 0.1, 6], [W * 0.35, H * 0.15, 8],
+      ];
+      for (const [px, py, s] of spots) {
+        const g = ctx.createRadialGradient(px, py, 0, px, py, s * 4 * fs);
+        g.addColorStop(0, alpha(t.accent2, 0.5));
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(px, py, s * 4 * fs, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      break;
+    }
+    case 'clinic': {
+      // Cruces clínicas sutiles + pulso ECG horizontal.
+      ctx.strokeStyle = alpha(t.accent, 0.14);
+      ctx.lineWidth = Math.max(1, 2.5 * fs);
+      for (const [px, py, s] of [[W * 0.16, H * 0.2, 16], [W * 0.88, H * 0.34, 20], [W * 0.1, H * 0.75, 14], [W * 0.8, H * 0.12, 12]] as Array<[number, number, number]>) {
+        ctx.beginPath();
+        ctx.moveTo(px - s * fs, py);
+        ctx.lineTo(px + s * fs, py);
+        ctx.moveTo(px, py - s * fs);
+        ctx.lineTo(px, py + s * fs);
+        ctx.stroke();
+      }
+      ctx.strokeStyle = alpha(t.accent, 0.35);
+      ctx.lineWidth = Math.max(1.5, 3 * fs);
+      ctx.beginPath();
+      ctx.moveTo(0, H * 0.14);
+      ctx.lineTo(W * 0.3, H * 0.14);
+      ctx.lineTo(W * 0.38, H * 0.07);
+      ctx.lineTo(W * 0.46, H * 0.2);
+      ctx.lineTo(W * 0.54, H * 0.14);
+      ctx.lineTo(W, H * 0.14);
+      ctx.stroke();
+      break;
+    }
+    case 'topo': {
+      // Curvas topográficas suaves de montaña andina.
+      ctx.strokeStyle = alpha(t.accent2, 0.16);
+      ctx.lineWidth = Math.max(1, 2 * fs);
+      for (let i = 0; i < 6; i++) {
+        const baseY = H * (0.12 + i * 0.15);
+        ctx.beginPath();
+        for (let x = 0; x <= W; x += 24 * fs) {
+          const y = baseY + Math.sin(x / (170 * fs) + i * 1.4) * 26 * fs;
+          if (x === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+      break;
+    }
+    case 'rows': {
+      // Halftone de trigo + surcos horizontales de cultivo.
+      ctx.fillStyle = alpha(t.accent, 0.20);
+      const rad = 5 * fs;
+      for (let row = 0; row < 9; row++) {
+        for (let col = 0; col <= row; col++) {
+          ctx.beginPath();
+          ctx.arc(70 * fs + col * 34 * fs, H * 0.2 + row * 30 * fs, rad, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      ctx.strokeStyle = alpha(t.accent2, 0.14);
+      ctx.lineWidth = Math.max(1, 2 * fs);
+      for (let y = H * 0.72; y < H; y += 46 * fs) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(W, y);
+        ctx.stroke();
+      }
+      break;
+    }
+    case 'burst': {
+      // Cuchillas diagonales de color + halftone viral.
+      ctx.fillStyle = alpha(t.accent, 0.10);
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(W * 0.55, 0);
+      ctx.lineTo(0, H * 0.5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = alpha(t.accent2, 0.12);
+      ctx.beginPath();
+      ctx.moveTo(W, H);
+      ctx.lineTo(W * 0.4, H);
+      ctx.lineTo(W, H * 0.55);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = alpha(t.accent, 0.16);
+      for (let row = 0; row < 7; row++) {
+        for (let col = 0; col < 7; col++) {
+          const cx2 = W * 0.62 + col * 38 * fs;
+          const cy2 = H * 0.08 + row * 38 * fs;
+          const r = (1 - row / 8) * 7 * fs;
+          ctx.beginPath();
+          ctx.arc(cx2, cy2, r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      break;
+    }
+    case 'mono': {
+      // Líneas técnicas diagonales + crosshairs de plano arquitectónico.
+      ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+      ctx.lineWidth = Math.max(1, 1.5 * fs);
+      for (let x = -H; x < W + H; x += 130 * fs) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x + H * 0.4, H);
+        ctx.stroke();
+      }
+      ctx.strokeStyle = alpha(t.accent2, 0.5);
+      ctx.lineWidth = Math.max(1.2, 2.5 * fs);
+      for (const [px, py] of [[W * 0.12, H * 0.24], [W * 0.88, H * 0.2], [W * 0.86, H * 0.8]] as Array<[number, number]>) {
+        const s = 26 * fs;
+        ctx.beginPath();
+        ctx.moveTo(px - s, py);
+        ctx.lineTo(px + s, py);
+        ctx.moveTo(px, py - s);
+        ctx.lineTo(px, py + s);
+        ctx.stroke();
+      }
+      break;
+    }
+  }
+  ctx.restore();
+}
+
+/** Adorno vectorial de agencia según el layout (flechas, ráfagas, rayos, checks). */
+function drawLayoutOrnament(ctx: CanvasRenderingContext2D, W: number, H: number, t: Theme, layout: Layout, fs: number): void {
+  ctx.save();
+  ctx.strokeStyle = alpha(t.accent2, 0.5);
+  ctx.fillStyle = alpha(t.accent2, 0.5);
+  ctx.lineWidth = Math.max(2, 4 * fs);
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  if (layout === 'bento') {
+    // Flecha de crecimiento escalonada (esquina superior derecha).
+    const x0 = W * 0.6;
+    const y0 = H * 0.115;
+    ctx.beginPath();
+    ctx.moveTo(x0, y0 + 60 * fs);
+    ctx.lineTo(x0 + 55 * fs, y0 + 18 * fs);
+    ctx.lineTo(x0 + 110 * fs, y0 + 52 * fs);
+    ctx.lineTo(x0 + 165 * fs, y0 - 8 * fs);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x0 + 165 * fs, y0 - 8 * fs);
+    ctx.lineTo(x0 + 138 * fs, y0 - 2 * fs);
+    ctx.moveTo(x0 + 165 * fs, y0 - 8 * fs);
+    ctx.lineTo(x0 + 160 * fs, y0 + 20 * fs);
+    ctx.stroke();
+  } else if (layout === 'magazine') {
+    // Anillo de ráfaga con marcas radiales (esquina superior izquierda).
+    const cx2 = W * 0.14;
+    const cy2 = H * 0.14;
+    ctx.beginPath();
+    ctx.arc(cx2, cy2, 46 * fs, 0, Math.PI * 2);
+    ctx.stroke();
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.moveTo(cx2 + Math.cos(a) * 58 * fs, cy2 + Math.sin(a) * 58 * fs);
+      ctx.lineTo(cx2 + Math.cos(a) * 76 * fs, cy2 + Math.sin(a) * 76 * fs);
+      ctx.stroke();
+    }
+  } else if (layout === 'diagonal') {
+    // Rayo angular gigante translúcido.
+    ctx.fillStyle = alpha(t.accent2, 0.16);
+    ctx.beginPath();
+    ctx.moveTo(W * 0.78, H * 0.06);
+    ctx.lineTo(W * 0.62, H * 0.2);
+    ctx.lineTo(W * 0.72, H * 0.21);
+    ctx.lineTo(W * 0.56, H * 0.36);
+    ctx.lineTo(W * 0.84, H * 0.18);
+    ctx.lineTo(W * 0.74, H * 0.17);
+    ctx.closePath();
+    ctx.fill();
+  } else {
+    // Check circular de ejecutivo (esquina superior derecha).
+    const cx2 = W * 0.86;
+    const cy2 = H * 0.12;
+    ctx.beginPath();
+    ctx.arc(cx2, cy2, 42 * fs, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(cx2 - 18 * fs, cy2);
+    ctx.lineTo(cx2 - 4 * fs, cy2 + 15 * fs);
+    ctx.lineTo(cx2 + 20 * fs, cy2 - 14 * fs);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 /** Dibuja la foto con recorte según el layout, zoom y posición vertical. */
 function drawPhotoBox(
   ctx: CanvasRenderingContext2D,
@@ -328,7 +690,9 @@ function drawPhotoBox(
   }
 }
 
-/** Marco elegante cuando aún no hay foto (adiós afiches vacíos). */
+/** Composición inicial de agencia cuando aún no hay foto (JAMÁS un emoji
+ *  flotando en un recuadro vacío): iniciales tipográficas gigantes, anillos
+ *  concéntricos y brillo del tema, con la marca ya presente en el lienzo. */
 function drawPhotoPlaceholder(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -339,19 +703,55 @@ function drawPhotoPlaceholder(
   t: Theme,
   fs: number,
 ): void {
+  ctx.save();
   rr(ctx, x, y, w, h, 44 * fs);
-  ctx.fillStyle = 'rgba(255,255,255,0.05)';
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(255,255,255,0.14)';
-  ctx.lineWidth = Math.max(1, 2 * fs);
-  ctx.stroke();
+  ctx.clip();
+  // Base del tema + brillo radial de acento.
+  const g = ctx.createLinearGradient(x, y, x + w, y + h);
+  g.addColorStop(0, t.bg1);
+  g.addColorStop(1, t.bg2);
+  ctx.fillStyle = g;
+  ctx.fillRect(x, y, w, h);
+  const glow = ctx.createRadialGradient(x + w / 2, y + h * 0.42, 0, x + w / 2, y + h * 0.42, w * 0.55);
+  glow.addColorStop(0, alpha(t.accent, 0.35));
+  glow.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(x, y, w, h);
+  // Anillos concéntricos de luz.
+  ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+  ctx.lineWidth = Math.max(1, 2.5 * fs);
+  for (const r of [0.16, 0.28, 0.4]) {
+    ctx.beginPath();
+    ctx.arc(x + w / 2, y + h * 0.44, w * r, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  // Iniciales tipográficas gigantes de la marca.
+  const initials = (brand.name || 'IM')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((p) => p[0])
+    .join('')
+    .toUpperCase() || 'IM';
   ctx.textAlign = 'center';
-  ctx.font = `900 ${Math.round(120 * fs)}px system-ui, sans-serif`;
-  ctx.fillStyle = alpha(t.accent, 0.9);
-  ctx.fillText(brand.emoji || '✨', x + w / 2, y + h / 2 + 20 * fs);
-  ctx.font = `700 ${Math.round(28 * fs)}px system-ui, sans-serif`;
+  ctx.font = `900 ${Math.round(w * 0.3)}px system-ui, sans-serif`;
+  ctx.fillStyle = alpha(t.accent, 0.92);
+  ctx.shadowColor = alpha(t.accent, 0.6);
+  ctx.shadowBlur = 60 * fs;
+  ctx.fillText(initials, x + w / 2, y + h * 0.52);
+  ctx.shadowColor = 'transparent';
+  ctx.shadowBlur = 0;
+  // Nombre del negocio abajo, dentro de la composición.
+  ctx.font = `700 ${Math.round(34 * fs)}px system-ui, sans-serif`;
   ctx.fillStyle = t.sub;
-  ctx.fillText('Genera una foto IA en la columna izquierda', x + w / 2, y + h - 46 * fs);
+  let name = brand.name || 'Impulso';
+  while (ctx.measureText(name).width > w - 90 * fs && name.length > 6) name = name.slice(0, -2);
+  ctx.fillText(name, x + w / 2, y + h - 52 * fs);
+  ctx.restore();
+  rr(ctx, x, y, w, h, 44 * fs);
+  ctx.strokeStyle = alpha(t.accent, 0.55);
+  ctx.lineWidth = Math.max(1, 2.5 * fs);
+  ctx.stroke();
   ctx.textAlign = 'left';
 }
 
@@ -390,22 +790,26 @@ function drawBadgeGlass(ctx: CanvasRenderingContext2D, cx: number, y: number, te
   return h;
 }
 
-/** Titular de agencia a DOS TONOS con word-wrap garantizado. */
+/** Titular de agencia a DOS TONOS con word-wrap garantizado y espacios
+ *  SIEMPRE correctos (V8): texto normalizado y ancho de espacio explícito
+ *  medido con la misma fuente del titular. */
 function drawMixedHeadline(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
-  plain: string,
-  highlight: string,
+  plainRaw: string,
+  highlightRaw: string,
   maxW: number,
   size: number,
   t: Theme,
   align: 'center' | 'left',
 ): number {
+  const plain = plainRaw.replace(/\s+/g, ' ').trim();
+  const highlight = highlightRaw.replace(/\s+/g, ' ').trim();
   type Tok = { w: string; c: string; x: number };
   const tokens: Tok[] = [];
-  plain.trim().split(/\s+/).filter(Boolean).forEach((w) => tokens.push({ w, c: t.text, x: 0 }));
-  highlight.trim().split(/\s+/).filter(Boolean).forEach((w) => tokens.push({ w, c: t.accent, x: 0 }));
+  plain.split(/\s+/).filter(Boolean).forEach((w) => tokens.push({ w, c: t.text, x: 0 }));
+  highlight.split(/\s+/).filter(Boolean).forEach((w) => tokens.push({ w, c: t.accent, x: 0 }));
   if (tokens.length === 0) return 0;
   ctx.font = `900 ${size}px system-ui, sans-serif`;
   ctx.textAlign = 'left';
@@ -703,6 +1107,8 @@ function drawPiece(canvas: HTMLCanvasElement, a: RenderArgs): void {
   const T = a.texts;
   const mode = photoModeOf(a.layout);
   backdrop(ctx, W, H, t);
+  drawThemePattern(ctx, W, H, t, fs);
+  drawLayoutOrnament(ctx, W, H, t, a.layout, fs);
 
   /** Texto del bloque de precio cuando no hay promo (modalidad servicio). */
   const priceText = (): string => T.priceLabel.trim() || '💬 Cotiza gratis por WhatsApp';
@@ -920,19 +1326,8 @@ function drawPiece(canvas: HTMLCanvasElement, a: RenderArgs): void {
 
 // ═════════════════════════════════ Componente ═══════════════════════════════
 
-const COPY_FALLBACK = {
-  pas: '¿Se te antoja algo rico y no quieres cocinar? 😩 Todos los días pasa igual… pero hoy tienes la solución a un mensaje de distancia. Escríbenos por WhatsApp 👉',
-  aida: '🔥 ATENCIÓN: salió lo que estabas esperando. 👀 Interés: es fresquito y del pueblo. 😍 Deseo: pídelo sin salir de casa. ⚡ Acción: escríbenos YA 👉',
-  status1: '👀 ¿Ya sabes qué vas a almorzar hoy? Te va a encantar esto…',
-  status2: '🔥 Hoy lo tienes a precio de amigo. Escríbenos y te lo apartamos 👉',
-  status3: '🚨 ¡Últimas unidades! El pueblo ya está apartando. Escríbenos aquí 👉',
-  reel1: 'Plano cercano del producto + voz: "¿Esto te lo imaginas en tu mesa hoy?"',
-  reel2: 'Demostración del producto o servicio + voz: "recién hecho, como en casa"',
-  reel3: 'Plano del local o la moto del domicilio + voz: "escríbenos por WhatsApp 👉"',
-  close1: '¡Claro que sí! 😊 Te paso el valor al toque. Si pides 2 te incluyo domicilio. ¿Te aparto?',
-  close2: 'Te entiendo 👍 Hoy solo nos quedan unas pocas unidades y mañana ya no hay. ¿Confirmamos?',
-  close3: '¡Listo, tu pedido va en camino 🛵! ¿Te incluyo un extra por un poquito más?',
-};
+/** Texto honesto cuando aún no hay campaña generada (NUNCA copy prefabricado). */
+const EMPTY_COPY = '✨ Genera la campaña con IA y este texto aparecerá aquí';
 
 type CopyTab = 'pas' | 'aida' | 'estados' | 'reel' | 'cierres';
 
@@ -1059,6 +1454,9 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
   const [photoBusy, setPhotoBusy] = useState(false);
   const [photoImg, setPhotoImg] = useState<HTMLImageElement | null>(null);
   const [qrImg, setQrImg] = useState<HTMLImageElement | null>(null);
+  /** Generación actual de foto: invalida descargas en segundo plano si el
+   *  admin cambia o sube una foto manualmente mientras tanto. */
+  const photoGenRef = useRef(0);
 
   // ── Autoguardado instantáneo (cero pérdida de datos del admin) ──
   /** Evita que el autoguardado pise el borrador con vacíos antes de restaurar. */
@@ -1225,16 +1623,39 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     };
   }, [mode, merchants, merchantId, merchantOffers, offerId, extName, extSlogan, extProduct, extNormalPrice, extPromoPrice, extAddress, extUrl, lines]);
 
-  /** Textos por defecto derivados de la marca. */
+  // ── Cero cuadros vacíos (V8): al elegir negocio, carga al instante una foto
+  // editorial del rubro detectado (en silencio, sin toast) para que el lienzo
+  // jamás muestre un recuadro vacío con un emoji.
+  const hasBrandNow = mode === 'plataforma' ? merchantId !== '' : extName.trim() !== '';
+  useEffect(() => {
+    if (!hasBrandNow) return;
+    if (customPhoto || brand.photo) return;
+    let alive = true;
+    const genId = ++photoGenRef.current;
+    const merchantCategory = merchants.find((m) => m.id === merchantId)?.category;
+    const industry: IndustryType = merchantCategory
+      ? industryFromHint(merchantCategory)
+      : guessIndustry(`${extName} ${extSlogan} ${extProduct} ${briefText}`);
+    void (async () => {
+      const dataUrl = await loadCuratedIndustryPhoto(industry);
+      if (alive && dataUrl && photoGenRef.current === genId) setCustomPhoto(dataUrl);
+    })();
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasBrandNow, customPhoto, brand.photo, mode, merchantId, extName, extSlogan, extProduct]);
+
+  /** Textos por defecto derivados de la marca (siempre neutrales y honestos). */
   const dflt = useMemo<Texts>(() => {
     const service = priceMode === 'servicio';
     return {
       plain: brand.name || 'Lo mejor del pueblo',
       highlight: brand.product || 'HOY',
-      sub: brand.slogan || 'Calidad del pueblo, atención de primera',
+      sub: brand.slogan || 'Atención de primera, cerca de ti',
       benefits: service
         ? ['🤝 Atención personalizada', '⏱️ Respuesta rápida', '📍 Cerca de ti en el pueblo']
-        : ['🥇 Calidad garantizada', '🚚 Domicilio disponible', '⏰ Solo por HOY'],
+        : ['🥇 Calidad garantizada', '⚡ Atención inmediata', '⏰ Disponible HOY'],
       cta: service
         ? texts.priceLabel.trim() || '💬 Cotiza gratis por WhatsApp'
         : brand.promoPrice != null
@@ -1338,15 +1759,22 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     });
   }, [themeIdx, format, layout, piece, photoImg, qrImg, brand, T, badge, showPrice, showBenefits, showQr, photoZoom, photoPosY]);
 
-  /** ✨ Genera la campaña estratégica con IA (fallback local integrado). */
+  /** ✨ Genera la campaña con la cadena V8: PASADA 1 (estrategia y dirección
+   *  de arte) → foto instantánea del rubro → PASADA 2 (copywriting senior),
+   *  mientras la foto IA a medida se descarga en segundo plano y reemplaza
+   *  la instantánea. Si la IA falla, el toast muestra el motivo técnico. */
   async function generate(): Promise<void> {
     if (!brand.name.trim()) {
       toast.error('Elige un comercio (o escribe el nombre del negocio externo) primero');
       return;
     }
     setGenerating(true);
+    const genId = ++photoGenRef.current;
+    const merchantCategory = merchants.find((m) => m.id === merchantId)?.category;
     try {
-      const res = await generateFullMarketingCampaign({
+      // ── PASADA 1 · Estrategia y dirección de arte ──
+      toast.info('🧠 Pasada 1/2 · Analizando estrategia y dirección de arte…');
+      const input = {
         businessName: brand.name,
         slogan: brand.slogan,
         brief: briefText,
@@ -1359,20 +1787,56 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
         municipality: brand.municipality || 'Gachetá',
         focus,
         targetUrl: primaryLink || brand.url,
-      });
+        categoryHint: merchantCategory,
+      };
+      const art: ArtDirection = await generateArtDirection(input);
+      // Aplica el tema y layout recomendados por la IA (rota por rubro).
+      const ti = THEMES.findIndex((t) => t.id === art.themeId);
+      if (ti >= 0) setThemeIdx(ti);
+      if (LAYOUTS.some((l) => l.id === art.layoutId)) setLayout(art.layoutId as Layout);
+
+      // ── Auto-imagen paso 1: fotografía editorial del rubro AL INSTANTE ──
+      toast.info(`📷 Foto editorial instantánea del rubro ${INDUSTRY_LABELS[art.industryType]}…`);
+      const curated = await loadCuratedIndustryPhoto(art.industryType);
+      if (curated && photoGenRef.current === genId) setCustomPhoto(curated);
+
+      // ── Auto-imagen paso 2 (segundo plano): foto IA a medida con el prompt ──
+      void (async () => {
+        try {
+          const seed = Math.floor(Math.random() * 999999);
+          const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(art.imagePromptEn)}?width=1080&height=1080&nologo=true&enhance=true&seed=${seed}`;
+          const img = await loadImage(url);
+          const off = document.createElement('canvas');
+          off.width = 1080;
+          off.height = 1080;
+          const octx = off.getContext('2d');
+          if (!octx) return;
+          octx.drawImage(img, 0, 0, 1080, 1080);
+          if (photoGenRef.current === genId) {
+            setCustomPhoto(off.toDataURL('image/jpeg', 0.92));
+            toast.success('🎨 Foto IA a medida colocada en el lienzo');
+          }
+        } catch {
+          // Se mantiene la foto editorial instantánea del rubro.
+        }
+      })();
+
+      // ── PASADA 2 · Copywriting senior con la estrategia de la pasada 1 ──
+      toast.info('✍️ Pasada 2/2 · Copywriting senior de agencia…');
+      const res: MarketingCampaign = await generateCampaignCopy(input, art);
       setCampaign(res);
       const benefits = [res.benefits[0] ?? '', res.benefits[1] ?? '', res.benefits[2] ?? ''];
       setTexts((prev) => ({
-        plain: res.headline.plain,
-        highlight: res.headline.highlight,
-        sub: res.sub,
-        benefits,
-        cta: res.cta,
+        plain: normSpaces(res.headline.plain),
+        highlight: normSpaces(res.headline.highlight),
+        sub: normSpaces(res.sub),
+        benefits: benefits.map((b) => normSpaces(b)),
+        cta: normSpaces(res.cta),
         priceLabel: res.priceLabel ?? prev.priceLabel,
       }));
-      setBadgeCustom(res.badgeText);
+      setBadgeCustom(normSpaces(res.badgeText));
       setBadgeMode('custom');
-      toast.success('✨ ¡Campaña y diseño listos! Textos, sello y prompt de foto aplicados');
+      toast.success(`✨ ¡Campaña lista! Tema ${THEMES[Math.max(0, ti)].label.split(' ').slice(1).join(' ')} aplicado`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'No se pudo generar la campaña');
     } finally {
@@ -1394,6 +1858,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
         const ctx = c.getContext('2d');
         if (!ctx) return;
         ctx.drawImage(img, 0, 0, c.width, c.height);
+        photoGenRef.current += 1; // invalida descargas IA en curso
         setCustomPhoto(c.toDataURL('image/jpeg', 0.88));
         toast.success('📷 Foto del cliente lista (0 bytes en la base de datos)');
       };
@@ -1405,6 +1870,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
   /** 🎨 Foto publicitaria IA gratuita (pollinations) cacheada como dataURL. */
   async function generatePhoto(vary: boolean): Promise<void> {
     setPhotoBusy(true);
+    const genId = ++photoGenRef.current;
     try {
       const seed = Math.floor(Math.random() * 999999);
       const mood = FOCUS_PHOTO_MOODS[focus];
@@ -1417,8 +1883,10 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       const octx = off.getContext('2d');
       if (!octx) throw new Error('canvas');
       octx.drawImage(img, 0, 0, 1080, 1080);
-      setCustomPhoto(off.toDataURL('image/jpeg', 0.92));
-      toast.success(vary ? '🎲 Nueva toma fotográfica lista' : '🎨 Foto publicitaria IA lista');
+      if (photoGenRef.current === genId) {
+        setCustomPhoto(off.toDataURL('image/jpeg', 0.92));
+        toast.success(vary ? '🎲 Nueva toma fotográfica lista' : '🎨 Foto publicitaria IA lista');
+      }
     } catch {
       toast.error('El motor de foto IA no respondió: prueba un preset HD o sube una foto');
     } finally {
@@ -1429,6 +1897,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
   /** Preset fotográfico HD por rubro (Unsplash CORS-safe). */
   async function usePreset(preset: { id: string; label: string }): Promise<void> {
     setPhotoBusy(true);
+    const genId = ++photoGenRef.current;
     try {
       const img = await loadImage(PRESET_URL(preset.id));
       const off = document.createElement('canvas');
@@ -1437,8 +1906,10 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       const octx = off.getContext('2d');
       if (!octx) throw new Error('canvas');
       octx.drawImage(img, 0, 0, 1080, 1080);
-      setCustomPhoto(off.toDataURL('image/jpeg', 0.9));
-      toast.success(`${preset.label}: foto HD aplicada`);
+      if (photoGenRef.current === genId) {
+        setCustomPhoto(off.toDataURL('image/jpeg', 0.9));
+        toast.success(`${preset.label}: foto HD aplicada`);
+      }
     } catch {
       toast.error('Esa foto no está disponible ahora: elige otra o sube la tuya');
     } finally {
@@ -1540,24 +2011,24 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       `🔗 Enlace de la oferta: ${brand.url}`,
       `═══════════════════════════`,
       `✅ SECUENCIA DE ESTADOS (9:00 → 12:00 → 19:00)`,
-      `1️⃣ ${c?.whatsappStatusSequence.status1 ?? COPY_FALLBACK.status1}`,
-      `2️⃣ ${c?.whatsappStatusSequence.status2 ?? COPY_FALLBACK.status2}`,
-      `3️⃣ ${c?.whatsappStatusSequence.status3 ?? COPY_FALLBACK.status3}`,
+      `1️⃣ ${c?.whatsappStatusSequence.status1 || EMPTY_COPY}`,
+      `2️⃣ ${c?.whatsappStatusSequence.status2 || EMPTY_COPY}`,
+      `3️⃣ ${c?.whatsappStatusSequence.status3 || EMPTY_COPY}`,
       `═══════════════════════════`,
       `📣 COPY PAS (Facebook / Instagram)`,
-      c?.socialMediaCopy.pas ?? COPY_FALLBACK.pas,
+      c?.socialMediaCopy.pas || EMPTY_COPY,
       `📣 COPY AIDA FLASH (Grupos / Clasificados)`,
-      c?.socialMediaCopy.aida ?? COPY_FALLBACK.aida,
+      c?.socialMediaCopy.aida || EMPTY_COPY,
       `═══════════════════════════`,
       `🎬 GUION REEL 15 SEGUNDOS`,
-      `· 0-3 s: ${c?.videoReelScript.t0_3 ?? COPY_FALLBACK.reel1}`,
-      `· 3-10 s: ${c?.videoReelScript.t3_10 ?? COPY_FALLBACK.reel2}`,
-      `· 10-15 s: ${c?.videoReelScript.t10_15 ?? COPY_FALLBACK.reel3}`,
+      `· 0-3 s: ${c?.videoReelScript.t0_3 || EMPTY_COPY}`,
+      `· 3-10 s: ${c?.videoReelScript.t3_10 || EMPTY_COPY}`,
+      `· 10-15 s: ${c?.videoReelScript.t10_15 || EMPTY_COPY}`,
       `═══════════════════════════`,
       `💬 RESPUESTAS DE CIERRE PARA EL COMERCIANTE`,
-      `· ¿Precio? ${c?.salesClosingTemplates.priceReply ?? COPY_FALLBACK.close1}`,
-      `· Indeciso: ${c?.salesClosingTemplates.hesitantReply ?? COPY_FALLBACK.close2}`,
-      `· Despacho: ${c?.salesClosingTemplates.dispatchUpsell ?? COPY_FALLBACK.close3}`,
+      `· ¿Precio? ${c?.salesClosingTemplates.priceReply || EMPTY_COPY}`,
+      `· Indeciso: ${c?.salesClosingTemplates.hesitantReply || EMPTY_COPY}`,
+      `· Despacho: ${c?.salesClosingTemplates.dispatchUpsell || EMPTY_COPY}`,
       `═══════════════════════════`,
       `🧩 4 VERSIONES PARA COMPARTIR (anti-spam)`,
       variants.map((v, i) => `— Versión ${i + 1} —\n${v}`).join('\n\n'),
@@ -2067,30 +2538,30 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
             ))}
           </div>
           {copyTab === 'pas' && (
-            <CopyBlock text={campaign?.socialMediaCopy.pas ?? COPY_FALLBACK.pas} tag="Fórmula PAS · Facebook / Instagram" onCopy={copyText} copied={copied} inputCls={inputCls} />
+            <CopyBlock text={campaign?.socialMediaCopy.pas || EMPTY_COPY} tag="Fórmula PAS · Facebook / Instagram" onCopy={copyText} copied={copied} inputCls={inputCls} />
           )}
           {copyTab === 'aida' && (
-            <CopyBlock text={campaign?.socialMediaCopy.aida ?? COPY_FALLBACK.aida} tag="Fórmula AIDA Flash · Grupos / Clasificados" onCopy={copyText} copied={copied} inputCls={inputCls} />
+            <CopyBlock text={campaign?.socialMediaCopy.aida || EMPTY_COPY} tag="Fórmula AIDA Flash · Grupos / Clasificados" onCopy={copyText} copied={copied} inputCls={inputCls} />
           )}
           {copyTab === 'estados' && (
             <div className="space-y-2">
-              <CopyBlock text={campaign?.whatsappStatusSequence.status1 ?? COPY_FALLBACK.status1} tag="Estado 1 · 9:00/11:00 · Curiosidad" onCopy={copyText} copied={copied} inputCls={inputCls} />
-              <CopyBlock text={campaign?.whatsappStatusSequence.status2 ?? COPY_FALLBACK.status2} tag="Estado 2 · Con la pieza 2 · Revelación" onCopy={copyText} copied={copied} inputCls={inputCls} />
-              <CopyBlock text={campaign?.whatsappStatusSequence.status3 ?? COPY_FALLBACK.status3} tag="Estado 3 · 19:00 · Escasez + prueba social" onCopy={copyText} copied={copied} inputCls={inputCls} />
+              <CopyBlock text={campaign?.whatsappStatusSequence.status1 || EMPTY_COPY} tag="Estado 1 · 9:00/11:00 · Curiosidad" onCopy={copyText} copied={copied} inputCls={inputCls} />
+              <CopyBlock text={campaign?.whatsappStatusSequence.status2 || EMPTY_COPY} tag="Estado 2 · Con la pieza 2 · Revelación" onCopy={copyText} copied={copied} inputCls={inputCls} />
+              <CopyBlock text={campaign?.whatsappStatusSequence.status3 || EMPTY_COPY} tag="Estado 3 · 19:00 · Escasez + prueba social" onCopy={copyText} copied={copied} inputCls={inputCls} />
             </div>
           )}
           {copyTab === 'reel' && (
             <div className="space-y-2">
-              <CopyBlock text={campaign?.videoReelScript.t0_3 ?? COPY_FALLBACK.reel1} tag="⏱️ 0-3 s · Gancho visual" onCopy={copyText} copied={copied} inputCls={inputCls} />
-              <CopyBlock text={campaign?.videoReelScript.t3_10 ?? COPY_FALLBACK.reel2} tag="⏱️ 3-10 s · Demostración" onCopy={copyText} copied={copied} inputCls={inputCls} />
-              <CopyBlock text={campaign?.videoReelScript.t10_15 ?? COPY_FALLBACK.reel3} tag="⏱️ 10-15 s · Cierre con dirección" onCopy={copyText} copied={copied} inputCls={inputCls} />
+              <CopyBlock text={campaign?.videoReelScript.t0_3 || EMPTY_COPY} tag="⏱️ 0-3 s · Gancho visual" onCopy={copyText} copied={copied} inputCls={inputCls} />
+              <CopyBlock text={campaign?.videoReelScript.t3_10 || EMPTY_COPY} tag="⏱️ 3-10 s · Demostración" onCopy={copyText} copied={copied} inputCls={inputCls} />
+              <CopyBlock text={campaign?.videoReelScript.t10_15 || EMPTY_COPY} tag="⏱️ 10-15 s · Cierre con dirección" onCopy={copyText} copied={copied} inputCls={inputCls} />
             </div>
           )}
           {copyTab === 'cierres' && (
             <div className="space-y-2">
-              <CopyBlock text={campaign?.salesClosingTemplates.priceReply ?? COPY_FALLBACK.close1} tag="💸 Cuando preguntan ¿precio?" onCopy={copyText} copied={copied} inputCls={inputCls} />
-              <CopyBlock text={campaign?.salesClosingTemplates.hesitantReply ?? COPY_FALLBACK.close2} tag="🤔 Cliente indeciso" onCopy={copyText} copied={copied} inputCls={inputCls} />
-              <CopyBlock text={campaign?.salesClosingTemplates.dispatchUpsell ?? COPY_FALLBACK.close3} tag="🛵 Confirmación + upsell" onCopy={copyText} copied={copied} inputCls={inputCls} />
+              <CopyBlock text={campaign?.salesClosingTemplates.priceReply || EMPTY_COPY} tag="💸 Cuando preguntan ¿precio?" onCopy={copyText} copied={copied} inputCls={inputCls} />
+              <CopyBlock text={campaign?.salesClosingTemplates.hesitantReply || EMPTY_COPY} tag="🤔 Cliente indeciso" onCopy={copyText} copied={copied} inputCls={inputCls} />
+              <CopyBlock text={campaign?.salesClosingTemplates.dispatchUpsell || EMPTY_COPY} tag="🛵 Confirmación + upsell" onCopy={copyText} copied={copied} inputCls={inputCls} />
             </div>
           )}
         </div>
