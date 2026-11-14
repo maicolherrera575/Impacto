@@ -10,3 +10,6 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+/** Doble Motor V10: llave de respaldo inyectada en build time (vite define). */
+declare const __APP_GEMINI_KEY__: string;

@@ -18,6 +18,11 @@ export default defineConfig(({ mode }) => {
       'import.meta.env.VITE_SUPABASE_URL': JSON.stringify(env.SUPABASE_URL ?? env.VITE_SUPABASE_URL ?? ''),
       'import.meta.env.VITE_SUPABASE_ANON_KEY': JSON.stringify(env.SUPABASE_ANON_KEY ?? env.VITE_SUPABASE_ANON_KEY ?? ''),
       'import.meta.env.VITE_GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY ?? env.VITE_GEMINI_API_KEY ?? ''),
+      // Doble Motor V10: constante global de respaldo para llamar a Gemini
+      // DIRECTO desde el navegador si /api/gemini falla en Vercel.
+      '__APP_GEMINI_KEY__': JSON.stringify(
+        env.GEMINI_API_KEY || env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || '',
+      ),
       'import.meta.env.VITE_ADMIN_WHATSAPP': JSON.stringify(env.ADMIN_WHATSAPP ?? env.VITE_ADMIN_WHATSAPP ?? ''),
     },
     build: {

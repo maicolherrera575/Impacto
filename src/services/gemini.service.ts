@@ -103,20 +103,55 @@ async function callSdk(options: GeminiCallOptions): Promise<string> {
   return text;
 }
 
+/** Llamada directa REST a Gemini con la llave inyectada en build time. */
+async function callDirect(options: GeminiCallOptions): Promise<string> {
+  const key = (typeof __APP_GEMINI_KEY__ === 'string' ? __APP_GEMINI_KEY__ : '').trim();
+  if (!key) throw new Error('El navegador no tiene llave de respaldo de IA');
+  let res: Response;
+  try {
+    res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_ID}:generateContent?key=${encodeURIComponent(key)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildPayload(options)),
+      },
+    );
+  } catch {
+    throw new Error('No se pudo contactar la IA directamente (revisa tu conexión)');
+  }
+  const rest: unknown = await res.json().catch(() => null);
+  if (!res.ok) {
+    const msg = (rest as { error?: { message?: string } } | null)?.error?.message;
+    throw new Error(msg ? `La IA respondió con error: ${msg}` : `La IA respondió con error (HTTP ${res.status})`);
+  }
+  const text = extractRestText(rest);
+  if (!text) throw new Error('La IA no respondió con contenido. Intenta de nuevo');
+  return text;
+}
+
 /**
- * Punto único de llamada a Gemini para toda la app (V8).
- * 1) Intenta SIEMPRE el proxy serverless /api/gemini (la llave privada vive en Vercel).
- * 2) Si el proxy falla y existe una llave VITE_GEMINI_API_KEY disponible, reintenta
- *    directo con el SDK para que la respuesta sea SIEMPRE de Gemini real.
- * 3) Si ambos fallan, propaga el error técnico EXACTO (lo muestra el toast).
+ * Punto único de llamada a Gemini (V10 · DOBLE MOTOR INFALIBLE).
+ * 1) Motor 1: proxy serverless /api/gemini (llave privada en Vercel).
+ * 2) Motor 2: llamada DIRECTA a la API REST con __APP_GEMINI_KEY__ (build time).
+ * 3) Motor 3 (desarrollo): SDK con GEMINI_API_KEY local.
+ * Si todo falla propaga los motivos técnicos EXACTOS (los muestra el toast):
+ * jamás devuelve contenido fabricado con plantillas.
  */
 async function callGemini(options: GeminiCallOptions): Promise<string> {
+  const errors: string[] = [];
   try {
     return await callProxy(options);
   } catch (proxyErr) {
-    if (GEMINI_API_KEY) return callSdk(options);
-    throw proxyErr;
+    errors.push(proxyErr instanceof Error ? proxyErr.message : String(proxyErr));
   }
+  try {
+    return await callDirect(options);
+  } catch (directErr) {
+    errors.push(directErr instanceof Error ? directErr.message : String(directErr));
+  }
+  if (GEMINI_API_KEY) return callSdk(options);
+  throw new Error(errors.join(' · '));
 }
 
 /** Esquema JSON del Creador Mágico (compatible SDK + REST). */
@@ -404,19 +439,19 @@ const INDUSTRY_IDS: IndustryType[] = [
   'construccion_hogar',
 ];
 
-const THEME_IDS = ['cyber', 'obsidian', 'brasa', 'clinic', 'emerald', 'terra', 'sunset', 'titanium'] as const;
-const LAYOUT_IDS = ['bento', 'magazine', 'diagonal', 'swiss', 'split', 'showcase', 'poster', 'strip'] as const;
+const THEME_IDS = ['wood', 'marble', 'cyber', 'kraft', 'ember', 'emerald', 'obsidian', 'clinic', 'terracotta', 'pop', 'aurora', 'slate'] as const;
+const LAYOUT_IDS = ['bento', 'magazine', 'diagonal', 'swiss', 'polaroid', 'portal', 'arc', 'strip'] as const;
 
 /** Dirección de arte por defecto de cada rubro (nunca siempre el mismo tema). */
 export const INDUSTRY_ART: Record<IndustryType, { themeId: string; layoutId: string }> = {
   digital_tech: { themeId: 'cyber', layoutId: 'diagonal' },
-  gastronomia: { themeId: 'brasa', layoutId: 'bento' },
-  salud_belleza: { themeId: 'clinic', layoutId: 'swiss' },
-  agro_campo: { themeId: 'terra', layoutId: 'swiss' },
-  transporte_logistica: { themeId: 'titanium', layoutId: 'bento' },
-  comercio_retail: { themeId: 'emerald', layoutId: 'bento' },
+  gastronomia: { themeId: 'wood', layoutId: 'bento' },
+  salud_belleza: { themeId: 'marble', layoutId: 'swiss' },
+  agro_campo: { themeId: 'emerald', layoutId: 'swiss' },
+  transporte_logistica: { themeId: 'slate', layoutId: 'bento' },
+  comercio_retail: { themeId: 'terracotta', layoutId: 'bento' },
   servicios_profesionales: { themeId: 'obsidian', layoutId: 'swiss' },
-  construccion_hogar: { themeId: 'titanium', layoutId: 'diagonal' },
+  construccion_hogar: { themeId: 'slate', layoutId: 'diagonal' },
 };
 
 /** Prompt fotográfico editorial curado por rubro (en inglés, sin texto). */
@@ -448,6 +483,8 @@ export interface ArtDirection {
   brandName: string;
   /** Título del servicio/producto estrella deducido del brief. */
   productTitle: string;
+  /** Rubro/categoría COMERCIAL visible deducida del brief (NUNCA genérica). */
+  categoryLabel: string;
   valueProposition: string;
   imagePromptEn: string;
 }
@@ -475,6 +512,14 @@ export interface MarketingCampaign {
   socialMediaCopy: { pas: string; aida: string };
   videoReelScript: { t0_3: string; t3_10: string; t10_15: string };
   salesClosingTemplates: { priceReply: string; hesitantReply: string; dispatchUpsell: string };
+  /** Mensaje que escribirá el CLIENTE al tocar el enlace de la línea 1 (ventas). */
+  waLine1Msg: string;
+  /** Mensaje del cliente para la línea de domicilios/cotizaciones. */
+  waLine2Msg: string;
+  /** Mensaje del cliente para planes especiales/eventos/alianzas. */
+  waLine3Msg: string;
+  /** 4 mensajes de difusión 100% redactados por IA al giro del negocio. */
+  dispatchVersions: string[];
 }
 
 export interface CampaignInput {
@@ -556,12 +601,13 @@ El BRIEF del negocio es tu FUENTE MAESTRA ABSOLUTA: de él deduces el nombre, el
 Analizarás el brief y definirás la ESTRATEGIA VISUAL y COMERCIAL. Devuelve ÚNICAMENTE un JSON exacto:
 {
  "industry_type": uno de [digital_tech, gastronomia, salud_belleza, agro_campo, transporte_logistica, comercio_retail, servicios_profesionales, construccion_hogar],
- "brand_name": "nombre comercial corto y potente del negocio (1 a 3 palabras): si el brief ya lo da, devuélvelo limpio; si NO lo da, crea uno creíble y memorable para el giro deducido",
+ "brand_name": "nombre comercial corto y potente del negocio (1 a 3 palabras): si el brief ya lo da, devuélvelo limpio; si NO lo da, crea uno creíble y memorable para el giro deducido. PROHIBIDO usar la palabra 'Impulso'",
  "product_title": "título del servicio o producto estrella DEDUCIDO del brief (máx 6 palabras, reescrito con vocabulario de agencia, no literal)",
- "theme_id": uno de [cyber, obsidian, brasa, clinic, emerald, terra, sunset, titanium]. Elige el que mejor pegue con el giro y VARÍA entre generaciones: tecnología/marketing/IA → cyber; servicios premium/abogados/finanzas → obsidian; comida/asaderos → brasa; salud/odontología/estética → clinic; comercio local/turismo → emerald; agro/veterinaria/transporte de campo → terra; promociones virales/moda/belleza → sunset; construcción/logística/industrial → titanium. NUNCA elijas siempre el mismo.
- "layout_id": uno de [bento, magazine, diagonal, swiss, split, showcase, poster, strip]. Rota la composición según el giro para que cada generación sea visualmente única.
+ "category_label": "rubro/categoría COMERCIAL y VISIBLE del afiche en español (2 a 5 palabras, específico del giro, ej: 'Marketing Digital & Ventas', 'Comida Rápida Casera', 'Odontología Moderna', 'Insumos Agropecuarios'). PROHIBIDO genéricos tipo 'Servicios' o 'Comercio'",
+ "theme_id": uno de [wood, marble, cyber, kraft, ember, emerald, obsidian, clinic, terracotta, pop, aurora, slate]. Elige el que mejor pegue con el giro y VARÍA entre generaciones: comida/asaderos/panadería/café/agro → wood; salud/odontología/estética/moda/servicios VIP → marble; marketing digital/tecnología/negocios modernos → cyber; artesanías/eco/editorial/panadería artesanal → kraft; asados gourmet/parrilla/noche → ember; naturaleza/turismo/veterinaria → emerald; servicios premium/abogados/finanzas → obsidian; clínicas/droguerías/laboratorios → clinic; promociones y comercio local → terracotta; ofertas relámpago/ferreterías/retail → pop; agencias creativas/moda/eventos → aurora; construcción/logística/industrial → slate. NUNCA elijas siempre el mismo.
+ "layout_id": uno de [bento, magazine, diagonal, swiss, polaroid, portal, arc, strip]. Rota la composición según el giro para que cada generación sea visualmente única.
  "value_proposition": "la promesa comercial de alto calibre del negocio: transforma la idea básica del brief en un beneficio concreto, específico y creíble. PROHIBIDO copiar frases literales del brief: reescríbelas con vocabulario de agencia senior",
- "image_prompt_en": "hyper-detailed commercial editorial photography prompt IN ENGLISH: subject, environment, cinematic 8k lighting setup, lens and mood, derivado del rubro deducido del brief. The image must NEVER contain text, logos or watermarks"
+ "image_prompt_en": "hyper-detailed commercial editorial photography prompt IN ENGLISH of EXACTLY what the brief describes (its real products, workspace or service in action): subject, environment, cinematic 8k lighting setup, lens and mood. The image must NEVER contain text, logos or watermarks"
 }
 En el prompt recibirás además una SEMILLA CREATIVA y el tema/layout de la generación ANTERIOR: usa un ángulo creativo fresco y NUNCA repitas ese tema ni ese layout.`;
 
@@ -571,17 +617,18 @@ const ART_SCHEMA: Record<string, unknown> = {
     industry_type: { type: SchemaType.STRING, format: 'enum', enum: INDUSTRY_IDS },
     brand_name: { type: SchemaType.STRING },
     product_title: { type: SchemaType.STRING },
+    category_label: { type: SchemaType.STRING },
     theme_id: { type: SchemaType.STRING, format: 'enum', enum: [...THEME_IDS] },
     layout_id: { type: SchemaType.STRING, format: 'enum', enum: [...LAYOUT_IDS] },
     value_proposition: { type: SchemaType.STRING },
     image_prompt_en: { type: SchemaType.STRING },
   },
-  required: ['industry_type', 'brand_name', 'product_title', 'theme_id', 'layout_id', 'value_proposition', 'image_prompt_en'],
+  required: ['industry_type', 'brand_name', 'product_title', 'category_label', 'theme_id', 'layout_id', 'value_proposition', 'image_prompt_en'],
 };
 
 /** Nombres de marca de reserva por rubro (solo si la IA omite brand_name). */
 const INDUSTRY_NAMES: Record<IndustryType, string> = {
-  digital_tech: 'Impulso Digital',
+  digital_tech: 'Agencia Pro',
   gastronomia: 'Sabor del Pueblo',
   salud_belleza: 'Vitalidad',
   agro_campo: 'Tierra Viva',
@@ -589,6 +636,18 @@ const INDUSTRY_NAMES: Record<IndustryType, string> = {
   comercio_retail: 'El Almacén',
   servicios_profesionales: 'Primera Clase',
   construccion_hogar: 'Obra Maestra',
+};
+
+/** Etiquetas de categoría visibles de reserva (solo si la IA omite category_label). */
+const INDUSTRY_CATEGORY_LABELS: Record<IndustryType, string> = {
+  digital_tech: 'Marketing Digital & Ventas',
+  gastronomia: 'Comida & Sabor Casero',
+  salud_belleza: 'Salud & Belleza',
+  agro_campo: 'Agro & Campo',
+  transporte_logistica: 'Transporte & Domicilios',
+  comercio_retail: 'Tienda & Comercio Local',
+  servicios_profesionales: 'Servicios Profesionales',
+  construccion_hogar: 'Construcción & Hogar',
 };
 
 /** 🧠 PASADA 1: analiza el brief (fuente maestra) y devuelve rubro + marca +
@@ -619,6 +678,7 @@ export async function generateArtDirection(input: CampaignInput): Promise<ArtDir
     industryType: industry,
     brandName: normSpaces(raw.brand_name) || input.businessName.trim() || INDUSTRY_NAMES[industry],
     productTitle: normSpaces(raw.product_title) || input.product.trim() || INDUSTRY_NAMES[industry],
+    categoryLabel: normSpaces(raw.category_label) || INDUSTRY_CATEGORY_LABELS[industry],
     themeId: THEME_IDS.includes(raw.theme_id as (typeof THEME_IDS)[number])
       ? (raw.theme_id as string)
       : INDUSTRY_ART[industry].themeId,
@@ -674,12 +734,19 @@ Recibirás la ESTRATEGIA de la campaña (rubro, promesa de valor, tema y layout)
    "priceReply": "respuesta lista cuando el cliente pregunta ¿precio?: da el precio o invita a cotizar y ofrece combo/domicilio",
    "hesitantReply": "respuesta para clientes indecisos con escasez o garantía",
    "dispatchUpsell": "confirmación de despacho + venta cruzada (upsell) natural"
- }
+ },
+ "wa_line1_msg": "mensaje EXACTO que escribirá el CLIENTE interesado al tocar el enlace de VENTAS, redactado a la medida del giro real (ej. marketing digital: '¡Hola! Vi su publicidad de marketing digital y quiero impulsar las ventas de mi negocio. ¿Me brindan una asesoría?')",
+ "wa_line2_msg": "mensaje del CLIENTE para la línea de DOMICILIOS/COTIZACIONES, redactado a la medida del giro",
+ "wa_line3_msg": "mensaje del CLIENTE para PLANES ESPECIALES/eventos/alianzas, redactado a la medida del giro",
+ "dispatch_versions": [
+  "4 mensajes COMPLETOS, CREATIVOS y DIFERENTES entre sí (cada uno con gancho propio, el producto/servicio real, y llamado a la acción) para que el comerciante difunda en GRUPOS y ESTADOS de WhatsApp, 100% adaptados al giro del negocio. PROHIBIDO usar frases fijas tipo 'El pueblo ya está apartando' o 'Necesito {producto} en cantidad para un evento': todo debe sonar escrito por un publicista para ESTE negocio"
+ ]
 }
 REGLAS DE ORO:
 - PROHIBIDO copiar frases literales del brief del usuario ni rellenar con plantillas genéricas: todo el copy debe nacer de la promesa de valor de la estrategia.
 - Los beneficios deben describir algo que SOLO ese negocio puede decir.
-- headliness y textos SIEMPRE con espacios correctos entre palabras.
+- headlines y textos SIEMPRE con espacios correctos entre palabras (jamás palabras pegadas tipo 'ImpulsoHOY').
+- PROHIBIDO usar el nombre 'Impulso' como marca del cliente.
 - Español colombiano cercano y honesto; adapta el tono al enfoque psicológico indicado.`;
 
 /** Normaliza la respuesta de la PASADA 2 contra el contrato V8. */
@@ -706,6 +773,11 @@ function normalizeCampaign(raw: Partial<MarketingCampaign> & Record<string, unkn
   const customLabel = input.priceLabel.trim();
   const listStr = (v: unknown): string[] =>
     Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.trim() !== '').slice(0, 3) : [];
+  const dv = Array.isArray(raw.dispatch_versions)
+    ? (raw.dispatch_versions as unknown[]).filter((x): x is string => typeof x === 'string' && x.trim() !== '').slice(0, 4)
+    : [];
+  const prod = input.product.trim() || 'su promoción';
+  const biz = input.businessName.trim() || 'el negocio';
 
   return {
     industryType: art.industryType,
@@ -745,6 +817,10 @@ function normalizeCampaign(raw: Partial<MarketingCampaign> & Record<string, unkn
       hesitantReply: normSpaces(cl.hesitantReply),
       dispatchUpsell: normSpaces(cl.dispatchUpsell),
     },
+    waLine1Msg: normSpaces(raw.wa_line1_msg) || `¡Hola! Vi la publicidad de ${prod} en ${biz} y me interesa 🙌 ¿Me dan más información?`,
+    waLine2Msg: normSpaces(raw.wa_line2_msg) || `¡Hola! Quiero pedir/cotizar ${prod} a domicilio 🛵 Mi dirección es:`,
+    waLine3Msg: normSpaces(raw.wa_line3_msg) || `¡Hola! Me interesan los planes especiales de ${biz} 📦 ¿Me cuentan opciones?`,
+    dispatchVersions: dv,
   };
 }
 
@@ -796,8 +872,12 @@ const CAMPAIGN_SCHEMA: Record<string, unknown> = {
       properties: { priceReply: { type: SchemaType.STRING }, hesitantReply: { type: SchemaType.STRING }, dispatchUpsell: { type: SchemaType.STRING } },
       required: ['priceReply', 'hesitantReply', 'dispatchUpsell'],
     },
+    wa_line1_msg: { type: SchemaType.STRING },
+    wa_line2_msg: { type: SchemaType.STRING },
+    wa_line3_msg: { type: SchemaType.STRING },
+    dispatch_versions: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
   },
-  required: ['badge_text', 'headline', 'sub', 'benefits', 'cta', 'visualHooks', 'whatsappStatusSequence', 'socialMediaCopy', 'videoReelScript', 'salesClosingTemplates'],
+  required: ['badge_text', 'headline', 'sub', 'benefits', 'cta', 'visualHooks', 'whatsappStatusSequence', 'socialMediaCopy', 'videoReelScript', 'salesClosingTemplates', 'wa_line1_msg', 'wa_line2_msg', 'wa_line3_msg', 'dispatch_versions'],
 };
 
 /**
@@ -809,6 +889,7 @@ export async function generateCampaignCopy(input: CampaignInput, art: ArtDirecti
   const strategy = [
     `ESTRATEGIA DE LA PASADA 1 (úsala como eje de TODO el copy):`,
     `· Rubro detectado: ${art.industryType}`,
+    `· Categoría visible del afiche: ${art.categoryLabel}`,
     `· Nombre de marca: ${art.brandName}`,
     `· Producto/servicio estrella deducido: ${art.productTitle}`,
     `· Promesa de valor central: ${art.valueProposition}`,
