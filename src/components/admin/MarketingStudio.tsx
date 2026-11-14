@@ -88,14 +88,22 @@ type Layout = AfficheLayout;
 type Piece = AffichePiece;
 
 const AFFICHE_LAYOUTS: Array<{ id: Layout; label: string; hint: string }> = [
-  { id: 'bento', label: '🍱 Bento Modular', hint: 'Foto + tarjetas de beneficios' },
-  { id: 'magazine', label: '📰 Portada Full-Bleed', hint: 'Foto 100% de fondo + cristal' },
-  { id: 'diagonal', label: '⚡ Corte Diagonal', hint: 'Recorte dinámico con insignia' },
-  { id: 'polaroid', label: '🖼️ Polaroid 3D', hint: 'Foto inclinada con marco blanco' },
-  { id: 'arc', label: '🏛️ Arco Imperial', hint: 'Foto en arco con borde dorado' },
-  { id: 'portal', label: '🔮 Portal Circular', hint: 'Foto en círculo con anillos' },
-  { id: 'swiss', label: '📐 Grilla Suiza', hint: 'Retícula numerada de precisión' },
-  { id: 'strip', label: '🎞️ Franjas de Impacto', hint: 'Banda de titular editorial' },
+  { id: 'bento', label: '🏆 Bento Agency Pro', hint: 'Tarjetas modulares de cristal' },
+  { id: 'magazine', label: '📸 Vogue Magazine', hint: 'Foto 100% + tipografía gigante' },
+  { id: 'diagonal', label: '⚡ Corte Diagonal', hint: 'Imagen en ángulo de 14°' },
+  { id: 'arc', label: '🏛️ Arco Imperial', hint: 'Arco con doble filete dorado' },
+  { id: 'polaroid', label: '🖼️ Polaroid 3D Studio', hint: 'Marco blanco rotado -2.5°' },
+  { id: 'portal', label: '🎯 Radar Circular Neón', hint: 'Medallón con anillos de luz' },
+  { id: 'swiss', label: '📐 Swiss Grid Minimal', hint: 'Retícula fina de precisión' },
+  { id: 'split', label: '🔥 Split Asimétrico 50/50', hint: 'Columna de acento vertical' },
+  { id: 'brutal', label: '💥 Neobrutalismo Pop', hint: 'Bordes negros y sombra dura' },
+  { id: 'vip', label: '🥂 VIP Gold & Velvet', hint: 'Doble marco ornamental de lujo' },
+  { id: 'cyber', label: '🚀 Cyber Glass Dashboard', hint: 'Paneles HUD holográficos' },
+  { id: 'rustic', label: '🪵 Rústico Artesanal', hint: 'Sello y costuras gourmet' },
+  { id: 'retail', label: '🏷️ Mega-Promo Retail', hint: 'Cinta diagonal de oferta' },
+  { id: 'eco', label: '🌿 Eco-Editorial Orgánico', hint: 'Formas suaves tono tierra' },
+  { id: 'cinema', label: '🎬 Cinema Widescreen', hint: 'Bandas de cine y luces' },
+  { id: 'float', label: '💎 Cristales Flotantes 3D', hint: 'Tarjetas superpuestas 3D' },
 ];
 
 const BADGE_PRESETS: Array<{ id: string; label: string }> = [
@@ -207,7 +215,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 /** Texto honesto cuando aún no hay campaña generada (NUNCA copy prefabricado). */
 const EMPTY_COPY = '✨ Genera la campaña con IA y este texto aparecerá aquí';
 
-type CopyTab = 'pas' | 'aida' | 'estados' | 'reel' | 'cierres';
+type CopyTab = 'post' | 'grupos' | 'estados' | 'video' | 'cierres';
 
 /** Clave de autoguardado del estudio (V9: llave limpia, sin herencia corrupta). */
 const MARKETING_DRAFT_KEY = 'impulso_studio_v9_clean';
@@ -241,6 +249,7 @@ interface MktDraft {
   briefText?: string;
   priceMode?: PriceMode;
   focus?: CampaignFocus;
+  detectedCategory?: string;
   texts?: Texts;
   themeIdx?: number;
   format?: Format;
@@ -262,19 +271,22 @@ const DEFAULT_LINES: WaLine[] = [
   { title: 'Línea 3 · Planes / eventos', hint: 'Especiales, alianzas, cantidad', number: '', message: '¡Hola! Me interesan los planes especiales de {negocio} 📦 ¿Me cuentan opciones?' },
 ];
 
-/** Bloque de copy listo para copiar (usado en las pestañas de copywriting). */
+/** Bloque de copy listo para copiar (usado en las herramientas de venta). */
 function CopyBlock({
   text,
   tag,
   onCopy,
   copied,
   inputCls,
+  onWa,
 }: {
   text: string;
   tag: string;
   onCopy: (t: string, k: string, l: string) => Promise<void>;
   copied: string | null;
   inputCls: string;
+  /** V12: botón "📲 Enviar a WhatsApp" directo con el texto precargado. */
+  onWa?: (t: string) => void;
 }) {
   return (
     <div className="rounded-2xl bg-slate-950/50 p-2.5">
@@ -285,12 +297,22 @@ function CopyBlock({
         rows={Math.min(6, Math.max(3, Math.ceil(text.length / 44)))}
         className={cx(inputCls, 'mt-1 resize-none text-[11px] leading-relaxed text-slate-200')}
       />
-      <button
-        onClick={() => void onCopy(text, tag, 'Copy')}
-        className="pressable mt-1.5 flex items-center gap-1 rounded-lg border border-white/10 px-2 py-1 text-[10px] font-bold text-slate-400 hover:text-impulso-mint"
-      >
-        {copied === tag ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />} Copiar
-      </button>
+      <div className="mt-1.5 flex gap-2">
+        <button
+          onClick={() => void onCopy(text, tag, 'Copy')}
+          className="pressable flex flex-1 items-center justify-center gap-1 rounded-lg border border-white/10 px-2 py-1 text-[10px] font-bold text-slate-400 hover:text-impulso-mint"
+        >
+          {copied === tag ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />} Copiar
+        </button>
+        {onWa && (
+          <button
+            onClick={() => onWa(text)}
+            className="pressable flex flex-1 items-center justify-center gap-1 rounded-lg bg-[#25D366]/15 px-2 py-1 text-[10px] font-bold text-[#25D366]"
+          >
+            <Send className="h-3 w-3" /> Enviar a WhatsApp
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -321,11 +343,14 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
   const [briefText, setBriefText] = useState('');
   const [priceMode, setPriceMode] = useState<PriceMode>('precio');
   const [focus, setFocus] = useState<CampaignFocus>('remate');
+  /** V12: categoría/rubro detectado del BRIEF (el dock del afiche lee SIEMPRE
+   *  esto — jamás la categoría fija del comercio por defecto). */
+  const [detectedCategory, setDetectedCategory] = useState('');
 
   // ── Textos del afiche ──
   const [texts, setTexts] = useState<Texts>({ plain: '', highlight: '', sub: '', benefits: ['', '', ''], cta: '', priceLabel: '💬 Cotiza gratis por WhatsApp' });
   const [copied, setCopied] = useState<string | null>(null);
-  const [copyTab, setCopyTab] = useState<CopyTab>('pas');
+  const [copyTab, setCopyTab] = useState<CopyTab>('post');
 
   // ── Estudio gráfico (V11: artboard HTML en vez de canvas 2D) ──
   const [themeIdx, setThemeIdx] = useState(1);
@@ -388,6 +413,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     if (typeof d.briefText === 'string') setBriefText(d.briefText);
     if (d.priceMode === 'precio' || d.priceMode === 'servicio') setPriceMode(d.priceMode);
     if (d.focus === 'remate' || d.focus === 'prestigio' || d.focus === 'confianza' || d.focus === 'viral') setFocus(d.focus);
+    if (typeof d.detectedCategory === 'string') setDetectedCategory(d.detectedCategory);
     if (d.texts) {
       setTexts({
         plain: sanitizeLegacy(d.texts.plain),
@@ -435,6 +461,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       briefText,
       priceMode,
       focus,
+      detectedCategory,
       texts,
       themeIdx,
       format,
@@ -449,7 +476,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       photoZoom,
       photoPosY,
     });
-  }, [mode, merchantId, offerId, extName, extSlogan, extProduct, extNormalPrice, extPromoPrice, extAddress, extUrl, lines, briefText, priceMode, focus, texts, themeIdx, format, layout, piece, badgeMode, badgeCustom, showPrice, showBenefits, showQr, customPhoto, photoZoom, photoPosY]);
+  }, [mode, merchantId, offerId, extName, extSlogan, extProduct, extNormalPrice, extPromoPrice, extAddress, extUrl, lines, briefText, priceMode, focus, detectedCategory, texts, themeIdx, format, layout, piece, badgeMode, badgeCustom, showPrice, showBenefits, showQr, customPhoto, photoZoom, photoPosY]);
 
   /** 🧹 Empieza el estudio desde cero (borra el autoguardado). */
   function clearAllDraft(): void {
@@ -468,6 +495,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     setBriefText('');
     setPriceMode('precio');
     setFocus('remate');
+    setDetectedCategory('');
     setTexts({ plain: '', highlight: '', sub: '', benefits: ['', '', ''], cta: '', priceLabel: '💬 Cotiza gratis por WhatsApp' });
     setThemeIdx(1);
     setFormat('story');
@@ -589,6 +617,21 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     return BADGE_PRESETS.find((b) => b.id === badgeMode)?.label ?? '';
   }, [badgeMode, badgeCustom]);
 
+  /** V12: el dock muestra SIEMPRE la categoría detectada del brief +
+   *  ubicación (ej: "MARKETING DIGITAL & VENTAS · GACHETÁ") — jamás la
+   *  categoría fija del comercio por defecto. */
+  const dockSlogan = useMemo(
+    () => (detectedCategory.trim() ? `${detectedCategory.trim()} · ${brand.municipality || 'Gachetá'}` : brand.slogan),
+    [detectedCategory, brand.slogan, brand.municipality],
+  );
+
+  /** V12: pregunta gancho gigante para la Pieza 2 (portada de impacto viral),
+   *  construida con el titular real de la campaña. */
+  const hookText = useMemo(() => {
+    const h = `${T.plain} ${T.highlight}`.trim().replace(/[?!.¡¿]+$/g, '').trim();
+    return h ? `¿${h.toUpperCase()}?` : '';
+  }, [T.plain, T.highlight]);
+
   /** Enlaces wa.me codificados de las 3 líneas. */
   const lineLinks = useMemo(
     () => lines.map((l) => (l.number.trim() ? waLink(normalizePhone(l.number), fillMessage(l.message, brand)) : '')),
@@ -640,7 +683,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     piece: p,
     brand: {
       name: brand.name,
-      slogan: brand.slogan,
+      slogan: dockSlogan,
       product: brand.product,
       promoPrice: brand.promoPrice,
       normalPrice: brand.normalPrice,
@@ -648,7 +691,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       municipality: brand.municipality,
       phoneDisplay: brand.phoneDisplay,
     },
-    texts: { plain: T.plain, highlight: T.highlight, sub: T.sub, benefits: T.benefits, cta: T.cta },
+    texts: { plain: T.plain, highlight: T.highlight, sub: T.sub, benefits: T.benefits, cta: T.cta, hook: hookText },
     badge,
     showPrice,
     showBenefits,
@@ -726,6 +769,8 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       // V11: el Rubro/Categoría visible SIEMPRE lo actualiza la IA según el
       // brief (jamás queda "Comida y Bebidas" ni genérico por defecto).
       setExtSlogan(art.categoryLabel);
+      // V12: el dock del afiche lee SIEMPRE la categoría detectada del brief.
+      setDetectedCategory(art.categoryLabel);
       const bizName = brand.name.trim() || art.brandName;
       const product = brand.product.trim() || art.productTitle;
       // Aplica el tema y layout recomendados por la IA (rota por rubro).
@@ -1320,9 +1365,9 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
             onClick={surpriseDesign}
             className="pressable flex w-full items-center justify-center gap-2 rounded-xl border border-impulso-gold/50 bg-impulso-gold/10 py-2.5 text-xs font-extrabold text-impulso-gold"
           >
-            <Dices className="h-4 w-4" /> 🎲 Sorpréndeme (Nuevo Diseño Completo)
+            <Dices className="h-4 w-4" /> 🎲 Sorpréndeme con Otro Diseño Radical
           </button>
-          <p className={labelCls}>Fondo texturizado · 12 estilos de agencia</p>
+          <p className={labelCls}>Arquitectura · 16 diseños de agencia</p>
           <div className="no-scrollbar -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
             {AFFICHE_THEMES.map((t, i) => (
               <button
@@ -1422,10 +1467,10 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
           <div className="flex rounded-2xl bg-slate-950/60 p-1">
             {(
               [
-                [0, '⭐ Maestra'],
-                [1, '1 · Gancho'],
-                [2, '2 · Oferta'],
-                [3, '3 · Cierre'],
+                [0, '🏆 Maestra'],
+                [1, '⚡ Gancho Viral'],
+                [2, '💎 Infografía VIP'],
+                [3, '📲 Cierre + QR'],
               ] as const
             ).map(([p, label]) => (
               <button
@@ -1492,13 +1537,13 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
             <button
               onClick={() => void downloadPack()}
               disabled={exporting}
-              className="pressable flex items-center justify-center gap-1.5 rounded-2xl border border-impulso-gold/40 bg-impulso-gold/10 py-3 text-[11px] font-extrabold text-impulso-gold disabled:opacity-50"
+              className="pressable col-span-2 flex items-center justify-center gap-1.5 rounded-2xl border border-impulso-gold/40 bg-impulso-gold/10 py-3 text-[11px] font-extrabold text-impulso-gold disabled:opacity-50"
             >
-              <Download className="h-4 w-4" /> Pack 4 piezas
+              <Download className="h-4 w-4" /> 📦 Descargar Pack Completo de 4 Afiches HD
             </button>
             <button
               onClick={() => void copyKit()}
-              className="pressable flex items-center justify-center gap-1.5 rounded-2xl border border-white/10 bg-slate-950/40 py-3 text-[11px] font-extrabold text-slate-200"
+              className="pressable col-span-2 flex items-center justify-center gap-1.5 rounded-2xl border border-white/10 bg-slate-950/40 py-3 text-[11px] font-extrabold text-slate-200"
             >
               <Copy className="h-4 w-4" /> Copiar kit al cliente
             </button>
@@ -1547,17 +1592,17 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
           )}
         </div>
 
-        {/* Textos para Redes, Estados y Guion de Video */}
+        {/* 🧰 Herramientas de venta (V12: nombres claros, cero siglas) */}
         <div className={cardCls}>
-          <p className="text-xs font-extrabold text-white">📝 Textos para Redes, Estados y Guion de Video</p>
+          <p className="text-xs font-extrabold text-white">🧰 Textos y Herramientas de Venta</p>
           <div className="no-scrollbar -mx-1 flex gap-1 overflow-x-auto px-1 pb-1">
             {(
               [
-                ['pas', 'PAS'],
-                ['aida', 'AIDA'],
-                ['estados', 'Estados'],
-                ['reel', 'Reel 15s'],
-                ['cierres', 'Cierres'],
+                ['post', '📘 Post FB/IG'],
+                ['grupos', '⚡ Grupos'],
+                ['estados', '🟢 Estados'],
+                ['video', '🎬 Video 15s'],
+                ['cierres', '🤝 Cierres'],
               ] as const
             ).map(([id, label]) => (
               <button
@@ -1572,32 +1617,86 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
               </button>
             ))}
           </div>
-          {copyTab === 'pas' && (
-            <CopyBlock text={campaign?.socialMediaCopy.pas || EMPTY_COPY} tag="Fórmula PAS · Facebook / Instagram" onCopy={copyText} copied={copied} inputCls={inputCls} />
+          {copyTab === 'post' && (
+            <>
+              <p className="text-[11px] font-semibold leading-relaxed text-slate-400">
+                Texto persuasivo listo para pegar debajo de la imagen cuando la publiques en Facebook, Instagram o grupos.
+              </p>
+              <CopyBlock
+                text={campaign?.socialMediaCopy.pas || EMPTY_COPY}
+                tag="Anuncio completo para publicar HOY · Facebook / Instagram"
+                onCopy={copyText}
+                copied={copied}
+                inputCls={inputCls}
+                onWa={(t) => window.open(`https://wa.me/?text=${encodeURIComponent(t)}`, '_blank', 'noopener,noreferrer')}
+              />
+            </>
           )}
-          {copyTab === 'aida' && (
-            <CopyBlock text={campaign?.socialMediaCopy.aida || EMPTY_COPY} tag="Fórmula AIDA Flash · Grupos / Clasificados" onCopy={copyText} copied={copied} inputCls={inputCls} />
+          {copyTab === 'grupos' && (
+            <>
+              <p className="text-[11px] font-semibold leading-relaxed text-slate-400">
+                Mensaje directo y al grano diseñado para enviar en grupos del municipio sin que la gente se aburra de leer.
+              </p>
+              <CopyBlock
+                text={campaign?.socialMediaCopy.aida || EMPTY_COPY}
+                tag="Anuncio corto para grupos de WhatsApp"
+                onCopy={copyText}
+                copied={copied}
+                inputCls={inputCls}
+                onWa={(t) => window.open(`https://wa.me/?text=${encodeURIComponent(t)}`, '_blank', 'noopener,noreferrer')}
+              />
+            </>
           )}
           {copyTab === 'estados' && (
-            <div className="space-y-2">
-              <CopyBlock text={campaign?.whatsappStatusSequence.status1 || EMPTY_COPY} tag="Estado 1 · 9:00/11:00 · Curiosidad" onCopy={copyText} copied={copied} inputCls={inputCls} />
-              <CopyBlock text={campaign?.whatsappStatusSequence.status2 || EMPTY_COPY} tag="Estado 2 · Con la pieza 2 · Revelación" onCopy={copyText} copied={copied} inputCls={inputCls} />
-              <CopyBlock text={campaign?.whatsappStatusSequence.status3 || EMPTY_COPY} tag="Estado 3 · 19:00 · Escasez + prueba social" onCopy={copyText} copied={copied} inputCls={inputCls} />
-            </div>
+            <>
+              <p className="text-[11px] font-semibold leading-relaxed text-slate-400">
+                Sube estos 3 textos en tus Estados de WhatsApp a lo largo del día para antojar y cerrar ventas hoy mismo.
+              </p>
+              <CopyBlock
+                text={campaign?.whatsappStatusSequence.status1 || EMPTY_COPY}
+                tag="1 · Gancho de atención inmediata (9:00 - 11:00)"
+                onCopy={copyText}
+                copied={copied}
+                inputCls={inputCls}
+                onWa={(t) => window.open(`https://wa.me/?text=${encodeURIComponent(t)}`, '_blank', 'noopener,noreferrer')}
+              />
+              <CopyBlock
+                text={campaign?.whatsappStatusSequence.status2 || EMPTY_COPY}
+                tag="2 · Demostración de beneficios (12:00)"
+                onCopy={copyText}
+                copied={copied}
+                inputCls={inputCls}
+                onWa={(t) => window.open(`https://wa.me/?text=${encodeURIComponent(t)}`, '_blank', 'noopener,noreferrer')}
+              />
+              <CopyBlock
+                text={campaign?.whatsappStatusSequence.status3 || EMPTY_COPY}
+                tag="3 · Llamado urgente a escribir YA (19:00)"
+                onCopy={copyText}
+                copied={copied}
+                inputCls={inputCls}
+                onWa={(t) => window.open(`https://wa.me/?text=${encodeURIComponent(t)}`, '_blank', 'noopener,noreferrer')}
+              />
+            </>
           )}
-          {copyTab === 'reel' && (
-            <div className="space-y-2">
-              <CopyBlock text={campaign?.videoReelScript.t0_3 || EMPTY_COPY} tag="⏱️ 0-3 s · Gancho visual" onCopy={copyText} copied={copied} inputCls={inputCls} />
-              <CopyBlock text={campaign?.videoReelScript.t3_10 || EMPTY_COPY} tag="⏱️ 3-10 s · Demostración" onCopy={copyText} copied={copied} inputCls={inputCls} />
-              <CopyBlock text={campaign?.videoReelScript.t10_15 || EMPTY_COPY} tag="⏱️ 10-15 s · Cierre con dirección" onCopy={copyText} copied={copied} inputCls={inputCls} />
-            </div>
+          {copyTab === 'video' && (
+            <>
+              <p className="text-[11px] font-semibold leading-relaxed text-slate-400">
+                Instrucciones sencillas en 3 pasos para que tú o el dueño del negocio graben un video ganador con el celular.
+              </p>
+              <CopyBlock text={campaign?.videoReelScript.t0_3 || EMPTY_COPY} tag="🎥 Toma 1 · Primeros 3 seg: qué mostrar y qué decir" onCopy={copyText} copied={copied} inputCls={inputCls} />
+              <CopyBlock text={campaign?.videoReelScript.t3_10 || EMPTY_COPY} tag="🎥 Toma 2 · Segundos 4 al 10: demostración" onCopy={copyText} copied={copied} inputCls={inputCls} />
+              <CopyBlock text={campaign?.videoReelScript.t10_15 || EMPTY_COPY} tag="🎥 Toma 3 · Segundos 11 al 15: cierre e invitación" onCopy={copyText} copied={copied} inputCls={inputCls} />
+            </>
           )}
           {copyTab === 'cierres' && (
-            <div className="space-y-2">
+            <>
+              <p className="text-[11px] font-semibold leading-relaxed text-slate-400">
+                Cuando un cliente escriba al WhatsApp preguntando "¿Precio?" o "¿Información?", responde con estos mensajes para asegurar la venta.
+              </p>
               <CopyBlock text={campaign?.salesClosingTemplates.priceReply || EMPTY_COPY} tag="💸 Cuando preguntan ¿precio?" onCopy={copyText} copied={copied} inputCls={inputCls} />
-              <CopyBlock text={campaign?.salesClosingTemplates.hesitantReply || EMPTY_COPY} tag="🤔 Cliente indeciso" onCopy={copyText} copied={copied} inputCls={inputCls} />
-              <CopyBlock text={campaign?.salesClosingTemplates.dispatchUpsell || EMPTY_COPY} tag="🛵 Confirmación + upsell" onCopy={copyText} copied={copied} inputCls={inputCls} />
-            </div>
+              <CopyBlock text={campaign?.salesClosingTemplates.hesitantReply || EMPTY_COPY} tag="🤔 Cliente indeciso o que deja de responder" onCopy={copyText} copied={copied} inputCls={inputCls} />
+              <CopyBlock text={campaign?.salesClosingTemplates.dispatchUpsell || EMPTY_COPY} tag="🛵 Confirmación + venta adicional" onCopy={copyText} copied={copied} inputCls={inputCls} />
+            </>
           )}
         </div>
 

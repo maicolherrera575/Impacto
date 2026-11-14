@@ -485,7 +485,7 @@ const INDUSTRY_IDS: IndustryType[] = [
 ];
 
 const THEME_IDS = ['wood', 'marble', 'cyber', 'kraft', 'ember', 'emerald', 'obsidian', 'clinic', 'terracotta', 'pop', 'aurora', 'slate'] as const;
-const LAYOUT_IDS = ['bento', 'magazine', 'diagonal', 'swiss', 'polaroid', 'portal', 'arc', 'strip'] as const;
+const LAYOUT_IDS = ['bento', 'magazine', 'diagonal', 'polaroid', 'arc', 'portal', 'swiss', 'split', 'brutal', 'vip', 'cyber', 'rustic', 'retail', 'eco', 'cinema', 'float'] as const;
 
 /** Dirección de arte por defecto de cada rubro (nunca siempre el mismo tema). */
 export const INDUSTRY_ART: Record<IndustryType, { themeId: string; layoutId: string }> = {
@@ -1399,7 +1399,7 @@ export function synthesizeCampaign(input: CampaignInput, art: ArtDirection): Mar
       slide3_cta: `Últimos cupos de hoy 👉 Escríbenos al WhatsApp de ${brand}`,
     },
     whatsappStatusSequence: {
-      status1: `🤔 ¿Sabías que ${hook}? En ${place} ya lo descubrieron con ${brand}. Mañana te contamos la oferta 👀`,
+      status1: `🔥 HOY sí hay forma de conseguir ${product.toLowerCase()} como es debido. ${brand} en ${place} lo tiene listo para ti 👀 Escribe ya y pregunta por la promoción del día: te respondemos en minutos`,
       status2: `${plain} ${highlight}${price}${normalTxt}\n✅ ${b0.replace(/^[^\p{L}\p{N}]+/u, '')}\n✅ ${b2.replace(/^[^\p{L}\p{N}]+/u, '')}\n📍 ${addr}`,
       status3: `⏰ Últimas horas con esta promo de ${brand} en ${place}.\n${b1.replace(/^[^\p{L}\p{N}]+/u, '')} — y la gente ya está escribiendo 📲\n👉 Escríbenos antes que se acabe`,
     },
