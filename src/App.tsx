@@ -2,14 +2,20 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Loader2, ShieldCheck } from 'lucide-react';
 
 import type { Offer, Profile, QuickRequest, Ticket } from './types';
+import { MUNICIPIOS, municipioCenter } from './types';
 import type { Tab } from './types/navigation';
-import { municipioCenter } from './types';
 
 import { supabase, friendlyError } from './services/supabase';
-import { fetchActiveOffers, fetchOfferById, reportOffer, autoPruneData } from './services/offers.service';
+import {
+  fetchActiveOffers,
+  fetchActiveOffersByMerchant,
+  fetchOfferById,
+  reportOffer,
+  autoPruneData,
+} from './services/offers.service';
 import { fetchActiveRequests } from './services/requests.service';
 import { cancelMyReservation, fetchTicketStatuses } from './services/reservations.service';
-import { fetchMyProfile, ensureMyProfile, signOut } from './services/profile.service';
+import { fetchMyProfile, ensureMyProfile, fetchPublicProfileById, signOut } from './services/profile.service';
 
 import { useGeolocation } from './utils/geo';
 import type { LatLng } from './utils/geo';
@@ -25,6 +31,7 @@ import { RequestsTab } from './components/requests/RequestsTab';
 import { ReservationsTab } from './components/reservations/ReservationsTab';
 import { OfferDetailModal } from './components/offers/OfferDetailModal';
 import { ReportModal } from './components/offers/ReportModal';
+import { MerchantProfileModal } from './components/radar/MerchantProfileModal';
 import { AuthModal } from './components/auth/AuthModal';
 import { LegalModal } from './components/legal/LegalModal';
 import { AdminPanel } from './components/admin/AdminPanel';
@@ -53,6 +60,11 @@ export default function App() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [selectedOffer, setSelectedOffer] = useState<Offer | null>(null);
+  /** V13 · Perfil Público del comercio (?comercio=UUID) + su catálogo vivo. */
+  const [selectedMerchant, setSelectedMerchant] = useState<Profile | null>(null);
+  const [merchantOffers, setMerchantOffers] = useState<Offer[]>([]);
+  /** V13 · Enfoque del mapa: coordenadas de un comercio (botón "Ver en el Mapa"). */
+  const [mapFocus, setMapFocus] = useState<LatLng | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
   const [legalOpen, setLegalOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
@@ -199,6 +211,33 @@ export default function App() {
       }
       window.history.replaceState({}, '', window.location.pathname);
     })();
+  }, []);
+
+  // ── V13 · Deep linking del Perfil Público: ?comercio=UUID ────────────────
+  // Destino oficial de los QR "Perfil Impulso" de los afiches de la agencia IA.
+  useEffect(() => {
+    const merchantId = new URLSearchParams(window.location.search).get('comercio');
+    if (!merchantId) return;
+    void (async () => {
+      try {
+        const [m, offs] = await Promise.all([
+          fetchPublicProfileById(merchantId),
+          fetchActiveOffersByMerchant(merchantId),
+        ]);
+        if (!m) {
+          toast.error('🏪 No encontramos ese comercio en el radar de Impulso');
+        } else if (m.is_active === false || m.is_suspended === true) {
+          toast.error('🏪 Este comercio no está disponible temporalmente');
+        } else {
+          setMerchantOffers(offs);
+          setSelectedMerchant(m);
+        }
+      } catch (err) {
+        console.warn('[Impulso] deep link comercio:', friendlyError(err));
+      }
+      window.history.replaceState({}, '', window.location.pathname);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── Acciones ──────────────────────────────────────────────────────────────
@@ -382,13 +421,56 @@ export default function App() {
   /** Cambio de municipio: refresca datos y recentra el radar con fuerza. */
   const handleMunicipality = useCallback((name: string) => {
     setMunicipality(name);
+    setMapFocus(null);
     setRecenterToken((t) => t + 1);
   }, []);
 
-  // ── Punto de referencia del mapa (GPS con fallback al casco urbano) ──────
+  /**
+   * V13 · Abre el Perfil Público de un comercio: trae el perfil completo
+   * (lat/lng, dirección, verificación) + sus ofertas activas en paralelo.
+   */
+  const openMerchantProfile = useCallback(async (merchantId: string) => {
+    try {
+      const [m, offs] = await Promise.all([
+        fetchPublicProfileById(merchantId),
+        fetchActiveOffersByMerchant(merchantId),
+      ]);
+      if (!m) {
+        toast.error('🏪 No encontramos ese comercio en el radar de Impulso');
+        return;
+      }
+      if (m.is_active === false || m.is_suspended === true) {
+        toast.error('🏪 Este comercio no está disponible temporalmente');
+        return;
+      }
+      setMerchantOffers(offs);
+      setSelectedMerchant(m);
+    } catch (err) {
+      toast.error(friendlyError(err));
+    }
+  }, [toast]);
+
+  /**
+   * V13 · "Ver en el Mapa Radar": cierra el perfil, salta a la pestaña de
+   * ofertas y centra el radar en las coordenadas exactas del comercio.
+   */
+  const handleFocusMerchantMap = useCallback(() => {
+    const m = selectedMerchant;
+    setSelectedMerchant(null);
+    setView('radar');
+    setTab('ofertas');
+    if (m?.lat != null && m?.lng != null) setMapFocus({ lat: m.lat, lng: m.lng });
+    if (m && MUNICIPIOS.some((x) => x.name === m.municipality)) setMunicipality(m.municipality);
+    setRecenterToken((t) => t + 1);
+  }, [selectedMerchant]);
+
+  // ── Punto de referencia del mapa (GPS con fallback al casco urbano).
+  // V13: si el usuario pidió "Ver en el Mapa", manda el foco del comercio. ──
   const mapCenter = useMemo<LatLng>(
-    () => (geo.status === 'active' && geo.pos ? geo.pos : municipioCenter(municipality)),
-    [geo.status, geo.pos, municipality]
+    () =>
+      mapFocus ??
+      (geo.status === 'active' && geo.pos ? geo.pos : municipioCenter(municipality)),
+    [mapFocus, geo.status, geo.pos, municipality]
   );
 
   const pendingTickets = useMemo(() => tickets.filter((t) => t.status === 'pending').length, [tickets]);
@@ -429,6 +511,7 @@ export default function App() {
                 onStatusOffer={(o) => void handleStatusShare(o)}
                 onReportOffer={setReporting}
                 reportedIds={reportedIds}
+                onOpenMerchant={(id) => void openMerchantProfile(id)}
               />
             )}
             {tab === 'pedir' && (
@@ -517,6 +600,23 @@ export default function App() {
         onViewTickets={() => {
           setView('radar');
           setTab('apartados');
+        }}
+        onOpenMerchant={(id) => void openMerchantProfile(id)}
+      />
+      {/* V13 · Perfil Público del comercio (?comercio=UUID) */}
+      <MerchantProfileModal
+        merchant={selectedMerchant}
+        offers={merchantOffers}
+        geoPos={geo.status === 'active' && geo.pos ? geo.pos : null}
+        onClose={() => {
+          setSelectedMerchant(null);
+          setMerchantOffers([]);
+        }}
+        onFocusMap={handleFocusMerchantMap}
+        onOpenOffer={(o) => {
+          setSelectedMerchant(null);
+          setMerchantOffers([]);
+          setSelectedOffer(o);
         }}
       />
       <AuthModal

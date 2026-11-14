@@ -21,6 +21,7 @@ export type PhotoCategory =
   | 'drogueria_medicina'
   | 'belleza_spa'
   | 'barberia'
+  | 'turismo_cabanas_piscinas'
   | 'agro_ganaderia'
   | 'veterinaria_mascotas'
   | 'ferreteria_construccion'
@@ -50,6 +51,8 @@ const CATEGORY_MATCHERS: Array<{ cat: PhotoCategory; re: RegExp }> = [
   { cat: 'hamburguesa_rapida', re: /hamburguesa|comida r[aá]pida|perro caliente|pizza|salchipapa| snacks/ },
   { cat: 'panaderia_cafe', re: /panader|pan\b|pastel|postre|dulce|reposter|torta|bolo|caf[eé]|bebida|jugo|malteada|desayun/ },
   { cat: 'restaurante_almuerzo', re: /restaurante|almuerzo|men[uú]|comida|gastronom|corrientazo|saz[oó]n|fiesta (de|en) plato/ },
+  // V13: el matcher de turismo va ANTES que el de agro (que ya captura "finca").
+  { cat: 'turismo_cabanas_piscinas', re: /caba[nñ]|piscina|balneario|glamping|turismo|tur[íi]stic|hospedaje|alojamiento|hotel|hostal|mirador|paseo|finca de recreo|descanso|pozo|trucha\s*de|campestre/ },
   { cat: 'agro_ganaderia', re: /agro|ganado|vaca|finca|cultivo|semilla|concentrado|abono|campa|trucha|campo|siembra|fertilizante/ },
   { cat: 'veterinaria_mascotas', re: /veterinar|perro|mascota|gato|canino|felino/ },
   { cat: 'ferreteria_construccion', re: /construcci[oó]n|obra|ferreter|alba[nñ]il|electricis|plomero|materiales|herramienta|remodela|pintura|hogar/ },
@@ -148,6 +151,15 @@ export const PHOTO_BANK: Record<PhotoCategory, string[]> = {
     unsplash('photo-1567861911437-538298d94e63'),
     unsplash('photo-1519500856806-d7c49f31e03a'),
     unsplash('photo-1599351431202-1e0f0137899a'),
+  ],
+  turismo_cabanas_piscinas: [
+    unsplash('photo-1520250497591-112f2f40a3f4'),
+    unsplash('photo-1566073791250-1a19d5686b7a'),
+    unsplash('photo-1582719508461-905c673771fd'),
+    unsplash('photo-1540541338287-41700207dee6'),
+    unsplash('photo-1476514525535-07fb3b4ae5f1'),
+    unsplash('photo-1470770841072-f978cf4d019e'),
+    unsplash('photo-1506929562872-bb421503ef21'),
   ],
   agro_ganaderia: [
     unsplash('photo-1500595046743-cd271d694d30'),

@@ -467,6 +467,7 @@ export type IndustryType =
   | 'digital_tech'
   | 'gastronomia'
   | 'salud_belleza'
+  | 'turismo_hospedaje'
   | 'agro_campo'
   | 'transporte_logistica'
   | 'comercio_retail'
@@ -477,6 +478,7 @@ const INDUSTRY_IDS: IndustryType[] = [
   'digital_tech',
   'gastronomia',
   'salud_belleza',
+  'turismo_hospedaje',
   'agro_campo',
   'transporte_logistica',
   'comercio_retail',
@@ -492,6 +494,7 @@ export const INDUSTRY_ART: Record<IndustryType, { themeId: string; layoutId: str
   digital_tech: { themeId: 'cyber', layoutId: 'diagonal' },
   gastronomia: { themeId: 'wood', layoutId: 'bento' },
   salud_belleza: { themeId: 'marble', layoutId: 'swiss' },
+  turismo_hospedaje: { themeId: 'emerald', layoutId: 'eco' },
   agro_campo: { themeId: 'emerald', layoutId: 'swiss' },
   transporte_logistica: { themeId: 'slate', layoutId: 'bento' },
   comercio_retail: { themeId: 'terracotta', layoutId: 'bento' },
@@ -509,6 +512,8 @@ export const INDUSTRY_PHOTO_PROMPTS: Record<IndustryType, string> = {
     'bright modern clinic interior, cyan and white palette, soft clinical daylight, professional dental and beauty equipment, 8k commercial photography, no text, no logos',
   agro_campo:
     'golden hour over green andean farmland, farmer hands holding fresh produce, cinematic warm light, 8k editorial photography, no text, no logos',
+  turismo_hospedaje:
+    'cozy wooden cabin with warm lights beside a mountain pool at dusk, lush andean greenery, mirror-like water reflections, cinematic 8k hospitality editorial photography, no text, no logos',
   transporte_logistica:
     'reliable cargo truck on a rural highway at dawn, graphite tones with subtle lime accents, cinematic wide shot, 8k commercial photography, no text, no logos',
   comercio_retail:
@@ -645,12 +650,12 @@ const ART_SYSTEM_PROMPT = `Eres el Director de Arte y Estratega de Growth de una
 El BRIEF del negocio es tu FUENTE MAESTRA ABSOLUTA: de él deduces el nombre, el producto/servicio estrella, el rubro, la promesa y la fotografía (aunque sea una sola frase como "Es un servicio de marketing digital nuevo" o "Vendemos trucha arcoíris y almuerzos campestres").
 Analizarás el brief y definirás la ESTRATEGIA VISUAL y COMERCIAL. Devuelve ÚNICAMENTE un JSON exacto:
 {
- "industry_type": uno de [digital_tech, gastronomia, salud_belleza, agro_campo, transporte_logistica, comercio_retail, servicios_profesionales, construccion_hogar],
+ "industry_type": uno de [digital_tech, gastronomia, salud_belleza, turismo_hospedaje, agro_campo, transporte_logistica, comercio_retail, servicios_profesionales, construccion_hogar],
  "brand_name": "nombre comercial corto y potente del negocio (1 a 3 palabras): si el brief ya lo da, devuélvelo limpio; si NO lo da, crea uno creíble y memorable para el giro deducido. PROHIBIDO usar la palabra 'Impulso'",
  "product_title": "título del servicio o producto estrella DEDUCIDO del brief (máx 6 palabras, reescrito con vocabulario de agencia, no literal)",
  "category_label": "rubro/categoría COMERCIAL y VISIBLE del afiche en español (2 a 5 palabras, específico del giro, ej: 'Marketing Digital & Ventas', 'Comida Rápida Casera', 'Odontología Moderna', 'Insumos Agropecuarios'). PROHIBIDO genéricos tipo 'Servicios' o 'Comercio'",
  "theme_id": uno de [wood, marble, cyber, kraft, ember, emerald, obsidian, clinic, terracotta, pop, aurora, slate]. Elige el que mejor pegue con el giro y VARÍA entre generaciones: comida/asaderos/panadería/café/agro → wood; salud/odontología/estética/moda/servicios VIP → marble; marketing digital/tecnología/negocios modernos → cyber; artesanías/eco/editorial/panadería artesanal → kraft; asados gourmet/parrilla/noche → ember; naturaleza/turismo/veterinaria → emerald; servicios premium/abogados/finanzas → obsidian; clínicas/droguerías/laboratorios → clinic; promociones y comercio local → terracotta; ofertas relámpago/ferreterías/retail → pop; agencias creativas/moda/eventos → aurora; construcción/logística/industrial → slate. NUNCA elijas siempre el mismo.
- "layout_id": uno de [bento, magazine, diagonal, swiss, polaroid, portal, arc, strip]. Rota la composición según el giro para que cada generación sea visualmente única.
+ "layout_id": uno de [bento, magazine, diagonal, polaroid, arc, portal, swiss, split, brutal, vip, cyber, rustic, retail, eco, cinema, float]. Rota la composición según el giro para que cada generación sea visualmente única.
  "value_proposition": "la promesa comercial de alto calibre del negocio: transforma la idea básica del brief en un beneficio concreto, específico y creíble. PROHIBIDO copiar frases literales del brief: reescríbelas con vocabulario de agencia senior",
  "image_prompt_en": "hyper-detailed commercial editorial photography prompt IN ENGLISH of EXACTLY what the brief describes (its real products, workspace or service in action): subject, environment, cinematic 8k lighting setup, lens and mood. The image must NEVER contain text, logos or watermarks"
 }
@@ -676,6 +681,7 @@ const INDUSTRY_NAMES: Record<IndustryType, string> = {
   digital_tech: 'Agencia Pro',
   gastronomia: 'Sabor del Pueblo',
   salud_belleza: 'Vitalidad',
+  turismo_hospedaje: 'Refugio del Valle',
   agro_campo: 'Tierra Viva',
   transporte_logistica: 'Ruta Segura',
   comercio_retail: 'El Almacén',
@@ -688,6 +694,7 @@ const INDUSTRY_CATEGORY_LABELS: Record<IndustryType, string> = {
   digital_tech: 'Marketing Digital & Ventas',
   gastronomia: 'Comida & Sabor Casero',
   salud_belleza: 'Salud & Belleza',
+  turismo_hospedaje: 'Turismo, Cabañas & Piscinas',
   agro_campo: 'Agro & Campo',
   transporte_logistica: 'Transporte & Domicilios',
   comercio_retail: 'Tienda & Comercio Local',
@@ -778,7 +785,7 @@ Recibirás la ESTRATEGIA de la campaña (rubro, promesa de valor, tema y layout)
  "salesClosingTemplates": {
    "priceReply": "respuesta lista cuando el cliente pregunta ¿precio?: da el precio o invita a cotizar y ofrece combo/domicilio",
    "hesitantReply": "respuesta para clientes indecisos con escasez o garantía",
-   "dispatchUpsell": "confirmación de despacho + venta cruzada (upsell) natural"
+   "dispatchUpsell": "confirmación de despacho ejecutiva y elegante, con venta cruzada SUTIL y trato de cliente fiel (PROHIBIDO el patrón ¿Te sumamos X?: no ofrezcas beneficios sueltos como si fueran adornos)"
  },
  "wa_line1_msg": "mensaje EXACTO que escribirá el CLIENTE interesado al tocar el enlace de VENTAS, redactado a la medida del giro real (ej. marketing digital: '¡Hola! Vi su publicidad de marketing digital y quiero impulsar las ventas de mi negocio. ¿Me brindan una asesoría?')",
  "wa_line2_msg": "mensaje del CLIENTE para la línea de DOMICILIOS/COTIZACIONES, redactado a la medida del giro",
@@ -789,6 +796,7 @@ Recibirás la ESTRATEGIA de la campaña (rubro, promesa de valor, tema y layout)
 }
 REGLAS DE ORO:
 - PROHIBIDO copiar frases literales del brief del usuario ni rellenar con plantillas genéricas: todo el copy debe nacer de la promesa de valor de la estrategia.
+- PROHIBIDO el patrón "¿Te sumamos ...?" en dispatchUpsell: la confirmación de despacho es ejecutiva (confirma el pedido, la entrega y ofrece el trato de cliente fiel con naturalidad).
 - Los beneficios deben describir algo que SOLO ese negocio puede decir.
 - headlines y textos SIEMPRE con espacios correctos entre palabras (jamás palabras pegadas tipo 'ImpulsoHOY').
 - PROHIBIDO usar el nombre 'Impulso' como marca del cliente.
@@ -1122,6 +1130,24 @@ const NICHES: Niche[] = [
     theme: 'aurora', layout: 'polaroid',
   },
   {
+    // V13: el matcher de turismo va ANTES que el de agro (que ya captura "finca").
+    id: 'turismo', re: /caba[nñ]|piscina|balneario|glamping|turismo|tur[íi]stic|hospedaje|alojamiento|hotel|hostal|mirador|paseo|finca de recreo|descanso|pozo|trucha\s*de|campestre/,
+    industry: 'turismo_hospedaje', labels: ['Turismo, Cabañas & Piscinas', 'Hospedaje & Descanso Campestre'],
+    names: ['Refugio del Valle', 'Cabañas La Luna', 'Paraíso Campestre'],
+    products: ['Plan de día de piscina y asado', 'Cabaña con piscina para tu familia', 'Finca de recreo con mirador'],
+    headlines: [
+      ['Tu día de descanso', 'entre cabañas y piscina'],
+      ['Escápate al campo', 'sin salir de tu pueblo'],
+      ['Cabañas con piscina', 'para desconectarse'],
+    ],
+    subs: ['Cabañas equipadas, piscina y asado · reservas por WhatsApp', 'Piscina, kiosco, mirador y zonas verdes para toda la familia'],
+    badges: ['🏔️ ESCAPADA CAMPESTRE', '🏊 PISCINA TODO EL AÑO'],
+    benefits: ['🏊 Piscina y zonas verdes amplias', '🛖 Cabañas equipadas y cómodas', '🍖 Zona de asado y kiosco', '🎉 Ideal para planes y cumpleaños', '📍 A minutos del pueblo', '🅿️ Parqueadero y seguridad'],
+    wa: ['¡Hola! Vi su publicidad de cabañas y quiero apartar un plan con piscina para este fin de semana 🏊 ¿Qué planes tienen y precios?', '¡Hola! Quiero cotizar la cabaña para un grupo de personas 🎉 ¿Capacidad y tarifa?', '¡Hola! Me interesan los planes especiales para cumpleaños/reuniones 🎂 ¿Me cuentan opciones?'],
+    hook: 'el descanso que tu familia se merece está a minutos',
+    theme: 'emerald', layout: 'eco',
+  },
+  {
     id: 'agro', re: /agro|ganado|finca|cultivo|semilla|concentrado|abono|campo|siembra|fertilizante|trucha/,
     industry: 'agro_campo', labels: ['Insumos Agropecuarios', 'Todo para el Campo'],
     names: ['Tierra Viva', 'El Semillero', 'AgroCampestre'],
@@ -1417,7 +1443,7 @@ export function synthesizeCampaign(input: CampaignInput, art: ArtDirection): Mar
         ? `¡Hola! 😊 La cotización depende de lo que necesites. ${product}: ${b0.replace(/^[^\p{L}\p{N}]+/u, '').toLowerCase()}. Cuéntame tu caso y te envío el presupuesto hoy mismo 👉`
         : `¡Hola! 😊 ${product} queda en $${(input.promoPrice ?? 0).toLocaleString('es-CO')}${normalTxt}. Con domicilio disponible en ${place} 🛵 ¿Te lo aparto?`,
       hesitantReply: `Te entiendo 👌 Por eso te cuento: ${b2.replace(/^[^\p{L}\p{N}]+/u, '')} y si no te convence, conversamos sin compromiso. Hoy tenemos cupos limitados, ¿te guardo uno?`,
-      dispatchUpsell: `¡Perfecto, confirmado! 🛵 Llega a ${addr}. ¿Te sumamos ${b1.replace(/^[^\p{L}\p{N}]+/u, '').toLowerCase()}? A los clientes de primera compra les queda un precio especial 😉`,
+      dispatchUpsell: `¡Perfecto, confirmado! 🧾 Tu ${product.toLowerCase()} queda apartado y llega a ${addr}. Si necesitas algo más, escríbeme por aquí y como cliente fiel te doy precio especial 😉`,
     },
     waLine1Msg: niche.wa[0],
     waLine2Msg: niche.wa[1],

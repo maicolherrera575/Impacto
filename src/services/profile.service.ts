@@ -9,6 +9,17 @@ export async function fetchMyProfile(userId: string): Promise<Profile | null> {
 }
 
 /**
+ * V13 · Perfil PÚBLICO de un comercio por id (deep links ?comercio=UUID y
+ * clics en el nombre del comercio). No exige sesión: es el mismo dato que
+ * ya se muestra embebido en las ofertas del radar.
+ */
+export async function fetchPublicProfileById(merchantId: string): Promise<Profile | null> {
+  const { data, error } = await supabase.from('profiles').select('*').eq('id', merchantId).maybeSingle();
+  if (error) throw error;
+  return (data as unknown as Profile) ?? null;
+}
+
+/**
  * Auto-sanación: crea el perfil del usuario autenticado si por algún
  * motivo el trigger no lo creó (ejecución parcial del esquema).
  */

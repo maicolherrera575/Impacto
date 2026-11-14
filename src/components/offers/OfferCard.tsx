@@ -17,13 +17,15 @@ interface OfferCardProps {
   onReport: () => void;
   /** Este dispositivo ya reportó la oferta: el botón queda deshabilitado. */
   reported?: boolean;
+  /** V13 · Abre el Perfil Público del comercio (?comercio=UUID). */
+  onOpenMerchant?: (merchantId: string) => void;
 }
 
 /**
  * Tarjeta de alta conversión: insignia de verificado, estrellas, distancia,
  * reloj dinámico inteligente, precios tachados y barra de stock en vivo.
  */
-export function OfferCard({ offer, distance, onOpen, onShare, onStatus, onReport, reported = false }: OfferCardProps) {
+export function OfferCard({ offer, distance, onOpen, onShare, onStatus, onReport, reported = false, onOpenMerchant }: OfferCardProps) {
   const now = useTick(1000);
   const countdown = countdownText(offer.expires_at, now);
   const merchant = offer.merchant;
@@ -88,11 +90,24 @@ export function OfferCard({ offer, distance, onOpen, onShare, onStatus, onReport
             {offer.title}
           </h3>
 
-          {/* Comercio + verificado + calificación */}
+          {/* Comercio + verificado + calificación (V13: el nombre abre el Perfil Público) */}
           <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-            <span className="max-w-[160px] truncate font-semibold text-slate-300">
-              {merchant?.business_name ?? 'Comercio local'}
-            </span>
+            {merchant && onOpenMerchant ? (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenMerchant(merchant.id);
+                }}
+                title="Ver el perfil oficial del comercio"
+                className="max-w-[160px] truncate font-semibold text-slate-300 underline decoration-slate-600 decoration-dotted underline-offset-2 transition hover:text-impulso-mint"
+              >
+                🏪 {merchant.business_name}
+              </button>
+            ) : (
+              <span className="max-w-[160px] truncate font-semibold text-slate-300">
+                {merchant?.business_name ?? 'Comercio local'}
+              </span>
+            )}
             {merchant?.is_verified ? (
               <span className="flex items-center gap-0.5 font-semibold text-impulso-mint" title="Negocio verificado">
                 <ShieldCheck className="h-3.5 w-3.5" />

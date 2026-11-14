@@ -1,18 +1,19 @@
 /**
- * 🎨 MOTOR DE DISEÑO EDITORIAL V12 (html-to-image)
+ * 🎨 MOTOR DE DISEÑO EDITORIAL V13 (html-to-image)
  *
  * Artboard HTML/CSS/SVG de nivel agencia a 540×960 (Historia 9:16) o 540×540
  * (Post 1:1), exportado con `toPng(node, { pixelRatio: 2 })` → PNG 1080×1920
- * ultra-nítido. V12.0:
- *  · Tipografía DISPLAY GIGANTE: titular 38px (72px en 1080p), subtítulo 16px,
- *    beneficios en tarjetas grandes de 16.5px con icono grande, CTA como
- *    botón publicitario real de 17px — la foto ya NO aplasta los textos.
- *  · SECUENCIA REAL DE 4 PIEZAS 100% DIFERENTES: Pieza 1 = afiche maestro con
- *    la arquitectura elegida; Pieza 2 = portada de impacto viral full-bleed
- *    con pregunta gancho; Pieza 3 = infografía VIP numerada 01/02/03;
- *    Pieza 4 = tarjeta ejecutiva de cierre con QR GIGANTE central de 220px.
- *  · 16 ARQUITECTURAS de agencia para la pieza maestra.
- *  · El dock lee SIEMPRE la categoría detectada del brief (jamás una fija).
+ * ultra-nítido. V13.0:
+ *  · FONDO ESCÉNICO MULTICAPA: la foto full-canvas con blur(28px) +
+ *    brightness + saturación detrás del contenido, haces de luz volumétricos
+ *    y marcos editoriales (nivel Wow de agencia).
+ *  · Tipografía DISPLAY GIGANTE real: titular 42px (=84px en 1080p), la foto
+ *    NUNCA aplasta el texto (ventana fotográfica con tope del 42%).
+ *  · 4 PIEZAS RICAS: maestra con arquitectura; portada de revista full-bleed
+ *    con cabecera editorial; infografía con banner panorámico y tarjetas
+ *    Bento 01/02/03; cierre VIP con QR gigante 420px y destino elegido.
+ *  · qrLabel/qrHint: la leyenda del QR cambia según el destino elegido
+ *    (WhatsApp / Perfil Impulso / Oferta / Enlace externo).
  */
 
 import type { CSSProperties } from 'react';
@@ -198,6 +199,10 @@ export interface AfficheProps {
   qrUrl: string | null;
   photoZoom: number;
   photoPosY: number;
+  /** V13: leyenda corta del QR según el destino elegido (dock y piezas QR). */
+  qrLabel?: string;
+  /** V13: indicador del destino para la pieza 4 (frase completa). */
+  qrHint?: string;
 }
 
 const money = (v: number): string => `$${v.toLocaleString('es-CO')}`;
@@ -253,6 +258,60 @@ function Photo({
   );
 }
 
+/**
+ * 🌄 V13 · FONDO ESCÉNICO MULTICAPA (nivel Wow de agencia):
+ *  · Capa 1 — foto full-canvas con `blur(28px) brightness(0.42) saturate(1.35)`
+ *    (o desenfoque luminoso en temas claros) escalada para tapar bordes.
+ *  · Capa 2 — tinte ambiental del tema + resplandor del acento + haces de
+ *    luz volumétricos diagonales.
+ *  · Capa 3 (opcional) — marco editorial doble a 14px (=28px en 1080p).
+ * Todo queda DETRÁS del contenido: riqueza escénica sin tapar textos.
+ */
+function ScenicBg({ url, t, frame = false }: { url: string | null; t: AfficheTheme; frame?: boolean }) {
+  return (
+    <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', borderRadius: 'inherit' }}>
+      {url ? (
+        <div
+          style={{
+            position: 'absolute', inset: -48,
+            backgroundImage: `url(${url})`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            filter: t.light ? 'blur(30px) brightness(1.02) saturate(1.15)' : 'blur(28px) brightness(0.42) saturate(1.35)',
+            transform: 'scale(1.18)',
+          }}
+        />
+      ) : null}
+      {/* Tinte ambiental del tema + viñeta cinematográfica */}
+      <div
+        style={{
+          position: 'absolute', inset: 0,
+          background: t.light
+            ? 'linear-gradient(180deg, rgba(250,248,242,0.62), rgba(250,248,242,0.38))'
+            : 'linear-gradient(165deg, rgba(6,8,14,0.34) 0%, rgba(6,8,14,0.16) 42%, rgba(6,8,14,0.62) 100%)',
+        }}
+      />
+      {/* Resplandor del acento + haces de luz volumétricos */}
+      <div
+        style={{
+          position: 'absolute', inset: 0,
+          background:
+            `radial-gradient(320px 190px at 82% 6%, ${t.accent}42, transparent 62%),` +
+            `radial-gradient(380px 240px at 8% 94%, ${t.accent2}32, transparent 62%),` +
+            'linear-gradient(115deg, rgba(255,255,255,0.10) 0%, transparent 26%, transparent 64%, rgba(255,255,255,0.08) 100%)',
+        }}
+      />
+      {/* Marco editorial doble a 14px del borde (=28px en el PNG 1080p) */}
+      {frame && (
+        <>
+          <div style={{ position: 'absolute', inset: 14, border: '1px solid rgba(255,255,255,0.30)', borderRadius: 12, pointerEvents: 'none' }} />
+          <div style={{ position: 'absolute', inset: 20, border: '1px solid rgba(255,255,255,0.11)', borderRadius: 9, pointerEvents: 'none' }} />
+        </>
+      )}
+    </div>
+  );
+}
+
 /** Sello superior flotante — FUERA de la foto, jamás la tapa. */
 function Badge({ text, t, s }: { text: string; t: AfficheTheme; s: number }) {
   if (!text.trim()) return null;
@@ -279,12 +338,12 @@ function Badge({ text, t, s }: { text: string; t: AfficheTheme; s: number }) {
 }
 
 /**
- * 📣 V12 · TITULAR DISPLAY GIGANTE: 38px en el lienzo de 540 (=76px en el PNG
+ * 📣 V13 · TITULAR DISPLAY GIGANTE: 42px en el lienzo de 540 (=84px en el PNG
  * 1080p), fuente display de agencia, alto contraste y palabras clave con
  * degradado brillante — el titular ocupa el espacio con autoridad.
  */
 function Headline({
-  texts, t, s, size = 38, align = 'center', color,
+  texts, t, s, size = 42, align = 'center', color,
 }: {
   texts: AfficheTexts;
   t: AfficheTheme;
@@ -442,7 +501,7 @@ function CtaButton({ label, s, bg = '#16a34a', color = '#ffffff' }: { label: str
  * ubicación (jamás una categoría fija), negocio en grande, botón de WhatsApp
  * y CÓDIGO QR GIGANTE sobre blanco con UNA sola etiqueta: "📱 ESCANEA EL QR".
  */
-function Dock({ brand, t, s, qrUrl, size }: { brand: AfficheBrand; t: AfficheTheme; s: number; qrUrl: string | null; size: number }) {
+function Dock({ brand, t, s, qrUrl, size, qrLabel }: { brand: AfficheBrand; t: AfficheTheme; s: number; qrUrl: string | null; size: number; qrLabel?: string }) {
   const g = glass(t);
   const qrBox = size;
   const phone = brand.phoneDisplay || '📲 Escríbenos';
@@ -487,7 +546,7 @@ function Dock({ brand, t, s, qrUrl, size }: { brand: AfficheBrand; t: AfficheThe
             <img src={qrUrl} alt="QR" style={{ width: qrBox, height: qrBox, display: 'block' }} />
           </div>
           <p style={{ margin: 0, fontSize: 10.5 * s, fontWeight: 800, letterSpacing: 0.8, color: t.light ? 'rgba(15,23,42,0.75)' : 'rgba(255,255,255,0.88)', whiteSpace: 'nowrap' }}>
-            📱 ESCANEA EL QR
+            {qrLabel || '📱 ESCANEA EL QR'}
           </p>
         </div>
       )}
@@ -525,7 +584,7 @@ function Sticker({ text, s, bg = '#fde047', color = '#111827', rotate = -3 }: { 
  *  · Pieza 4 → tarjeta ejecutiva de cierre con QR GIGANTE central de 220px.
  */
 export function AfficheArtboard(props: AfficheProps): React.ReactElement {
-  const { themeId, layout, format, piece, brand, texts, badge, showPrice, showBenefits, showQr, photoUrl, qrUrl, photoZoom, photoPosY } = props;
+  const { themeId, layout, format, piece, brand, texts, badge, showPrice, showBenefits, showQr, photoUrl, qrUrl, photoZoom, photoPosY, qrLabel, qrHint } = props;
   const t = AFFICHE_THEMES.find((x) => x.id === themeId) ?? AFFICHE_THEMES[1];
   const s = format === 'square' ? 0.58 : 1;
   const W = 540;
@@ -537,14 +596,18 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
   const priceLabel = texts.cta.trim();
   const isService = brand.promoPrice == null;
 
+  // V13: la ventana fotográfica NUNCA supera el 42% del lienzo — el titular
+  // y los beneficios tienen siempre espacio monumental garantizado.
+  const PHOTO_MAX = 400 * s;
+
   // Tamaños del dock según la pieza (piezas 2/3 tienen QR dedicado).
-  const dockQrSize = 138 * s;
-  const dockHeight = 184 * s;
+  const dockQrSize = 132 * s;
+  const dockHeight = 180 * s;
 
   const photoBlock = (extra?: CSSProperties, clip?: string): React.ReactElement => (
     <div
       style={{
-        flex: 1, minHeight: 0, position: 'relative',
+        flex: 1, minHeight: 0, maxHeight: PHOTO_MAX, position: 'relative',
         borderRadius: 26 * s,
         ...(clip ? { clipPath: clip, borderRadius: 0 } : {}),
         ...extra,
@@ -575,12 +638,14 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
   /** Dock estándar de la pieza maestra. */
   const masterDock = showQr ? (
     <div style={{ height: dockHeight }}>
-      <Dock brand={brand} t={t} s={s} qrUrl={qrUrl} size={dockQrSize} />
+      <Dock brand={brand} t={t} s={s} qrUrl={qrUrl} size={dockQrSize} qrLabel={qrLabel} />
     </div>
   ) : null;
 
-  // ═══ PIEZA 2 · ⚡ PORTADA DE IMPACTO VIRAL (full-bleed + pregunta gancho) ═══
+  // ═══ PIEZA 2 · 🔥 PORTADA DE REVISTA FULL-BLEED (cabecera editorial + ═══
+  // ═══ titular gigante 42px + insignia de oferta + barra WhatsApp + QR) ═══
   if (piece === 1) {
+    const barH = 128 * s;
     return (
       <div
         style={{
@@ -597,86 +662,142 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
         <div
           style={{
             position: 'absolute', inset: 0,
-            background: 'radial-gradient(ellipse 120% 90% at 50% 34%, transparent 30%, rgba(0,0,0,0.55) 74%, rgba(0,0,0,0.92) 100%), linear-gradient(180deg, rgba(0,0,0,0.42) 0%, transparent 26%, rgba(0,0,0,0.30) 58%, rgba(0,0,0,0.90) 100%)',
+            background: 'radial-gradient(ellipse 120% 90% at 50% 42%, transparent 32%, rgba(0,0,0,0.5) 74%, rgba(0,0,0,0.9) 100%), linear-gradient(180deg, rgba(6,8,14,0.62) 0%, rgba(6,8,14,0.18) 24%, rgba(6,8,14,0.26) 52%, rgba(4,5,9,0.94) 100%)',
           }}
         />
-        {/* Marco editorial de revista */}
-        <div style={{ position: 'absolute', inset: 14 * s, border: '1px solid rgba(255,255,255,0.35)', borderRadius: 12 * s, pointerEvents: 'none' }} />
-        <div style={{ position: 'absolute', inset: 20 * s, border: '1px solid rgba(255,255,255,0.14)', borderRadius: 10 * s, pointerEvents: 'none' }} />
-        {badge.trim() && (
-          <div style={{ position: 'absolute', top: 34 * s, left: 0, right: 0 }}>
-            <Badge text={badge} t={t} s={s} />
-          </div>
-        )}
-        {/* Pregunta gancho GIGANTE (44px = 88px en 1080p) */}
+        {/* Marco editorial de revista doble */}
+        <div style={{ position: 'absolute', inset: 12 * s, border: '1px solid rgba(255,255,255,0.34)', borderRadius: 14 * s, pointerEvents: 'none' }} />
+        <div style={{ position: 'absolute', inset: 18 * s, border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10 * s, pointerEvents: 'none' }} />
+
+        {/* Cabecera tipo portada de revista: rubro + ciudad */}
+        <div style={{ position: 'absolute', top: 30 * s, left: 36 * s, right: 36 * s, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 * s }}>
+          <p style={{ margin: 0, fontSize: 12.5 * s, fontWeight: 900, letterSpacing: 2.2, textTransform: 'uppercase', color: '#ffffff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textShadow: '0 2px 10px rgba(0,0,0,0.6)' }}>
+            {(brand.slogan || 'ESPECIAL COMERCIAL').toUpperCase()}
+          </p>
+          <span style={{ border: '1px solid rgba(255,255,255,0.4)', borderRadius: 999, padding: `${4 * s}px ${12 * s}px`, fontSize: 11 * s, fontWeight: 900, letterSpacing: 1.6, textTransform: 'uppercase', color: '#ffffff', whiteSpace: 'nowrap' }}>
+            {brand.municipality || 'Gachetá'}
+          </span>
+        </div>
+        <div style={{ position: 'absolute', top: 62 * s, left: 36 * s, right: 36 * s, height: 1, background: 'linear-gradient(90deg, rgba(255,255,255,0.5), rgba(255,255,255,0.12))' }} />
+
+        {/* Insignia grande de oferta / cotización + titular gigante 42px (=84px @1080) */}
         <div
           style={{
-            position: 'absolute', left: 30 * s, right: 30 * s, top: '26%',
-            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 * s, textAlign: 'center',
+            position: 'absolute', left: 30 * s, right: 30 * s,
+            bottom: (showQr ? barH : 0) + pad + 18 * s,
+            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 * s, textAlign: 'center',
           }}
         >
+          {brand.promoPrice != null ? (
+            <div style={{ transform: 'rotate(-2deg)' }}>
+              <PricePill brand={brand} t={t} s={s} big />
+            </div>
+          ) : (
+            badge.trim() || texts.cta.trim() ? (
+              <Sticker text={badge.trim() || texts.cta.trim()} s={s} bg={t.accent2} color={t.light ? '#ffffff' : '#0b0f18'} rotate={-2} />
+            ) : null
+          )}
           <p
             style={{
               margin: 0,
               fontFamily: `"${t.font}", system-ui, sans-serif`,
-              fontSize: 44 * s,
+              fontSize: 42 * s,
               lineHeight: 1.04,
               fontWeight: 900,
               textTransform: 'uppercase',
               color: '#ffffff',
-              textShadow: '0 4px 24px rgba(0,0,0,0.65)',
+              textShadow: '0 4px 26px rgba(0,0,0,0.72)',
             }}
           >
             {texts.hook.trim() || `${texts.plain.trim()} ${texts.highlight.trim()}`.toUpperCase()}
           </p>
-          <p style={{ margin: 0, fontSize: 17 * s, fontWeight: 700, color: 'rgba(255,255,255,0.92)', textShadow: '0 2px 10px rgba(0,0,0,0.5)' }}>
+          <p style={{ margin: 0, fontSize: 16 * s, fontWeight: 700, color: 'rgba(255,255,255,0.92)', textShadow: '0 2px 12px rgba(0,0,0,0.55)' }}>
             {texts.sub.trim()}
           </p>
         </div>
-        {/* Sticker de acción abajo */}
-        <div style={{ position: 'absolute', left: pad, right: pad, bottom: 30 * s, display: 'flex', flexDirection: 'column', gap: 14 * s, alignItems: 'center' }}>
-          <Sticker text="Desliza o escríbenos al WhatsApp 👉" s={s} bg={t.accent2} color={t.light ? '#ffffff' : '#0b0f18'} rotate={-2} />
-          <p style={{ margin: 0, fontSize: 12 * s, fontWeight: 800, letterSpacing: 2, textTransform: 'uppercase', color: 'rgba(255,255,255,0.85)' }}>
-            {brand.name || 'Tu Negocio'} · {brand.municipality || 'Gachetá'}
-          </p>
-        </div>
+
+        {/* Barra inferior: WhatsApp + QR con la leyenda del destino elegido */}
+        {showQr && (
+          <div
+            style={{
+              position: 'absolute', left: pad, right: pad, bottom: pad,
+              display: 'flex', alignItems: 'center', gap: 12 * s,
+              background: 'rgba(6,8,14,0.74)',
+              border: '1px solid rgba(255,255,255,0.22)',
+              borderRadius: 18 * s,
+              padding: `${10 * s}px ${12 * s}px`,
+            }}
+          >
+            <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 6 * s }}>
+              <p style={{ margin: 0, fontSize: 12 * s, fontWeight: 800, color: 'rgba(255,255,255,0.88)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {brand.name || 'Tu Negocio'} · {brand.municipality || 'Gachetá'}
+              </p>
+              <div
+                style={{
+                  background: '#16a34a', color: '#ffffff',
+                  borderRadius: 999,
+                  padding: `${9 * s}px ${16 * s}px`,
+                  fontSize: 15 * s, fontWeight: 900,
+                  display: 'inline-flex', alignItems: 'center', gap: 6 * s,
+                  alignSelf: 'flex-start',
+                  boxShadow: '0 6px 18px rgba(22,163,74,0.5)',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                💬 {brand.phoneDisplay || 'Escríbenos al WhatsApp'}
+              </div>
+            </div>
+            {qrUrl && (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 * s, flexShrink: 0 }}>
+                <div style={{ background: '#ffffff', borderRadius: 10 * s, padding: 5 * s, boxShadow: '0 4px 14px rgba(0,0,0,0.4)' }}>
+                  <img src={qrUrl} alt="QR" style={{ width: 82 * s, height: 82 * s, display: 'block' }} />
+                </div>
+                <p style={{ margin: 0, fontSize: 9.5 * s, fontWeight: 800, letterSpacing: 0.5, color: 'rgba(255,255,255,0.92)', textAlign: 'center' }}>
+                  {qrLabel || '📱 ESCANEA EL QR'}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     );
   }
 
-  // ═══ PIEZA 3 · 💎 INFOGRAFÍA VIP (beneficios numerados 01 / 02 / 03) ═══
+  // ═══ PIEZA 3 · 💎 INFOGRAFÍA VISUAL (banner panorámico 520px@1080 + ═══
+  // ═══ "3 RAZONES PARA ELEGIRNOS HOY" + tarjetas Bento 01/02/03 gigantes) ═══
   if (piece === 2) {
     return (
       <div
         style={{
-          width: W, height: H, flexShrink: 0,
+          width: W, height: H, flexShrink: 0, position: 'relative',
           background: t.bg, backgroundSize: t.bgSize ?? '100% 100%, 100% 100%, 100% 100%, 100% 100%',
           color: t.text,
           fontFamily: 'system-ui, -apple-system, sans-serif',
           borderRadius: 22 * s, overflow: 'hidden',
         }}
       >
-        <div style={{ width: '100%', height: '100%', padding: pad, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: 12 * s }}>
-          {/* Cabecera: foto panorámica corta + avatar circular doble */}
-          <div style={{ position: 'relative', height: 150 * s, borderRadius: 18 * s, overflow: 'hidden', flexShrink: 0 }}>
+        <ScenicBg url={photoUrl} t={t} frame />
+        <div style={{ position: 'relative', width: '100%', height: '100%', padding: pad, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: 10 * s }}>
+          {/* Banner fotográfico panorámico (height 520px en el PNG 1080p) */}
+          <div style={{ position: 'relative', height: 260 * s, borderRadius: 20 * s, overflow: 'hidden', flexShrink: 0, boxShadow: '0 14px 34px rgba(0,0,0,0.45)' }}>
             <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
-            <div style={{ position: 'absolute', inset: 0, background: t.light ? 'linear-gradient(180deg, transparent 40%, rgba(15,23,42,0.35) 100%)' : 'linear-gradient(180deg, transparent 40%, rgba(8,10,18,0.55) 100%)' }} />
-            <div style={{ position: 'absolute', bottom: 10 * s, left: 12 * s, right: 12 * s, display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 8 * s }}>
+            <div style={{ position: 'absolute', inset: 0, background: t.light ? 'linear-gradient(180deg, transparent 42%, rgba(15,23,42,0.45) 100%)' : 'linear-gradient(180deg, transparent 42%, rgba(8,10,18,0.62) 100%)' }} />
+            <div style={{ position: 'absolute', bottom: 12 * s, left: 14 * s, right: 14 * s, display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 10 * s }}>
               <div style={{ minWidth: 0 }}>
-                <p style={{ margin: 0, fontSize: 10 * s, fontWeight: 800, letterSpacing: 1.6, textTransform: 'uppercase', color: 'rgba(255,255,255,0.85)' }}>
-                  {(brand.slogan || 'NUESTROS PUNTOS FUERTES').toUpperCase()}
+                <p style={{ margin: 0, fontSize: 10.5 * s, fontWeight: 800, letterSpacing: 1.8, textTransform: 'uppercase', color: 'rgba(255,255,255,0.88)' }}>
+                  {(brand.slogan || 'NUESTRAS RAZONES').toUpperCase()}
                 </p>
-                <p style={{ margin: 0, fontFamily: `"${t.font}", system-ui, sans-serif`, fontSize: 24 * s, fontWeight: 900, color: '#ffffff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <p style={{ margin: 0, fontFamily: `"${t.font}", system-ui, sans-serif`, fontSize: 26 * s, fontWeight: 900, color: '#ffffff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {brand.name || 'Tu Negocio'}
                 </p>
               </div>
-              <div style={{ width: 62 * s, height: 62 * s, borderRadius: '50%', border: `3px solid ${t.accent2}`, boxShadow: `0 0 0 ${4 * s}px rgba(255,255,255,0.35)`, overflow: 'hidden', flexShrink: 0 }}>
-                <Photo url={photoUrl} zoom={photoZoom * 1.6} posY={photoPosY} />
-              </div>
+              <span style={{ background: 'rgba(6,8,14,0.72)', border: '1px solid rgba(255,255,255,0.32)', borderRadius: 999, padding: `${6 * s}px ${12 * s}px`, fontSize: 11 * s, fontWeight: 800, color: '#ffffff', whiteSpace: 'nowrap' }}>
+                📍 {brand.municipality || 'Gachetá'}
+              </span>
             </div>
           </div>
-          <Headline texts={ht('¿POR QUÉ', 'ELEGIRNOS HOY?')} t={t} s={s} size={34} />
-          {/* 3 tarjetas gigantes numeradas */}
+          <Headline texts={ht('3 RAZONES', 'PARA ELEGIRNOS HOY')} t={t} s={s} size={42} />
+          {/* 3 tarjetas Bento gigantes (240px @1080) con números 01/02/03 a 72px */}
           <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 10 * s }}>
             {[0, 1, 2].map((i) => {
               const b = benefits[i] ?? ['🥇 Calidad garantizada', '⚡ Atención inmediata', '📍 Cerca de ti'][i] ?? '';
@@ -693,96 +814,95 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
                     boxShadow: t.light ? '0 2px 10px rgba(15,23,42,0.10)' : '0 6px 18px rgba(0,0,0,0.35)',
                   }}
                 >
-                  <span style={{ fontFamily: `"${t.font}", system-ui, sans-serif`, fontSize: 40 * s, fontWeight: 900, color: t.accent2, lineHeight: 1, opacity: 0.95 }}>
+                  <span style={{ fontFamily: `"${t.font}", system-ui, sans-serif`, fontSize: 36 * s, fontWeight: 900, color: t.accent2, lineHeight: 1 }}>
                     {`0${i + 1}`}
                   </span>
                   <div style={{ width: 1, alignSelf: 'stretch', background: t.light ? 'rgba(15,23,42,0.14)' : 'rgba(255,255,255,0.20)' }} />
-                  <span style={{ fontSize: 26 * s, lineHeight: 1 }}>{icon}</span>
+                  <span style={{ fontSize: 28 * s, lineHeight: 1 }}>{icon}</span>
                   <span style={{ flex: 1, fontSize: 16.5 * s, fontWeight: 700, color: t.text, lineHeight: 1.2 }}>{body}</span>
                 </div>
               );
             })}
           </div>
-          {/* Cinta de garantía de satisfacción */}
-          <div
-            style={{
-              background: `linear-gradient(90deg, ${t.accent}, ${t.accent2})`,
-              borderRadius: 999,
-              padding: `${11 * s}px ${18 * s}px`,
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 * s,
-              flexShrink: 0,
-              boxShadow: `0 8px 22px ${t.accent2}55`,
-            }}
-          >
-            <span style={{ fontSize: 20 * s }}>🛡️</span>
-            <span style={{ fontSize: 15 * s, fontWeight: 900, color: t.light ? '#0b0f18' : '#ffffff', letterSpacing: 0.6, textTransform: 'uppercase' }}>
-              {badge.trim() || 'Garantía de satisfacción · ' + (brand.municipality || 'Gachetá')}
-            </span>
-          </div>
+          {/* Barra inferior: QR + contacto */}
+          {showQr && (
+            <div style={{ ...g.card, borderRadius: 16 * s, display: 'flex', alignItems: 'center', gap: 12 * s, padding: `${8 * s}px ${12 * s}px`, flexShrink: 0 }}>
+              {qrUrl && (
+                <div style={{ background: '#ffffff', borderRadius: 8 * s, padding: 4 * s, boxShadow: '0 4px 12px rgba(0,0,0,0.3)', flexShrink: 0 }}>
+                  <img src={qrUrl} alt="QR" style={{ width: 58 * s, height: 58 * s, display: 'block' }} />
+                </div>
+              )}
+              <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 * s }}>
+                <p style={{ margin: 0, fontSize: 13 * s, fontWeight: 900, color: t.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {brand.name || 'Tu Negocio'}
+                </p>
+                <p style={{ margin: 0, fontSize: 11.5 * s, fontWeight: 700, color: t.light ? 'rgba(15,23,42,0.65)' : t.sub, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  💬 {brand.phoneDisplay || 'Escríbenos'} · 📍 {brand.municipality || 'Gachetá'}
+                </p>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     );
   }
 
-  // ═══ PIEZA 4 · 📲 TARJETA EJECUTIVA DE CIERRE (QR GIGANTE 220px) ═══
+  // ═══ PIEZA 4 · 📲 CIERRE & UBICACIÓN QR (foto en ventana superior + ═══
+  // ═══ badge de ubicación + QR CENTRAL GIGANTE 420px + destino elegido) ═══
   if (piece === 3) {
-    const qrBig = 220 * s;
-    const steps = ['Escanea el QR o guarda nuestro número', 'Cuéntanos qué necesitas', 'Recibe atención inmediata'];
+    const qrBig = 210 * s; // 420×420px en el PNG 1080p
     return (
       <div
         style={{
-          width: W, height: H, flexShrink: 0,
+          width: W, height: H, flexShrink: 0, position: 'relative',
           background: t.bg, backgroundSize: t.bgSize ?? '100% 100%, 100% 100%, 100% 100%, 100% 100%',
           color: t.text,
           fontFamily: 'system-ui, -apple-system, sans-serif',
           borderRadius: 22 * s, overflow: 'hidden',
         }}
       >
-        <div style={{ width: '100%', height: '100%', padding: pad, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 * s }}>
-          {/* Medallón superior con la foto/logo */}
-          <div style={{ position: 'relative', width: 132 * s, height: 132 * s, marginTop: 8 * s, flexShrink: 0 }}>
-            <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', border: `3px solid ${t.accent2}`, boxShadow: `0 0 0 ${6 * s}px ${t.light ? 'rgba(15,23,42,0.08)' : 'rgba(255,255,255,0.10)'}` }} />
-            <div style={{ position: 'absolute', inset: 8 * s, borderRadius: '50%', overflow: 'hidden' }}>
-              <Photo url={photoUrl} zoom={photoZoom * 1.3} posY={photoPosY} />
-            </div>
+        <ScenicBg url={photoUrl} t={t} frame />
+        <div style={{ position: 'relative', width: '100%', height: '100%', padding: pad, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 * s }}>
+          {/* Foto en ventana superior */}
+          <div style={{ position: 'relative', width: '100%', height: 180 * s, borderRadius: 18 * s, overflow: 'hidden', flexShrink: 0, boxShadow: '0 14px 34px rgba(0,0,0,0.48)' }}>
+            <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
+            <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, transparent 55%, rgba(6,8,14,0.45) 100%)' }} />
           </div>
-          <p style={{ margin: 0, fontSize: 10 * s, fontWeight: 800, letterSpacing: 2, textTransform: 'uppercase', color: t.light ? 'rgba(15,23,42,0.6)' : t.sub, textAlign: 'center' }}>
-            {(brand.slogan || 'ACCIÓN INMEDIATA').toUpperCase()}
-          </p>
-          <Headline texts={ht('¡HAZ TU PEDIDO', 'O COTIZA EN 10 SEGUNDOS!')} t={t} s={s} size={30} />
-          {/* CÓDIGO QR CENTRAL GIGANTE enmarcado en oro/neón */}
+          {/* Badge de ubicación */}
+          <div style={{ ...g.chip, borderRadius: 999, padding: `${7 * s}px ${16 * s}px`, fontSize: 12 * s, fontWeight: 900, letterSpacing: 0.8, textTransform: 'uppercase', whiteSpace: 'nowrap', flexShrink: 0 }}>
+            📍 Encuéntranos en {brand.address || brand.municipality || 'Gachetá'}
+          </div>
+          <Headline texts={ht('ESCANEA EL CÓDIGO', 'Y TE ATENDEMOS YA')} t={t} s={s} size={34} />
+          {/* QR CENTRAL GIGANTE sobre tarjeta blanca con marco brillante */}
           {qrUrl && (
             <div
               style={{
                 background: '#ffffff',
                 borderRadius: 20 * s,
-                padding: 12 * s,
+                padding: `${10 * s}px`,
                 border: `4px solid ${t.accent2}`,
-                boxShadow: `0 0 0 ${3 * s}px ${t.accent}, 0 16px 40px rgba(0,0,0,0.45)`,
+                boxShadow: `0 0 0 ${3 * s}px ${t.accent}, 0 18px 44px rgba(0,0,0,0.5)`,
                 display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 * s,
                 flexShrink: 0,
               }}
             >
               <img src={qrUrl} alt="QR" style={{ width: qrBig, height: qrBig, display: 'block' }} />
-              <p style={{ margin: 0, fontSize: 13 * s, fontWeight: 900, letterSpacing: 1.2, color: '#0f172a' }}>📱 ESCANEA EL QR</p>
+              <p style={{ margin: 0, fontSize: 12.5 * s, fontWeight: 900, letterSpacing: 0.6, color: '#0f172a', textAlign: 'center' }}>
+                {qrLabel || '📱 ESCANEA EL QR'}
+              </p>
             </div>
           )}
-          {/* 3 pasos simples */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 7 * s, width: '100%' }}>
-            {steps.map((st, i) => (
-              <div key={i} style={{ ...g.card, borderRadius: 999, display: 'flex', alignItems: 'center', gap: 10 * s, padding: `${8 * s}px ${14 * s}px` }}>
-                <span style={{ fontFamily: `"${t.font}", system-ui, sans-serif`, fontSize: 20 * s, fontWeight: 900, color: t.accent2 }}>{i + 1}.</span>
-                <span style={{ fontSize: 13.5 * s, fontWeight: 700, color: t.text }}>{st}</span>
-              </div>
-            ))}
-          </div>
-          {/* Número de WhatsApp ENORME */}
+          {/* Indicador del destino elegido en el studio */}
+          <p style={{ margin: 0, fontSize: 14 * s, fontWeight: 800, color: t.text, textAlign: 'center' }}>
+            {qrHint || 'Escanea para ir a nuestro WhatsApp'}
+          </p>
+          {/* Botón de WhatsApp grande */}
           <div
             style={{
               background: '#16a34a', color: '#ffffff',
               borderRadius: 999,
-              padding: `${12 * s}px ${22 * s}px`,
-              fontSize: 19 * s, fontWeight: 900,
+              padding: `${12 * s}px ${24 * s}px`,
+              fontSize: 18 * s, fontWeight: 900,
               display: 'flex', alignItems: 'center', gap: 8 * s,
               boxShadow: '0 10px 26px rgba(22,163,74,0.5)',
               whiteSpace: 'nowrap',
@@ -792,7 +912,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
             💬 {brand.phoneDisplay || 'Escríbenos ahora'}
           </div>
           <p style={{ margin: 0, fontSize: 11 * s, fontWeight: 700, color: t.light ? 'rgba(15,23,42,0.6)' : t.sub, textAlign: 'center' }}>
-            📍 {brand.address || brand.municipality || 'Gachetá'} · {brand.name || 'Tu Negocio'}
+            {brand.name || 'Tu Negocio'} · {(brand.slogan || 'ATENCIÓN INMEDIATA').toUpperCase()}
           </p>
         </div>
       </div>
@@ -821,13 +941,13 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
             <Badge text={badge} t={t} s={s} />
           </div>
           <div style={{ position: 'absolute', left: pad, right: pad, bottom: pad, display: 'flex', flexDirection: 'column', gap: 12 * s }}>
-            <Headline texts={texts} t={{ ...t, text: '#ffffff' }} s={s} size={40} align="center" />
+            <Headline texts={texts} t={{ ...t, text: '#ffffff' }} s={s} size={42} align="center" />
             <div style={{ color: '#ffffff' }}>
               <SubHead text={texts.sub} t={t} s={s} color="rgba(255,255,255,0.92)" />
               {showBenefits && benefits.length > 0 && <div style={{ marginTop: 10 * s }}><BenefitPills items={benefits} t={t} s={s} /></div>}
               {isService && priceLabel && <div style={{ marginTop: 10 * s }}><CtaButton label={priceLabel} s={s} bg={t.accent2} color="#ffffff" /></div>}
             </div>
-            {showQr && <Dock brand={{ ...brand }} t={{ ...t, light: false, text: '#ffffff', sub: 'rgba(255,255,255,0.8)' }} s={s} qrUrl={qrUrl} size={dockQrSize} />}
+            {showQr && <Dock brand={{ ...brand }} t={{ ...t, light: false, text: '#ffffff', sub: 'rgba(255,255,255,0.8)' }} s={s} qrUrl={qrUrl} size={dockQrSize} qrLabel={qrLabel} />}
           </div>
         </div>
       );
@@ -840,7 +960,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
           <Badge text={badge} t={t} s={s} />
           {photoBlock(undefined, 'polygon(0 0, 100% 0, 100% 86%, 0 100%)')}
           <div style={{ height: 4 * s, background: `linear-gradient(90deg, ${t.accent}, ${t.accent2})`, borderRadius: 999, marginTop: -26 * s, transform: 'rotate(-1.5deg)' }} />
-          <Headline texts={texts} t={t} s={s} size={40} align="center" />
+          <Headline texts={texts} t={t} s={s} size={42} align="center" />
           {contentBlocks('center')}
           {masterDock}
         </div>
@@ -878,7 +998,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
               </div>
             )}
           </div>
-          <Headline texts={texts} t={t} s={s} size={40} align="center" />
+          <Headline texts={texts} t={t} s={s} size={42} align="center" />
           {contentBlocks('center')}
           {masterDock}
         </div>
@@ -892,7 +1012,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
           <Badge text={badge} t={t} s={s} />
           <div
             style={{
-              flex: 1, minHeight: 0, position: 'relative',
+              flex: 1, minHeight: 0, maxHeight: PHOTO_MAX, position: 'relative',
               borderRadius: `270px 270px ${24 * s}px ${24 * s}px`,
               border: `3px solid ${t.accent2}`,
               boxShadow: `0 0 0 6px ${t.light ? 'rgba(15,23,42,0.08)' : 'rgba(255,255,255,0.10)'}, 0 14px 34px rgba(0,0,0,0.40)`,
@@ -906,7 +1026,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
               </div>
             )}
           </div>
-          <Headline texts={texts} t={t} s={s} size={40} align="center" />
+          <Headline texts={texts} t={t} s={s} size={42} align="center" />
           {contentBlocks('center')}
           {masterDock}
         </div>
@@ -934,7 +1054,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
               )}
             </div>
           </div>
-          <Headline texts={texts} t={t} s={s} size={38} align="center" />
+          <Headline texts={texts} t={t} s={s} size={42} align="center" />
           {contentBlocks('center', true)}
           {masterDock}
         </div>
@@ -950,7 +1070,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
             <Badge text={badge} t={t} s={s} />
             <span style={{ fontFamily: `"${t.font}", system-ui, sans-serif`, fontSize: 20 * s, fontWeight: 900, color: t.accent }}>1/1</span>
           </div>
-          <div style={{ flex: 1, minHeight: 0, position: 'relative', border: `1px solid ${line}`, borderRadius: 8 * s, overflow: 'hidden' }}>
+          <div style={{ flex: 1, minHeight: 0, maxHeight: PHOTO_MAX, position: 'relative', border: `1px solid ${line}`, borderRadius: 8 * s, overflow: 'hidden' }}>
             <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
             {priceOverlay && (
               <div style={{ position: 'absolute', bottom: 12 * s, right: 12 * s }}>
@@ -960,7 +1080,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
           </div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 * s }}>
             <span style={{ fontFamily: `"${t.font}", system-ui, sans-serif`, fontSize: 34 * s, fontWeight: 900, color: t.accent }}>01</span>
-            <div style={{ flex: 1 }}><Headline texts={texts} t={t} s={s} size={34} align="left" /></div>
+            <div style={{ flex: 1 }}><Headline texts={texts} t={t} s={s} size={40} align="left" /></div>
           </div>
           {contentBlocks('left')}
           {masterDock}
@@ -986,7 +1106,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
           </div>
           <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 12 * s }}>
             <Badge text={badge} t={t} s={s} />
-            <div style={{ flex: 1, minHeight: 0, borderRadius: 20 * s, overflow: 'hidden', position: 'relative' }}>
+            <div style={{ flex: 1, minHeight: 0, maxHeight: PHOTO_MAX, borderRadius: 20 * s, overflow: 'hidden', position: 'relative' }}>
               <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
               {priceOverlay && (
                 <div style={{ position: 'absolute', bottom: 12 * s, right: 12 * s }}>
@@ -994,7 +1114,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
                 </div>
               )}
             </div>
-            <Headline texts={texts} t={t} s={s} size={36} align="left" />
+            <Headline texts={texts} t={t} s={s} size={42} align="left" />
             {contentBlocks('left')}
             {masterDock}
           </div>
@@ -1014,7 +1134,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
             <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
           </div>
           <div style={{ ...hard, background: '#ffffff', padding: `${12 * s}px ${16 * s}px` }}>
-            <Headline texts={texts} t={{ ...t, text: '#111827', accent: '#111827', accent2: t.accent2 }} s={s} size={38} align="center" />
+            <Headline texts={texts} t={{ ...t, text: '#111827', accent: '#111827', accent2: t.accent2 }} s={s} size={42} align="center" />
           </div>
           <div style={{ ...hard, background: t.light ? 'rgba(255,255,255,0.85)' : '#ffffff', padding: `${12 * s}px ${16 * s}px`, display: 'flex', flexDirection: 'column', gap: 8 * s }}>
             <SubHead text={texts.sub} t={{ ...t, text: '#111827', sub: '#3f3f46' }} s={s} align="center" />
@@ -1023,7 +1143,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
           </div>
           {showQr && (
             <div style={{ height: dockHeight }}>
-              <Dock brand={brand} t={{ ...t, light: true, text: '#111827' }} s={s} qrUrl={qrUrl} size={dockQrSize} />
+              <Dock brand={brand} t={{ ...t, light: true, text: '#111827' }} s={s} qrUrl={qrUrl} size={dockQrSize} qrLabel={qrLabel} />
             </div>
           )}
         </div>
@@ -1037,7 +1157,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
         <div style={{ height: '100%', border: `2px solid ${orn}`, borderRadius: 18 * s, padding: 8 * s, boxSizing: 'border-box' }}>
           <div style={{ height: '100%', border: `1px solid ${orn}88`, borderRadius: 12 * s, display: 'flex', flexDirection: 'column', gap: 12 * s, padding: 12 * s, boxSizing: 'border-box' }}>
             <Badge text={badge} t={t} s={s} />
-            <div style={{ flex: 1, minHeight: 0, borderRadius: 10 * s, overflow: 'hidden', position: 'relative' }}>
+            <div style={{ flex: 1, minHeight: 0, maxHeight: PHOTO_MAX, borderRadius: 10 * s, overflow: 'hidden', position: 'relative' }}>
               <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
               {priceOverlay && (
                 <div style={{ position: 'absolute', bottom: 12 * s, right: 12 * s }}>
@@ -1048,7 +1168,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
             <div style={{ textAlign: 'center' }}>
               <p style={{ margin: 0, fontSize: 11 * s, fontWeight: 800, letterSpacing: 4, textTransform: 'uppercase', color: t.accent2 }}>✦ ✦ ✦</p>
             </div>
-            <Headline texts={texts} t={t} s={s} size={38} align="center" />
+            <Headline texts={texts} t={t} s={s} size={42} align="center" />
             {contentBlocks('center', true)}
             {masterDock}
           </div>
@@ -1064,7 +1184,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
             <span style={{ fontFamily: `"${t.font}", system-ui, sans-serif`, fontSize: 11 * s, fontWeight: 800, letterSpacing: 2, color: t.accent }}>◆ SISTEMA ACTIVO</span>
             <Badge text={badge} t={t} s={s} />
           </div>
-          <div style={{ flex: 1, minHeight: 0, position: 'relative', ...g.card, borderRadius: 14 * s, overflow: 'hidden' }}>
+          <div style={{ flex: 1, minHeight: 0, maxHeight: PHOTO_MAX, position: 'relative', ...g.card, borderRadius: 14 * s, overflow: 'hidden' }}>
             <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
             {/* Esquinas HUD de interfaz holográfica */}
             {(
@@ -1091,7 +1211,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
             )}
           </div>
           <div style={{ ...g.card, borderRadius: 14 * s, borderLeft: `4px solid ${t.accent2}`, padding: `${12 * s}px ${16 * s}px` }}>
-            <Headline texts={texts} t={t} s={s} size={36} align="left" />
+            <Headline texts={texts} t={t} s={s} size={42} align="left" />
           </div>
           {contentBlocks('center')}
           {masterDock}
@@ -1108,7 +1228,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
               {badge.trim() || '★ HECHO ARTESANALMENTE ★'}
             </span>
           </div>
-          <div style={{ flex: 1, minHeight: 0, borderRadius: 10 * s, overflow: 'hidden', position: 'relative', border: `6px solid ${t.light ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.12)'}` }}>
+          <div style={{ flex: 1, minHeight: 0, maxHeight: PHOTO_MAX, borderRadius: 10 * s, overflow: 'hidden', position: 'relative', border: `6px solid ${t.light ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.12)'}` }}>
             <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
             {priceOverlay && (
               <div style={{ position: 'absolute', bottom: 12 * s, right: 12 * s }}>
@@ -1117,7 +1237,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
             )}
           </div>
           <div style={{ borderTop: `2px dashed ${t.accent}77`, paddingTop: 10 * s }}>
-            <Headline texts={texts} t={t} s={s} size={38} align="center" />
+            <Headline texts={texts} t={t} s={s} size={42} align="center" />
           </div>
           {contentBlocks('center')}
           {masterDock}
@@ -1140,7 +1260,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
               </div>
             )}
           </div>
-          <Headline texts={texts} t={t} s={s} size={40} align="center" />
+          <Headline texts={texts} t={t} s={s} size={42} align="center" />
           {contentBlocks('center')}
           {masterDock}
         </div>
@@ -1154,7 +1274,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
           <div style={{ position: 'absolute', top: -40 * s, left: -50 * s, width: 220 * s, height: 220 * s, borderRadius: '50% 50% 46% 54% / 55% 48% 52% 45%', background: `${t.accent2}26` }} />
           <div style={{ position: 'absolute', bottom: -60 * s, right: -40 * s, width: 240 * s, height: 240 * s, borderRadius: '54% 46% 50% 50% / 48% 55% 45% 52%', background: `${t.accent}1f` }} />
           <Badge text={badge} t={t} s={s} />
-          <div style={{ flex: 1, minHeight: 0, borderRadius: '46% 46% 24px 24px / 20% 20% 24px 24px', overflow: 'hidden', position: 'relative' }}>
+          <div style={{ flex: 1, minHeight: 0, maxHeight: PHOTO_MAX, borderRadius: '46% 46% 24px 24px / 20% 20% 24px 24px', overflow: 'hidden', position: 'relative' }}>
             <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
             {priceOverlay && (
               <div style={{ position: 'absolute', bottom: 12 * s, right: 12 * s }}>
@@ -1162,7 +1282,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
               </div>
             )}
           </div>
-          <Headline texts={texts} t={t} s={s} size={38} align="center" />
+          <Headline texts={texts} t={t} s={s} size={42} align="center" />
           {contentBlocks('center')}
           {masterDock}
         </div>
@@ -1174,7 +1294,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
       body = (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 * s, height: '100%' }}>
           <Badge text={badge} t={t} s={s} />
-          <div style={{ flex: 1, minHeight: 0, position: 'relative', borderRadius: 14 * s, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ flex: 1, minHeight: 0, maxHeight: PHOTO_MAX, position: 'relative', borderRadius: 14 * s, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
             <div style={{ height: 34 * s, background: '#050507' }} />
             <div style={{ flex: 1, minHeight: 0 }}>
               <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
@@ -1188,7 +1308,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
               </div>
             )}
           </div>
-          <Headline texts={texts} t={t} s={s} size={38} align="center" />
+          <Headline texts={texts} t={t} s={s} size={42} align="center" />
           {contentBlocks('center')}
           {masterDock}
         </div>
@@ -1226,7 +1346,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 * s, height: '100%' }}>
           <Badge text={badge} t={t} s={s} />
           {photoBlock()}
-          <Headline texts={texts} t={t} s={s} size={40} align="center" />
+          <Headline texts={texts} t={t} s={s} size={42} align="center" />
           {contentBlocks('center')}
           {masterDock}
         </div>
@@ -1237,7 +1357,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
   return (
     <div
       style={{
-        width: W, height: H, flexShrink: 0,
+        width: W, height: H, flexShrink: 0, position: 'relative',
         background: t.bg,
         backgroundSize: t.bgSize ?? '100% 100%, 100% 100%, 100% 100%, 100% 100%',
         color: t.text,
@@ -1246,7 +1366,9 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
         overflow: 'hidden',
       }}
     >
-      <div style={{ width: '100%', height: '100%', padding: pad, boxSizing: 'border-box' }}>{body}</div>
+      {/* V13: fondo escénico multicapa DETRÁS de la composición maestra */}
+      <ScenicBg url={photoUrl} t={t} />
+      <div style={{ position: 'relative', width: '100%', height: '100%', padding: pad, boxSizing: 'border-box' }}>{body}</div>
     </div>
   );
 }

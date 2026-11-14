@@ -23,6 +23,8 @@ interface OfferDetailModalProps {
   /** Registra el ticket en el dispositivo y en el estado de la app. */
   onReserved: (ticket: Ticket) => void;
   onViewTickets: () => void;
+  /** V13 · Abre el Perfil Público del comercio (?comercio=UUID). */
+  onOpenMerchant?: (merchantId: string) => void;
 }
 
 const STEPS: Record<Step, string> = { detail: 'La oferta', form: 'Apartar', success: '¡Listo!' };
@@ -32,7 +34,7 @@ const STEPS: Record<Step, string> = { detail: 'La oferta', form: 'Apartar', succ
  * llegar desde un enlace compartido (?oferta=UUID) y permite apartar
  * en segundos sin registro.
  */
-export function OfferDetailModal({ offer, geoPos, onClose, onReserved, onViewTickets }: OfferDetailModalProps) {
+export function OfferDetailModal({ offer, geoPos, onClose, onReserved, onViewTickets, onOpenMerchant }: OfferDetailModalProps) {
   const toast = useToast();
   const now = useTick(1000);
   const [step, setStep] = useState<Step>('detail');
@@ -153,23 +155,51 @@ export function OfferDetailModal({ offer, geoPos, onClose, onReserved, onViewTic
               </div>
             )}
 
-            <div className="mt-4 flex items-center gap-2.5 rounded-2xl border border-white/10 bg-slate-950/40 p-3">
-              <div className="grid h-10 w-10 place-items-center rounded-xl bg-impulso-emerald/10 text-lg">🏪</div>
-              <div className="min-w-0 flex-1">
-                <p className="flex items-center gap-1.5 truncate text-sm font-bold text-white">
-                  {merchant?.business_name ?? 'Comercio local'}
-                  {merchant?.is_verified && (
-                    <span className="flex items-center text-impulso-mint" title="Negocio verificado">
-                      <ShieldCheck className="h-4 w-4" />
-                    </span>
-                  )}
-                </p>
-                <p className="flex items-center gap-1 text-xs font-semibold text-impulso-gold">
-                  <Star className="h-3 w-3" fill="currentColor" />
-                  {ratingAvg(merchant?.rating_sum ?? 5, merchant?.rating_count ?? 1)} · {offer.municipality}
-                </p>
+            {/* V13 · Bloque del comercio: clicable → Perfil Público ?comercio=UUID */}
+            {merchant && onOpenMerchant ? (
+              <button
+                onClick={() => onOpenMerchant(merchant.id)}
+                title="Ver el perfil oficial del comercio"
+                className="pressable mt-4 flex w-full items-center gap-2.5 rounded-2xl border border-white/10 bg-slate-950/40 p-3 text-left transition hover:border-impulso-emerald/40"
+              >
+                <div className="grid h-10 w-10 place-items-center rounded-xl bg-impulso-emerald/10 text-lg">🏪</div>
+                <div className="min-w-0 flex-1">
+                  <p className="flex items-center gap-1.5 truncate text-sm font-bold text-white">
+                    {merchant.business_name}
+                    {merchant.is_verified && (
+                      <span className="flex items-center text-impulso-mint" title="Negocio verificado">
+                        <ShieldCheck className="h-4 w-4" />
+                      </span>
+                    )}
+                  </p>
+                  <p className="flex items-center gap-1 text-xs font-semibold text-impulso-gold">
+                    <Star className="h-3 w-3" fill="currentColor" />
+                    {ratingAvg(merchant.rating_sum ?? 5, merchant.rating_count ?? 1)} · {offer.municipality}
+                  </p>
+                </div>
+                <span className="shrink-0 rounded-lg bg-white/5 px-2 py-1 text-[10px] font-extrabold text-slate-400 transition group-hover:text-impulso-mint">
+                  Ver perfil ›
+                </span>
+              </button>
+            ) : (
+              <div className="mt-4 flex items-center gap-2.5 rounded-2xl border border-white/10 bg-slate-950/40 p-3">
+                <div className="grid h-10 w-10 place-items-center rounded-xl bg-impulso-emerald/10 text-lg">🏪</div>
+                <div className="min-w-0 flex-1">
+                  <p className="flex items-center gap-1.5 truncate text-sm font-bold text-white">
+                    {merchant?.business_name ?? 'Comercio local'}
+                    {merchant?.is_verified && (
+                      <span className="flex items-center text-impulso-mint" title="Negocio verificado">
+                        <ShieldCheck className="h-4 w-4" />
+                      </span>
+                    )}
+                  </p>
+                  <p className="flex items-center gap-1 text-xs font-semibold text-impulso-gold">
+                    <Star className="h-3 w-3" fill="currentColor" />
+                    {ratingAvg(merchant?.rating_sum ?? 5, merchant?.rating_count ?? 1)} · {offer.municipality}
+                  </p>
+                </div>
               </div>
-            </div>
+            )}
 
             <p className="mt-4 text-[15px] leading-relaxed text-slate-300">{offer.description}</p>
 

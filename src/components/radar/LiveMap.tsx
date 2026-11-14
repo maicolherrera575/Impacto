@@ -205,6 +205,10 @@ export function LiveMap({
 
   return (
     <div className="imp-map relative z-0 isolate h-[300px] w-full overflow-hidden rounded-3xl border border-white/10 shadow-card">
+      {/* V13 · Leyenda: el pin abre la reserva y el nombre abre el Perfil Público */}
+      <div className="pointer-events-none absolute bottom-2.5 left-3 z-20 rounded-full bg-slate-950/70 px-2.5 py-1 text-[10px] font-bold text-slate-300 backdrop-blur-md">
+        📍 Toca un pin para reservar · 🏪 El nombre del comercio abre su perfil
+      </div>
       <MapContainer
         center={[center.lat, center.lng]}
         zoom={zoom}

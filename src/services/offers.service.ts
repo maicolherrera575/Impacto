@@ -38,6 +38,25 @@ export async function fetchOfferById(offerId: string): Promise<Offer | null> {
   return (data as unknown as Offer) ?? null;
 }
 
+/**
+ * V13 · Ofertas activas y vigentes de UN comercio (Perfil Público ?comercio=).
+ * Mismo blindaje de moderación que el radar: nunca cuentas suspendidas.
+ */
+export async function fetchActiveOffersByMerchant(merchantId: string): Promise<Offer[]> {
+  const { data, error } = await supabase
+    .from('offers')
+    .select(`*, ${MERCHANT_EMBED}`)
+    .eq('merchant_id', merchantId)
+    .eq('status', 'active')
+    .gt('expires_at', new Date().toISOString())
+    .order('created_at', { ascending: false })
+    .limit(50);
+  if (error) throw error;
+  return ((data ?? []) as unknown as Offer[]).filter(
+    (o) => o.merchant?.is_active !== false && o.merchant?.is_suspended !== true
+  );
+}
+
 /** Historial del comerciante: sus últimas 10 ofertas (para republicar en 1 clic). */
 export async function fetchMerchantOffers(merchantId: string): Promise<Offer[]> {
   const { data, error } = await supabase

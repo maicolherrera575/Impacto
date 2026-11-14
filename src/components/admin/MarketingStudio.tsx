@@ -210,12 +210,46 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   });
 }
 
+/**
+ * 🎲 V13 · ROTACIÓN GARANTIZADA DE FOTO: carga del banco reintenando con
+ * sales distintas hasta conseguir una fotografía DIFERENTE a la anterior.
+ * Así, cada clic en ✨ o 🎲 trae una toma nueva (jamás la misma imagen).
+ */
+async function loadBankPhotoFresh(text: string, previousUrl: string | null): Promise<string | null> {
+  let last: string | null = null;
+  for (let i = 0; i < 5; i++) {
+    const url = await loadBankPhoto(text, Math.floor(Math.random() * 1000));
+    if (!url) return last;
+    last = url;
+    if (url !== previousUrl) return url;
+  }
+  return last;
+}
+
 // ═══════════════════════════════ Componente ═════════════════════════════════
 
 /** Texto honesto cuando aún no hay campaña generada (NUNCA copy prefabricado). */
 const EMPTY_COPY = '✨ Genera la campaña con IA y este texto aparecerá aquí';
 
 type CopyTab = 'post' | 'grupos' | 'estados' | 'video' | 'cierres';
+
+/** V13 · Destino del Código QR y del enlace del afiche. */
+type QrMode = 'wa' | 'perfil' | 'oferta' | 'externo';
+
+const QR_MODES: Array<{ id: QrMode; icon: string; title: string; hint: string }> = [
+  { id: 'wa', icon: '💬', title: 'Directo al WhatsApp con mensaje inicial', hint: 'Recomendado: cierre inmediato de ventas' },
+  { id: 'perfil', icon: '🏪', title: 'Al Perfil Oficial del Local en Impulso', hint: 'Mapa, ubicación y sus ofertas (?comercio=ID)' },
+  { id: 'oferta', icon: '🔥', title: 'Directo a la Oferta en Impulso', hint: 'Reserva rápida en 1 clic (?oferta=ID)' },
+  { id: 'externo', icon: '🌐', title: 'Enlace externo personalizado', hint: 'Instagram, página web o Google Maps' },
+];
+
+/** Leyenda del QR + indicador de la pieza 4 según el destino elegido. */
+const QR_META: Record<QrMode, { label: string; hint: string }> = {
+  wa: { label: '📱 ESCANEA EL QR', hint: 'Escanea para ir a nuestro WhatsApp' },
+  perfil: { label: '📍 ESCANEA: VER LOCAL, MAPA Y OFERTAS', hint: 'Escanea para ver nuestra ubicación y ofertas en Impulso' },
+  oferta: { label: '⚡ ESCANEA Y APARTA TU CUPO', hint: 'Escanea y aparta tu cupo al instante en Impulso' },
+  externo: { label: '🌐 ESCANEA: VISITA NUESTRO ENLACE', hint: 'Escanea para visitar nuestra página o Instagram oficial' },
+};
 
 /** Clave de autoguardado del estudio (V9: llave limpia, sin herencia corrupta). */
 const MARKETING_DRAFT_KEY = 'impulso_studio_v9_clean';
@@ -263,6 +297,10 @@ interface MktDraft {
   customPhoto?: string | null;
   photoZoom?: number;
   photoPosY?: number;
+  /** V13: selector de destino del QR y datos asociados. */
+  qrMode?: QrMode;
+  customWaGreeting?: string;
+  externalUrl?: string;
 }
 
 const DEFAULT_LINES: WaLine[] = [
@@ -363,6 +401,16 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
   const [showBenefits, setShowBenefits] = useState(true);
   const [showQr, setShowQr] = useState(true);
 
+  // ── V13 · Selector de destino del QR ──
+  const [qrMode, setQrMode] = useState<QrMode>('wa');
+  const [customWaGreeting, setCustomWaGreeting] = useState('');
+  const [externalUrl, setExternalUrl] = useState('');
+
+  // ── V13 · ROTACIÓN GARANTIZADA: jamás repetir tema, arquitectura o foto ──
+  const lastThemeIdxRef = useRef(themeIdx);
+  const lastLayoutIdxRef = useRef<Layout>(layout);
+  const lastPhotoUrlRef = useRef<string | null>(null);
+
   // ── Fotografía ──
   const [customPhoto, setCustomPhoto] = useState<string | null>(null);
   const [photoZoom, setPhotoZoom] = useState(1);
@@ -436,6 +484,9 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     if (typeof d.showPrice === 'boolean') setShowPrice(d.showPrice);
     if (typeof d.showBenefits === 'boolean') setShowBenefits(d.showBenefits);
     if (typeof d.showQr === 'boolean') setShowQr(d.showQr);
+    if (d.qrMode === 'wa' || d.qrMode === 'perfil' || d.qrMode === 'oferta' || d.qrMode === 'externo') setQrMode(d.qrMode);
+    if (typeof d.customWaGreeting === 'string') setCustomWaGreeting(sanitizeLegacy(d.customWaGreeting));
+    if (typeof d.externalUrl === 'string') setExternalUrl(sanitizeLegacy(d.externalUrl));
     if (typeof d.customPhoto === 'string' || d.customPhoto === null) setCustomPhoto(d.customPhoto);
     if (typeof d.photoZoom === 'number' && d.photoZoom >= 1 && d.photoZoom <= 2.2) setPhotoZoom(d.photoZoom);
     if (typeof d.photoPosY === 'number' && d.photoPosY >= 0 && d.photoPosY <= 1) setPhotoPosY(d.photoPosY);
@@ -472,11 +523,14 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       showPrice,
       showBenefits,
       showQr,
+      qrMode,
+      customWaGreeting,
+      externalUrl,
       customPhoto,
       photoZoom,
       photoPosY,
     });
-  }, [mode, merchantId, offerId, extName, extSlogan, extProduct, extNormalPrice, extPromoPrice, extAddress, extUrl, lines, briefText, priceMode, focus, detectedCategory, texts, themeIdx, format, layout, piece, badgeMode, badgeCustom, showPrice, showBenefits, showQr, customPhoto, photoZoom, photoPosY]);
+  }, [mode, merchantId, offerId, extName, extSlogan, extProduct, extNormalPrice, extPromoPrice, extAddress, extUrl, lines, briefText, priceMode, focus, detectedCategory, texts, themeIdx, format, layout, piece, badgeMode, badgeCustom, showPrice, showBenefits, showQr, qrMode, customWaGreeting, externalUrl, customPhoto, photoZoom, photoPosY]);
 
   /** 🧹 Empieza el estudio desde cero (borra el autoguardado). */
   function clearAllDraft(): void {
@@ -506,6 +560,9 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     setShowPrice(true);
     setShowBenefits(true);
     setShowQr(true);
+    setQrMode('wa');
+    setCustomWaGreeting('');
+    setExternalUrl('');
     setCustomPhoto(null);
     setPhotoZoom(1);
     setPhotoPosY(0.5);
@@ -566,11 +623,14 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     let alive = true;
     const genId = ++photoGenRef.current;
     void (async () => {
-      const dataUrl = await loadBankPhoto(
+      const dataUrl = await loadBankPhotoFresh(
         `${extName} ${extSlogan} ${extProduct} ${briefText}`,
-        Math.floor(Math.random() * 1000),
+        lastPhotoUrlRef.current,
       );
-      if (alive && dataUrl && photoGenRef.current === genId) setCustomPhoto(dataUrl);
+      if (alive && dataUrl && photoGenRef.current === genId) {
+        lastPhotoUrlRef.current = dataUrl;
+        setCustomPhoto(dataUrl);
+      }
     })();
     return () => {
       alive = false;
@@ -639,7 +699,21 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
   );
 
   const primaryLink = lineLinks[0] || brand.url;
-  const qrTarget = primaryLink || `${window.location.origin}`;
+
+  // ── V13 · Destino del QR según el selector (WhatsApp / Perfil / Oferta / Externo) ──
+  const qrTarget = useMemo<string>(() => {
+    const origin = `${window.location.origin}${window.location.pathname}`;
+    if (qrMode === 'perfil' && mode === 'plataforma' && merchantId) return `${origin}?comercio=${merchantId}`;
+    if (qrMode === 'oferta' && offerId) return `${origin}?oferta=${offerId}`;
+    if (qrMode === 'externo') return externalUrl.trim() || primaryLink;
+    // wa (default): wa.me de la Línea 1 con el mensaje inicial editable.
+    const num = lines[0].number.trim() || (mode === 'plataforma' ? merchants.find((m) => m.id === merchantId)?.whatsapp ?? '' : (/wa\.me\/(\d+)/.exec(extUrl)?.[1] ?? ''));
+    if (num) return waLink(normalizePhone(num), fillMessage(customWaGreeting || lines[0].message, brand));
+    return primaryLink || `${window.location.origin}`;
+  }, [qrMode, mode, merchantId, offerId, externalUrl, lines, customWaGreeting, brand, primaryLink, merchants, extUrl]);
+
+  /** Leyenda del QR + indicador de destino para la pieza 4. */
+  const qrMeta = QR_META[qrMode];
 
   // Foto efectiva (subida/IA/banco) con fallback a la del comercio.
   const effectivePhoto = customPhoto ?? brand.photo;
@@ -700,6 +774,8 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     qrUrl,
     photoZoom,
     photoPosY,
+    qrLabel: qrMeta.label,
+    qrHint: qrMeta.hint,
   });
 
   /** Opciones de exportación comunes de toPng (1080p = pixelRatio 2). */
@@ -773,19 +849,40 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       setDetectedCategory(art.categoryLabel);
       const bizName = brand.name.trim() || art.brandName;
       const product = brand.product.trim() || art.productTitle;
-      // Aplica el tema y layout recomendados por la IA (rota por rubro).
-      const ti = AFFICHE_THEMES.findIndex((t) => t.id === art.themeId);
-      if (ti >= 0) setThemeIdx(ti);
-      if (AFFICHE_LAYOUTS.some((l) => l.id === art.layoutId)) setLayout(art.layoutId as Layout);
+      // ── V13 · ROTACIÓN GARANTIZADA: el tema y la arquitectura NUNCA se
+      // repiten respecto a la generación anterior (morado + arco jamás 2×).
+      let ti = AFFICHE_THEMES.findIndex((x) => x.id === art.themeId);
+      if (ti < 0) ti = Math.floor(Math.random() * AFFICHE_THEMES.length);
+      if (AFFICHE_THEMES.length > 1 && ti === lastThemeIdxRef.current) {
+        const skip = 1 + Math.floor(Math.random() * (AFFICHE_THEMES.length - 1));
+        ti = (ti + skip) % AFFICHE_THEMES.length;
+      }
+      setThemeIdx(ti);
+      lastThemeIdxRef.current = ti;
 
-      // ── Auto-imagen paso 1: foto HD real del BANCO COMERCIAL al instante ──
+      const validLayoutIds = AFFICHE_LAYOUTS.map((l) => l.id);
+      let nextLayout: Layout = validLayoutIds.includes(art.layoutId as Layout)
+        ? (art.layoutId as Layout)
+        : validLayoutIds[Math.floor(Math.random() * validLayoutIds.length)];
+      if (nextLayout === lastLayoutIdxRef.current) {
+        const others = validLayoutIds.filter((id) => id !== lastLayoutIdxRef.current);
+        nextLayout = others[Math.floor(Math.random() * others.length)];
+      }
+      setLayout(nextLayout);
+      lastLayoutIdxRef.current = nextLayout;
+
+      // ── Auto-imagen paso 1: foto HD real NUEVA del BANCO COMERCIAL (V13:
+      // garantizada distinta a la foto anterior) ──
       toast.info('📷 Foto editorial HD del rubro colocada en el lienzo…');
       void (async () => {
-        const dataUrl = await loadBankPhoto(
+        const dataUrl = await loadBankPhotoFresh(
           briefText.trim() || `${bizName} ${art.categoryLabel} ${product}`,
-          Math.floor(Math.random() * 1000),
+          lastPhotoUrlRef.current,
         );
-        if (dataUrl && photoGenRef.current === genId) setCustomPhoto(dataUrl);
+        if (dataUrl && photoGenRef.current === genId) {
+          lastPhotoUrlRef.current = dataUrl;
+          setCustomPhoto(dataUrl);
+        }
       })();
 
       const input2 = { ...input, businessName: bizName, product };
@@ -817,6 +914,8 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       setLines((prev) =>
         prev.map((l, i) => ({ ...l, message: [res.waLine1Msg, res.waLine2Msg, res.waLine3Msg][i] ?? l.message })),
       );
+      // V13: el mensaje inicial que llega al escanear el QR lo redacta la IA.
+      setCustomWaGreeting(res.waLine1Msg || '');
 
       // ── Auto-imagen paso 2 (segundo plano): foto IA a medida CON GUARDIA
       // anti-banner de Pollinations (si trae "At its limit" → banco HD) ──
@@ -837,12 +936,16 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
             toast.success('🎨 Foto IA a medida colocada en el lienzo');
           }
         } catch {
-          // Banner de bloqueo o fallo de red: banco comercial HD al rescate.
-          const bank = await loadBankPhoto(
+          // Banner de bloqueo o fallo de red: banco comercial HD al rescate
+          // (V13: con foto garantizada distinta a la anterior).
+          const bank = await loadBankPhotoFresh(
             briefText.trim() || `${bizName} ${art.categoryLabel} ${product}`,
-            Math.floor(Math.random() * 1000),
+            lastPhotoUrlRef.current,
           );
-          if (bank && photoGenRef.current === genId) setCustomPhoto(bank);
+          if (bank && photoGenRef.current === genId) {
+            lastPhotoUrlRef.current = bank;
+            setCustomPhoto(bank);
+          }
         }
       })();
 
@@ -904,9 +1007,11 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
         toast.success(vary ? '🎲 Nueva toma fotográfica lista' : '🎨 Foto publicitaria IA lista');
       }
     } catch {
-      // Banner de bloqueo de Pollinations o fallo de red → Banco Comercial HD.
-      const bank = await loadBankPhoto(briefSource, Math.floor(Math.random() * 1000));
+      // Banner de bloqueo de Pollinations o fallo de red → Banco Comercial HD
+      // (V13: con foto garantizada distinta a la anterior).
+      const bank = await loadBankPhotoFresh(briefSource, lastPhotoUrlRef.current);
       if (bank && photoGenRef.current === genId) {
+        lastPhotoUrlRef.current = bank;
         setCustomPhoto(bank);
         toast.success('📸 Foto HD real del banco comercial aplicada (motor IA saturado)');
       } else {
@@ -940,21 +1045,28 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     }
   }
 
-  /** 🎲 V11 · Sorpréndeme: cambia fondo + arquitectura en un clic, SIEMPRE
-   *  evitando el diseño actual, y trae una foto nueva del banco HD. */
+  /** 🎲 V11/V13 · Sorpréndeme: cambia fondo + arquitectura en un clic,
+   *  SIEMPRE evitando el diseño actual, y trae una foto NUEVA del banco HD. */
   function surpriseDesign(): void {
     let ni = themeIdx;
-    while (AFFICHE_THEMES.length > 1 && ni === themeIdx) ni = Math.floor(Math.random() * AFFICHE_THEMES.length);
+    while (AFFICHE_THEMES.length > 1 && ni === lastThemeIdxRef.current) ni = Math.floor(Math.random() * AFFICHE_THEMES.length);
     setThemeIdx(ni);
-    const others = AFFICHE_LAYOUTS.filter((l) => l.id !== layout);
+    lastThemeIdxRef.current = ni;
+    const others = AFFICHE_LAYOUTS.filter((l) => l.id !== lastLayoutIdxRef.current);
     const nl = others[Math.floor(Math.random() * others.length)];
-    if (nl) setLayout(nl.id);
-    // Foto nueva del banco (otra toma, otro clic).
-    void loadBankPhoto(
+    if (nl) {
+      setLayout(nl.id);
+      lastLayoutIdxRef.current = nl.id;
+    }
+    // Foto nueva del banco, GARANTIZADA distinta a la anterior (V13).
+    void loadBankPhotoFresh(
       briefText.trim() || `${brand.name} ${brand.slogan} ${brand.product}`,
-      Math.floor(Math.random() * 1000),
+      lastPhotoUrlRef.current,
     ).then((p) => {
-      if (p) setCustomPhoto(p);
+      if (p) {
+        lastPhotoUrlRef.current = p;
+        setCustomPhoto(p);
+      }
     });
     const themeName = AFFICHE_THEMES[ni].label.split(' ').slice(1).join(' ');
     toast.success(`🎲 Nueva propuesta completa: ${themeName} + ${nl ? nl.label.split(' ').slice(1).join(' ') : layout}`);
@@ -1356,6 +1468,84 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
             Banco HD de 120+ fotos reales que rota en cada clic, motor IA con guardia anti-banner y subida propia: todo
             vive en la memoria del navegador.
           </p>
+        </div>
+
+        {/* 🎯 V13 · Selector de destino del Código QR y del enlace del afiche */}
+        <div className={cardCls}>
+          <p className="text-xs font-extrabold text-white">🎯 ¿A dónde debe llevar el Código QR y el enlace del afiche?</p>
+          <div className="space-y-1.5">
+            {QR_MODES.map((m) => (
+              <button
+                key={m.id}
+                onClick={() => setQrMode(m.id)}
+                className={cx(
+                  'pressable flex w-full items-start gap-2.5 rounded-xl border px-3 py-2 text-left transition',
+                  qrMode === m.id
+                    ? 'border-impulso-emerald/60 bg-impulso-emerald/15'
+                    : 'border-white/10 bg-slate-950/40',
+                )}
+              >
+                <span className="mt-0.5 text-base leading-none">{m.icon}</span>
+                <span className="min-w-0 flex-1">
+                  <span className={cx('block text-[11px] font-extrabold leading-tight', qrMode === m.id ? 'text-impulso-mint' : 'text-slate-200')}>
+                    {m.title}
+                  </span>
+                  <span className="mt-0.5 block text-[10px] font-semibold leading-snug text-slate-400">{m.hint}</span>
+                </span>
+                {qrMode === m.id && <span className="text-[10px] font-extrabold text-impulso-mint">☑️</span>}
+              </button>
+            ))}
+          </div>
+          {qrMode === 'wa' && (
+            <div>
+              <p className={labelCls}>Mensaje inicial con el que llegará el cliente al escanear (la IA lo redacta con ✨)</p>
+              <textarea
+                value={customWaGreeting}
+                onChange={(e) => setCustomWaGreeting(e.target.value)}
+                rows={3}
+                maxLength={300}
+                placeholder="Ej: ¡Hola! Escaneé el código QR de su publicidad y quiero información sobre {producto}…"
+                className={cx(inputCls, 'resize-none leading-relaxed')}
+              />
+            </div>
+          )}
+          {qrMode === 'perfil' && (
+            mode === 'plataforma' && merchantId ? (
+              <p className="rounded-xl bg-impulso-emerald/10 px-3 py-2 text-[10px] font-bold text-impulso-mint">
+                📍 ESCANEA: VER LOCAL, MAPA Y OFERTAS → el QR abre el Perfil Oficial del comercio en Impulso.
+              </p>
+            ) : (
+              <p className="rounded-xl border border-impulso-gold/30 bg-impulso-gold/5 px-3 py-2 text-[10px] font-semibold text-amber-200/90">
+                El destino Perfil requiere un comercio registrado: elige uno en "Comercio registrado" o usa WhatsApp/Externo.
+              </p>
+            )
+          )}
+          {qrMode === 'oferta' && (
+            offerId ? (
+              <p className="rounded-xl bg-impulso-emerald/10 px-3 py-2 text-[10px] font-bold text-impulso-mint">
+                ⚡ ESCANEA Y APARTA TU CUPO → el QR abre la reserva rápida de la oferta elegida.
+              </p>
+            ) : (
+              <p className="rounded-xl border border-impulso-gold/30 bg-impulso-gold/5 px-3 py-2 text-[10px] font-semibold text-amber-200/90">
+                El destino Oferta requiere elegir una oferta activa del comercio (o usa WhatsApp/Externo).
+              </p>
+            )
+          )}
+          {qrMode === 'externo' && (
+            <div>
+              <p className={labelCls}>Enlace externo (Instagram, web o ubicación de Google Maps)</p>
+              <input
+                value={externalUrl}
+                onChange={(e) => setExternalUrl(e.target.value)}
+                placeholder="https://instagram.com/tunegocio"
+                className={inputCls}
+              />
+            </div>
+          )}
+          <div className="flex items-center gap-2 rounded-xl bg-slate-950/50 px-2.5 py-2">
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">🔗 El QR codifica:</span>
+            <p className="min-w-0 flex-1 truncate font-mono text-[10px] font-semibold text-impulso-mint">{qrTarget}</p>
+          </div>
         </div>
 
         {/* Controles de diseño */}
