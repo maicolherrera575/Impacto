@@ -24,7 +24,14 @@ Responde ÚNICAMENTE con el objeto JSON.`;
 // llave privada. DESARROLLO local: usa el SDK con VITE_GEMINI_API_KEY; si no
 // existe, intenta /api/gemini (útil con `vercel dev`).
 
-const MODEL_ID = 'gemini-2.5-flash';
+/** V11: cadena de modelos con reintento automático. Si 2.5-flash devuelve
+ *  429/503/404 (cuota o indisponibilidad) se reintenta AL INSTANTE con los
+ *  modelos más ligeros para que la respuesta JAMÁS se pierda. */
+const MODEL_CHAIN = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'] as const;
+const MODEL_ID = MODEL_CHAIN[0];
+
+/** HTTP codes que justifican reintentar con el siguiente modelo de la cadena. */
+const RETRYABLE_STATUS = new Set([404, 408, 429, 500, 502, 503, 504]);
 
 type SdkModel = ReturnType<GoogleGenerativeAI['getGenerativeModel']>;
 type SdkRequest = Parameters<SdkModel['generateContent']>[0];
@@ -73,26 +80,37 @@ function extractRestText(rest: unknown): string {
     .trim();
 }
 
-/** Llama al proxy serverless /api/gemini con mensajes de error claros. */
+/** Llama al proxy serverless /api/gemini recorriendo la cadena de modelos. */
 async function callProxy(options: GeminiCallOptions): Promise<string> {
-  let res: Response;
-  try {
-    res = await fetch('/api/gemini', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: MODEL_ID, payload: buildPayload(options) }),
-    });
-  } catch {
-    throw new Error('No se pudo contactar la IA (revisa tu conexión a internet)');
+  let lastErr: Error = new Error('La IA no respondió');
+  for (const model of MODEL_CHAIN) {
+    let res: Response;
+    try {
+      res = await fetch('/api/gemini', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model, payload: buildPayload(options) }),
+      });
+    } catch {
+      lastErr = new Error('No se pudo contactar la IA (revisa tu conexión a internet)');
+      continue;
+    }
+    const rest: unknown = await res.json().catch(() => null);
+    if (!res.ok) {
+      const msg = (rest as { error?: { message?: string } } | null)?.error?.message;
+      lastErr = new Error(msg ? `La IA respondió con error: ${msg}` : `La IA respondió con error (HTTP ${res.status})`);
+      // Cuota/indisponibilidad del modelo: reintenta AL INSTANTE con el siguiente.
+      if (RETRYABLE_STATUS.has(res.status)) continue;
+      throw lastErr;
+    }
+    const text = extractRestText(rest);
+    if (!text) {
+      lastErr = new Error('La IA no respondió con contenido. Intenta de nuevo');
+      continue;
+    }
+    return text;
   }
-  const rest: unknown = await res.json().catch(() => null);
-  if (!res.ok) {
-    const msg = (rest as { error?: { message?: string } } | null)?.error?.message;
-    throw new Error(msg ? `La IA respondió con error: ${msg}` : `La IA respondió con error (HTTP ${res.status})`);
-  }
-  const text = extractRestText(rest);
-  if (!text) throw new Error('La IA no respondió con contenido. Intenta de nuevo');
-  return text;
+  throw lastErr;
 }
 
 /** Llamada directa con el SDK (requiere GEMINI_API_KEY disponible). */
@@ -107,36 +125,46 @@ async function callSdk(options: GeminiCallOptions): Promise<string> {
 async function callDirect(options: GeminiCallOptions): Promise<string> {
   const key = (typeof __APP_GEMINI_KEY__ === 'string' ? __APP_GEMINI_KEY__ : '').trim();
   if (!key) throw new Error('El navegador no tiene llave de respaldo de IA');
-  let res: Response;
-  try {
-    res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_ID}:generateContent?key=${encodeURIComponent(key)}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildPayload(options)),
-      },
-    );
-  } catch {
-    throw new Error('No se pudo contactar la IA directamente (revisa tu conexión)');
+  let lastErr: Error = new Error('El navegador no tiene llave de respaldo de IA');
+  for (const model of MODEL_CHAIN) {
+    let res: Response;
+    try {
+      res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(buildPayload(options)),
+        },
+      );
+    } catch {
+      lastErr = new Error('No se pudo contactar la IA directamente (revisa tu conexión)');
+      continue;
+    }
+    const rest: unknown = await res.json().catch(() => null);
+    if (!res.ok) {
+      const msg = (rest as { error?: { message?: string } } | null)?.error?.message;
+      lastErr = new Error(msg ? `La IA respondió con error: ${msg}` : `La IA respondió con error (HTTP ${res.status})`);
+      if (RETRYABLE_STATUS.has(res.status)) continue;
+      throw lastErr;
+    }
+    const text = extractRestText(rest);
+    if (!text) {
+      lastErr = new Error('La IA no respondió con contenido. Intenta de nuevo');
+      continue;
+    }
+    return text;
   }
-  const rest: unknown = await res.json().catch(() => null);
-  if (!res.ok) {
-    const msg = (rest as { error?: { message?: string } } | null)?.error?.message;
-    throw new Error(msg ? `La IA respondió con error: ${msg}` : `La IA respondió con error (HTTP ${res.status})`);
-  }
-  const text = extractRestText(rest);
-  if (!text) throw new Error('La IA no respondió con contenido. Intenta de nuevo');
-  return text;
+  throw lastErr;
 }
 
 /**
- * Punto único de llamada a Gemini (V10 · DOBLE MOTOR INFALIBLE).
- * 1) Motor 1: proxy serverless /api/gemini (llave privada en Vercel).
+ * Punto único de llamada a Gemini (V11 · MOTOR INFALIBLE).
+ * 1) Motor 1: proxy serverless /api/gemini con cadena de modelos (2.5 → 2.0 → 1.5).
  * 2) Motor 2: llamada DIRECTA a la API REST con __APP_GEMINI_KEY__ (build time).
  * 3) Motor 3 (desarrollo): SDK con GEMINI_API_KEY local.
- * Si todo falla propaga los motivos técnicos EXACTOS (los muestra el toast):
- * jamás devuelve contenido fabricado con plantillas.
+ * Si todo falla propaga los motivos técnicos EXACTOS (el estudio sintetiza la
+ * campaña localmente para que el usuario JAMÁS vea cajas vacías).
  */
 async function callGemini(options: GeminiCallOptions): Promise<string> {
   const errors: string[] = [];
@@ -152,6 +180,22 @@ async function callGemini(options: GeminiCallOptions): Promise<string> {
   }
   if (GEMINI_API_KEY) return callSdk(options);
   throw new Error(errors.join(' · '));
+}
+
+/**
+ * 🧼 Sanitizador robusto de JSON V11: Gemini a veces envuelve el JSON en
+ * bloques Markdown (```json … ```) o añade texto antes/después. Este helper
+ * extrae SIEMPRE desde el primer '{' hasta el último '}' antes de parsear.
+ */
+export function parseAiJson<T>(rawText: string): T {
+  const firstBrace = rawText.indexOf('{');
+  const lastBrace = rawText.lastIndexOf('}');
+  const cleanJson = firstBrace !== -1 && lastBrace !== -1 ? rawText.slice(firstBrace, lastBrace + 1) : rawText;
+  try {
+    return JSON.parse(cleanJson) as T;
+  } catch {
+    throw new Error('La IA devolvió un JSON malformado (sanitizado sin éxito). Intenta de nuevo.');
+  }
 }
 
 /** Esquema JSON del Creador Mágico (compatible SDK + REST). */
@@ -235,7 +279,7 @@ export async function parsePromoFromText(freeText: string): Promise<ParsedPromo>
   });
 
   try {
-    return normalize(JSON.parse(jsonText) as Partial<ParsedPromo>);
+    return normalize(parseAiJson<Partial<ParsedPromo>>(jsonText));
   } catch {
     throw new Error('La IA no logró estructurar la promoción. Intenta describirla con precios y cantidad.');
   }
@@ -315,13 +359,14 @@ export async function verifyNequiReceiptWithAI(imageDataUrl: string): Promise<Re
     temperature: 0.1,
   });
 
-  const parsed = JSON.parse(jsonText) as {
+  interface ParsedReceipt {
     looks_real?: boolean;
     suspicious?: boolean;
     amount_cop?: number | null;
     reference?: string | null;
     note?: string | null;
-  };
+  }
+  const parsed = parseAiJson<ParsedReceipt>(jsonText);
   return {
     looksReal: parsed.looks_real === true,
     suspicious: parsed.suspicious === true,
@@ -382,7 +427,7 @@ export async function analyzeMerchantTrust(input: {
     temperature: 0.2,
   });
 
-  const parsed = JSON.parse(jsonText) as Partial<MerchantTrustResult>;
+  const parsed = parseAiJson<Partial<MerchantTrustResult>>(jsonText);
   const level = parsed.level === 'green' ? 'green' : 'yellow';
   return {
     level,
@@ -667,7 +712,7 @@ export async function generateArtDirection(input: CampaignInput): Promise<ArtDir
   });
   let raw: Record<string, unknown>;
   try {
-    raw = JSON.parse(jsonText) as Record<string, unknown>;
+    raw = parseAiJson<Record<string, unknown>>(jsonText);
   } catch {
     throw new Error('La IA (pasada 1) no devolvió un JSON de estrategia válido. Intenta de nuevo.');
   }
@@ -905,9 +950,493 @@ export async function generateCampaignCopy(input: CampaignInput, art: ArtDirecti
   });
   let raw: Partial<MarketingCampaign> & Record<string, unknown>;
   try {
-    raw = JSON.parse(jsonText) as Partial<MarketingCampaign> & Record<string, unknown>;
+    raw = parseAiJson<Partial<MarketingCampaign> & Record<string, unknown>>(jsonText);
   } catch {
-    throw new Error('La IA (pasada 2) no devolvió un JSON de campaña válido. Intenta de nuevo.');
+    throw new Error('La IA (pasada 2) no devolvió un JSON de campaña válida. Intenta de nuevo.');
   }
   return normalizeCampaign(raw, input, art);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 🧠 MOTOR SINTÉTICO V11 · synthesizeSmartCampaignFromBrief
+// Si la API de Gemini falla (cuota, red, timeout) está PROHIBIDO abortar o
+// dejar cajas vacías: este motor analiza el brief PALABRA POR PALABRA, detecta
+// entre 20+ giros de negocio y construye una campaña completa localmente, con
+// decenas de combinaciones creativas rotadas por semilla en cada clic.
+// ═══════════════════════════════════════════════════════════════════════════
+
+interface Niche {
+  id: string;
+  re: RegExp;
+  industry: IndustryType;
+  labels: string[];
+  names: string[];
+  products: string[];
+  /** Titulares creativos [parte blanca, palabras de acento]. */
+  headlines: Array<[string, string]>;
+  subs: string[];
+  badges: string[];
+  benefits: string[];
+  wa: [string, string, string];
+  /** Gancho editorial para el copy largo (PAS, AIDA, estados, reel). */
+  hook: string;
+  theme: string;
+  layout: string;
+}
+
+const NICHES: Niche[] = [
+  {
+    id: 'marketing', re: /marketing|publicidad|redes|agencia|social|anuncio|branding|seo|emprendimien|digital/,
+    industry: 'digital_tech', labels: ['Marketing Digital & Ventas', 'Agencia de Crecimiento Digital'],
+    names: ['Agencia Pro', 'Impulsa Digital', 'Conexión Creativa'],
+    products: ['Impulso de ventas digitales', 'Gestión profesional de redes', 'Campañas que venden'],
+    headlines: [
+      ['Multiplica tus clientes', 'con marketing digital'],
+      ['Tu negocio en la cima', 'de las redes sociales'],
+      ['Más ventas cada mes', 'con publicidad experta'],
+    ],
+    subs: ['Estrategia, diseño y pauta publicitaria hecha por expertos', 'Convertimos tu WhatsApp en una máquina de ventas'],
+    badges: ['🚀 IMPULSA TUS VENTAS', '📈 CRECE CON EXPERTOS'],
+    benefits: ['📈 Más clientes cada semana', '🎯 Publicidad dirigida a tu gente', '📱 Redes profesionales que venden', '🕒 Ahorra horas de trabajo', '💬 Soporte y asesoría directa', '📊 Reportes claros de resultados'],
+    wa: ['¡Hola! Vi su publicidad de marketing digital y quiero impulsar las ventas de mi negocio 🙌 ¿Me brindan una asesoría?', '¡Hola! Quiero cotizar el plan de publicidad para mi negocio 📱 ¿Me cuentan precios?', '¡Hola! Me interesan los planes especiales y alianzas de la agencia 🚀 ¿Me dan más detalles?'],
+    hook: 'un negocio que se ve profesional vende el doble',
+    theme: 'cyber', layout: 'diagonal',
+  },
+  {
+    id: 'web', re: /web|p[aá]gina|software|sistema|programa|app|datos/,
+    industry: 'digital_tech', labels: ['Webs & Sistemas a Medida', 'Tecnología para tu Negocio'],
+    names: ['WebStudio', 'Códigos del Pueblo', 'Nexo Tech'],
+    products: ['Tu página web profesional', 'Sistemas que ordenan tu negocio', 'Presencia digital completa'],
+    headlines: [
+      ['Tu negocio online', 'con página web propia'],
+      ['Ordena tu negocio', 'con sistemas a medida'],
+      ['Vende en internet', 'las 24 horas del día'],
+    ],
+    subs: ['Diseño web moderno, dominio propio y soporte permanente', 'De la idea al sistema funcionando, sin dolores de cabeza'],
+    badges: ['💻 TECNOLOGÍA DE VERDAD', '🌐 TU NEGOCIO ONLINE'],
+    benefits: ['🌐 Página web profesional', '📱 Se ve perfecta en celulares', '🔒 Datos de tu negocio seguros', '⚡ Entrega rápido y con soporte', '🧭 Capacitación incluida', '💸 Pagos cómodos por cuotas'],
+    wa: ['¡Hola! Vi su servicio de páginas web y quiero una para mi negocio 🙌 ¿Me dan precio y tiempos?', '¡Hola! Quiero cotizar un sistema para administrar mi negocio 💻 ¿Me asesoran?', '¡Hola! Me interesan los planes de mantenimiento y soporte web 🛠️ ¿Me cuentan?'],
+    hook: 'tu mejor vendedor trabaja 24/7: tu página web',
+    theme: 'cyber', layout: 'swiss',
+  },
+  {
+    id: 'restaurante', re: /restaurante|almuerzo|men[uú]|corrientazo|gastronom|saz[oó]n|comida/,
+    industry: 'gastronomia', labels: ['Comida Casera & Almuerzos', 'Restaurante de Sazón Auténtica'],
+    names: ['Sabor del Pueblo', 'La Casona', 'Fuego Lento'],
+    products: ['Almuerzo ejecutivo del día', 'Menú completo con sopa y jugo', 'Comida casera a domicilio'],
+    headlines: [
+      ['El sabor de casa', 'en cada almuerzo'],
+      ['Almuerzos completos', 'a precio de pueblo'],
+      ['Comida rica y fresca', 'todos los días'],
+    ],
+    subs: ['Sopa, seco, jugo natural y ensalada · servicio a domicilio', 'Ingredientes frescos del mercado y sazón de abuela'],
+    badges: ['🍽️ SABOR ARTESANAL', '🥘 HECHO CON AMOR'],
+    benefits: ['🥘 Sazón casera de verdad', '🥗 Ingredientes frescos cada día', '🛵 Domicilio caliente y puntual', '💰 Porciones generosas', '⏰ Sirve desde temprano', '🎉 Platos para eventos y reuniones'],
+    wa: ['¡Hola! ¿Qué trae el almuerzo de hoy? Quiero pedir uno a domicilio 🍱 Mi dirección es:', '¡Hola! Quiero encargar almuerzos para mi oficina 🍽️ ¿Me dan precios y menú?', '¡Hola! Quiero cotizar el servicio de comida para un evento 🎉 ¿Me cuentan opciones?'],
+    hook: 'una mesa bien servida reúne a todo el pueblo',
+    theme: 'wood', layout: 'bento',
+  },
+  {
+    id: 'asadero', re: /asado|parrilla|carne|pollo|chuzo|costilla|brasa|asadero/,
+    industry: 'gastronomia', labels: ['Asados & Parrilla Gourmet', 'Brasa, Carbón y Sabor'],
+    names: ['El Roble', 'Brasa Viva', 'Parrilla del Pueblo'],
+    products: ['Costillas BBQ a la brasa', 'Pollo asado entero', 'Chuzos y parrilladas'],
+    headlines: [
+      ['Sabor a brasa', 'y carbón de verdad'],
+      ['Las mejores costillas', 'del municipio'],
+      ['Parrilladas VIP', 'para tu reunión'],
+    ],
+    subs: ['Carnes maduradas, fuego lento y salsas de la casa', 'Pedidos por encargo para reuniones y eventos'],
+    badges: ['🔥 FUEGO Y SABOR', '🥩 BRASA GOURMET'],
+    benefits: ['🥩 Carnes frescas certificadas', '🔥 Asadas al carbón, nunca microondas', '🛵 Domicilio en cajas térmicas', '🍋 Salsas de la casa incluidas', '📦 Pedidos grandes por encargo', '⏱️ Listo a la hora que prometemos'],
+    wa: ['¡Hola! Quiero pedir costillas/pollo asado para hoy 🔥 Mi dirección es:', '¡Hola! Quiero cotizar una parrillada para una reunión de personas 🥩 ¿Precios?', '¡Hola! Me interesan los combos familiares y encargos especiales 📦 ¿Me cuentan?'],
+    hook: 'el olor a brasa hace fila en la puerta',
+    theme: 'ember', layout: 'bento',
+  },
+  {
+    id: 'panaderia', re: /panader|pan\b|pastel|postre|dulce|reposter|torta|bolo|caf[eé]|desayun/,
+    industry: 'gastronomia', labels: ['Panadería & Pastelería Artesanal', 'Café, Pan y Dulces Frescos'],
+    names: ['Pan de Mi Tierra', 'Dulce Manjar', 'Horno Artesanal'],
+    products: ['Pan fresco de cada día', 'Tortas y postres por encargo', 'Desayunos con café recién molido'],
+    headlines: [
+      ['Pan recién horneado', 'cada mañana'],
+      ['La torta perfecta', 'para tu celebración'],
+      ['Café y pan dulce', 'para empezar bien'],
+    ],
+    subs: ['Horneamos desde la madrugada con recetas de familia', 'Encarga tu torta con diseño personalizado'],
+    badges: ['🥐 RECETA DE FAMILIA', '☕ FRESCO CADA DÍA'],
+    benefits: ['🥖 Horneado fresco cada mañana', '🎂 Tortas personalizadas por encargo', '☕ Café de calidad al lado', '🛵 Domicilio en el pueblo', '🧁 Postres para toda ocasión', '💰 Precios justos de barrio'],
+    wa: ['¡Hola! ¿Qué pan sale hoy? Quiero apartar encargo para mañana 🥖', '¡Hola! Quiero cotizar una torta para el cumpleaños de mi hijo 🎂 Tamaño y diseño:', '¡Hola! Me interesan los desayunos y pedidos por docenas para una reunión ☕'],
+    hook: 'el pan de la madrugada huele a hogar',
+    theme: 'kraft', layout: 'bento',
+  },
+  {
+    id: 'odontologia', re: /odont|diente|dental|brackets|blanqueamien/,
+    industry: 'salud_belleza', labels: ['Odontología Moderna', 'Salud Dental de Primera'],
+    names: ['Sonrisas Pro', 'OdontoVital', 'Clínica Dental Sonríe'],
+    products: ['Consulta y valoración dental', 'Limpieza y blanqueamiento', 'Ortodoncia y brackets'],
+    headlines: [
+      ['Tu mejor sonrisa', 'está aquí'],
+      ['Odontología moderna', 'sin dolor'],
+      ['Recupera tu sonrisa', 'hoy mismo'],
+    ],
+    subs: ['Consulta, diagnóstico digital y plan de tratamiento claro', 'Técnicas modernas, bioseguridad garantizada'],
+    badges: ['🦷 ALTA PRECISIÓN', '⭐ ODONTOLOGÍA MODERNA'],
+    benefits: ['🦷 Profesionales certificados', '💙 Atención sin dolor', '🧼 Bioseguridad total', '📅 Citas puntuales', '💳 Facilidades de pago', '👶 Atención para toda la familia'],
+    wa: ['¡Hola! Quiero agendar una valoración dental 🦷 ¿Qué horarios tienen disponibles?', '¡Hola! Me interesa el precio de limpieza + blanqueamiento 💙 ¿Me informan?', '¡Hola! Quiero consultar por brackets y facilidades de pago 😁'],
+    hook: 'una sonrisa sana abre puertas',
+    theme: 'marble', layout: 'swiss',
+  },
+  {
+    id: 'salud', re: /salud|m[eé]dico|doctor|cl[ií]nica|farmacia|droguer|vacuna|enfermer|medicament/,
+    industry: 'salud_belleza', labels: ['Salud & Droguería', 'Atención Médica Cercana'],
+    names: ['Vitalidad', 'Salud del Pueblo', 'Bienestar Total'],
+    products: ['Consulta médica general', 'Medicamentos con domicilio', 'Jornada de vacunación'],
+    headlines: [
+      ['Tu salud', 'en buenas manos'],
+      ['Medicamentos originales', 'con domicilio'],
+      ['Cuida tu familia', 'con expertos'],
+    ],
+    subs: ['Atención humana, precios claros y entrega rápida', 'Droguería con surtido completo y asesoría farmacéutica'],
+    badges: ['🩺 SALUD CERTIFICADA', '💊 ATENCIÓN INMEDIATA'],
+    benefits: ['🩺 Personal calificado', '💊 Medicamentos originales', '🛵 Domicilio de droguería', '💉 Vacunación y control', '💳 Precios accesibles', '🕐 Atención de emergencia'],
+    wa: ['¡Hola! Necesito asesoría médica, ¿tienen cita disponible para hoy? 🩺', '¡Hola! Necesito pedir unos medicamentos a domicilio 💊 Mi fórmula dice:', '¡Hola! Quiero información sobre la jornada de vacunación y precios 💉'],
+    hook: 'la salud de tu familia no puede esperar',
+    theme: 'clinic', layout: 'swiss',
+  },
+  {
+    id: 'belleza', re: /belleza|peluquer|spa|est[eé]tica|u[nñ]as|masaje|cosm[eé]tic|maquillaje|barber/,
+    industry: 'salud_belleza', labels: ['Belleza, Spa & Estilo', 'Tu Mejor Versión Empieza Aquí'],
+    names: ['Bella Esencia', 'Estilo Único', 'Glam Studio'],
+    products: ['Corte, color y styling', 'Spa facial y corporal', 'Uñas, maquillaje y peinados'],
+    headlines: [
+      ['Luce espectacular', 'en nuestras manos'],
+      ['Belleza y relax', 'en un solo lugar'],
+      ['El estilo que mereces', 'a tu alcance'],
+    ],
+    subs: ['Profesionales del estilo con productos de primera', 'Cita previa y atención 100% personalizada'],
+    badges: ['✨ EXPERTAS EN ESTILO', '💎 BELLEZA PROFESIONAL'],
+    benefits: ['✂️ Estilistas con experiencia', '🧴 Productos de primera calidad', '💆‍♀️ Ambiente relajante', '📅 Agenda tu cita fácil', '🎁 Paquetes para novias y eventos', '💰 Promos cada mes'],
+    wa: ['¡Hola! Quiero agendar cita para corte y color ✂️ ¿Qué disponibilidad tienen?', '¡Hola! Me interesa el paquete de spa facial 💆‍♀️ ¿Precios y duración?', '¡Hola! Quiero cotizar peinado y maquillaje para un evento 💄 ¿Me cuentan?'],
+    hook: 'verse bien se siente bien',
+    theme: 'aurora', layout: 'polaroid',
+  },
+  {
+    id: 'agro', re: /agro|ganado|finca|cultivo|semilla|concentrado|abono|campo|siembra|fertilizante|trucha/,
+    industry: 'agro_campo', labels: ['Insumos Agropecuarios', 'Todo para el Campo'],
+    names: ['Tierra Viva', 'El Semillero', 'AgroCampestre'],
+    products: ['Concentrado y sal al por mayor', 'Jornada de vacunación animal', 'Semillas y fertilizantes'],
+    headlines: [
+      ['Tu campo', 'produce más'],
+      ['Insumos de calidad', 'a precio de mayorista'],
+      ['Ganado sano', 'negocio próspero'],
+    ],
+    subs: ['Concentrados, veterinaria y asesoría técnica a la finca', 'Domicilios a veredas con despacho puntual'],
+    badges: ['🌱 ALIADO DEL CAMPO', '🚜 INSUMOS DE VERDAD'],
+    benefits: ['🌱 Concentrados de alta calidad', '🐄 Asesoría veterinaria incluida', '🛻 Domicilio a veredas', '💰 Precios por mayor', '📦 Surtido completo', '🤝 Crédito para clientes fieles'],
+    wa: ['¡Hola! Quiero pedir concentrado al por mayor con domicilio a la finca 🌾 Mi vereda es:', '¡Hola! Me interesa la jornada de vacunación para mi ganado 💉 ¿Fecha y precios?', '¡Hola! Quiero cotizar semillas y fertilizantes para siembra 🌱 ¿Me asesoran?'],
+    hook: 'una finca bien alimentada da mejores frutos',
+    theme: 'emerald', layout: 'swiss',
+  },
+  {
+    id: 'veterinaria', re: /veterinar|perro|mascota|gato|canino|felino/,
+    industry: 'agro_campo', labels: ['Veterinaria & Mascotas', 'Cuidado Animal Profesional'],
+    names: ['Patitas', 'VeteAmigo', 'Huella Feliz'],
+    products: ['Consulta veterinaria general', 'Vacunación y desparasitación', 'Baño y peluquería canina'],
+    headlines: [
+      ['Tu mejor amigo', 'merece lo mejor'],
+      ['Mascotas felices', 'y saludables'],
+      ['Cuidado experto', 'para tu peludito'],
+    ],
+    subs: ['Consulta, vacunas, cirugías menores y estética animal', 'Amor por los animales y ciencia al servicio de ellos'],
+    badges: ['🐾 CUIDADO EXPERTO', '🐶 AMOR ANIMAL'],
+    benefits: ['🐾 Veterinarios amantes de los animales', '💉 Vacunas y desparasitación', '🛁 Estética canina y felina', '🏥 Urgencias atendidas', '📋 Historia clínica completa', '🛵 Domicilio veterinario'],
+    wa: ['¡Hola! Quiero agendar consulta para mi peludito 🐶 ¿Qué horarios manejan?', '¡Hola! Necesito vacunar a mi mascota 💉 ¿Precio y fechas?', '¡Hola! Quiero información del baño y corte de pelo 🛁 ¿Me cuentan?'],
+    hook: 'un peludito sano es un hogar feliz',
+    theme: 'emerald', layout: 'portal',
+  },
+  {
+    id: 'ferreteria', re: /ferreter|construcci[oó]n|obra|alba[nñ]il|electricis|plomero|materiales|herramienta|remodela|pintura/,
+    industry: 'construccion_hogar', labels: ['Ferretería & Construcción', 'Materiales para tu Obra'],
+    names: ['Obra Maestra', 'El Tornillo', 'ConstruPueblo'],
+    products: ['Materiales de construcción a domicilio', 'Herramientas eléctricas', 'Asesoría técnica para tu obra'],
+    headlines: [
+      ['Tu obra', 'sin demoras'],
+      ['Materiales de calidad', 'a tu puerta'],
+      ['Construye mejor', 'y más barato'],
+    ],
+    subs: ['Cemento, hierro, eléctricos y asesoría de expertos', 'Despachos al día siguiente en todo el municipio'],
+    badges: ['🛠️ TODO PARA TU OBRA', '🏗️ CALIDAD GARANTIZADA'],
+    benefits: ['🛠️ Surtido completo de ferretería', '🚚 Domicilio de materiales', '👷 Asesoría de maestros', '💰 Precios por mayor', '⚡ Herramientas eléctricas', '📋 Presupuestos sin costo'],
+    wa: ['¡Hola! Quiero cotizar materiales para una obra 🏗️ La lista es:', '¡Hola! Necesito una herramienta a domicilio, ¿tienen disponibilidad? 🛠️', '¡Hola! Me interesan los precios por mayor para maestros 🧱 ¿Me cuentan?'],
+    hook: 'obra bien hecha empieza con buenos materiales',
+    theme: 'slate', layout: 'diagonal',
+  },
+  {
+    id: 'transporte', re: /transporte|flete|camion|domicilio|despacho|log[ií]stica|camioneta|carga|mudanza|expreso|moto|taxi/,
+    industry: 'transporte_logistica', labels: ['Transporte & Domicilios', 'Fletes y Express del Pueblo'],
+    names: ['Ruta Segura', 'Express Local', 'Fletes Confiables'],
+    products: ['Fletes y mudanzas', 'Domicilios express', 'Transporte de carga a veredas'],
+    headlines: [
+      ['Tu carga', 'llega seguro'],
+      ['Fletes rápidos', 'a cualquier vereda'],
+      ['Mudanzas sin estrés', 'con nosotros'],
+    ],
+    subs: ['Vehículos adecuados, tarifa clara y puntualidad garantizada', 'Cobertura total del municipio y municipios vecinos'],
+    badges: ['🛻 PUNTUALIDAD GARANTIZADA', '📦 TU CARGA SEGURA'],
+    benefits: ['🛻 Vehículo para cada carga', '⏱️ Puntualidad de reloj', '🗺️ Llegamos a todas las veredas', '💰 Tarifas claras y justas', '📦 Carga asegurada', '🕐 Servicio también fines de semana'],
+    wa: ['¡Hola! Necesito un flete para mover unas cosas 📦 Desde: hasta: ¿precio?', '¡Hola! Quiero un domicilio express para hoy 🛵 ¿Me confirman tarifa?', '¡Hola! Necesito transporte de carga a una vereda 🚚 ¿Qué tipo de vehículo tienen?'],
+    hook: 'lo prometido llega: ni una hora de retraso',
+    theme: 'slate', layout: 'bento',
+  },
+  {
+    id: 'moda', re: /ropa|moda|boutique|calzado|vestido|tienda|almac[eé]n|supermercado|comercio|regalo/,
+    industry: 'comercio_retail', labels: ['Moda & Comercio Local', 'Estilo que Se Nota'],
+    names: ['El Armario', 'Moda & Cía', 'El Almacén'],
+    products: ['Nueva colección de temporada', 'Ofertas de liquidación', 'Tendencias para toda la familia'],
+    headlines: [
+      ['Vístete con estilo', 'sin gastar de más'],
+      ['Lo último de moda', 'ya está aquí'],
+      ['Renueva tu clóset', 'hoy mismo'],
+    ],
+    subs: ['Ropa de calidad, tallas para todos y novedades cada semana', 'Atención amable y cambios sin problema'],
+    badges: ['🛍️ NUEVA COLECCIÓN', '⚡ MODA AL INSTANTE'],
+    benefits: ['🛍️ Novedades cada semana', '📐 Tallas para todos', '💳 Paga como prefieras', '🔁 Cambios sin líos', '🎁 Regalos para toda ocasión', '💥 Ofertas reales'],
+    wa: ['¡Hola! ¿Qué novedades tienen de talla ? 👕 ¿Me mandan fotos?', '¡Hola! Quiero apartar una prenda que vi en su anuncio 🛍️ ¿Está disponible?', '¡Hola! Me interesan los precios por docena para revender 📦 ¿Me cuentan?'],
+    hook: 'la primera impresión se viste',
+    theme: 'terracotta', layout: 'magazine',
+  },
+  {
+    id: 'gym', re: /gimnasio|fitness|gym|entrenamien|ejercicio|crossfit|musculaci[oó]n|yoga/,
+    industry: 'servicios_profesionales', labels: ['Gimnasio & Entrenamiento', 'Transforma tu Cuerpo'],
+    names: ['Corporación Fitness', 'Fuerza Andina', 'PowerGym'],
+    products: ['Plan de entrenamiento mensual', 'Clases grupales', 'Acompañamiento de un entrenador'],
+    headlines: [
+      ['Transforma tu cuerpo', 'en 90 días'],
+      ['Entrena fuerte', 'y con guía experta'],
+      ['Tu mejor versión', 'empieza hoy'],
+    ],
+    subs: ['Rutinas personalizadas, nutrición y seguimiento real', 'Horarios flexibles de mañana y noche'],
+    badges: ['💪 RESULTADOS REALES', '🏋️ ENTRENA CON EXPERTOS'],
+    benefits: ['🏋️ Entrenadores certificados', '📋 Plan según tu objetivo', '🥗 Guía de alimentación', '🕐 Horarios flexibles', '👥 Comunidad que motiva', '📈 Medición de progreso'],
+    wa: ['¡Hola! Quiero información del plan mensual del gimnasio 💪 ¿Precio y horarios?', '¡Hola! Me interesa el plan con entrenador personal 🏋️ ¿Me cuentan?', '¡Hola! Quiero inscribirme a las clases grupales 🥊 ¿Cuándo empiezan?'],
+    hook: 'el cuerpo que quieres se construye con constancia',
+    theme: 'pop', layout: 'diagonal',
+  },
+  {
+    id: 'educacion', re: /curso|clase|educaci[oó]n|escuela|academia|refuerzo|ingl[eé]s|tutor[ií]a|capacitaci[oó]n/,
+    industry: 'servicios_profesionales', labels: ['Educación & Cursos', 'Aprende con Expertos'],
+    names: ['Aprende Ya', 'Academia del Saber', 'Saber Extra'],
+    products: ['Curso de inglés práctico', 'Refuerzo escolar', 'Capacitación técnica'],
+    headlines: [
+      ['Aprende rápido', 'con quien sabe'],
+      ['Refuerzo escolar', 'que da resultados'],
+      ['Tu futuro', 'empieza estudiando'],
+    ],
+    subs: ['Docentes pacientes, horarios cómodos y certificado al finalizar', 'Grupos pequeños para aprender de verdad'],
+    badges: ['🎓 APRENDE CON EXPERTOS', '📚 CERTIFICADO REAL'],
+    benefits: ['🎓 Docentes calificados', '📚 Material incluido', '🕐 Horarios cómodos', '👥 Grupos pequeños', '📜 Certificado al finalizar', '💰 Precios accesibles'],
+    wa: ['¡Hola! Quiero información sobre el curso 📚 ¿Costo, horario y cómo inscribirme?', '¡Hola! Me interesa el refuerzo escolar para mi hijo/a ✏️ ¿Qué niveles atienden?', '¡Hola! Quiero cotizar una capacitación para un grupo 🎓 ¿Me cuentan?'],
+    hook: 'lo que aprendes hoy te abre puertas mañana',
+    theme: 'marble', layout: 'swiss',
+  },
+  {
+    id: 'hogar', re: /inmobiliar|arriendo|casa|apartament|lote|mueble|decoraci[oó]n|hogar/,
+    industry: 'construccion_hogar', labels: ['Hogar & Bienes Raíces', 'Tu Próxima Casa Existe'],
+    names: ['Casas del Pueblo', 'Hogar & Cía', 'Mi Techo'],
+    products: ['Arriendo de casa familiar', 'Muebles y decoración', 'Asesoría inmobiliaria'],
+    headlines: [
+      ['Encuentra tu casa', 'soñada aquí'],
+      ['Muebles que abrazan', 'tu hogar'],
+      ['Tu hogar nuevo', 'te está esperando'],
+    ],
+    subs: ['Opciones verificadas, trámites claros y acompañamiento total', 'Visita los inmuebles sin compromiso'],
+    badges: ['🏠 HOGAR DULCE HOGAR', '🔑 LLAVES EN TU MANO'],
+    benefits: ['🏠 Inmuebles verificados', '🔑 Trámites sin enredos', '📍 Zonas tranquilas', '🛋️ Muebles de calidad', '🤝 Acompañamiento en todo', '📄 Contratos claros'],
+    wa: ['¡Hola! Busco casa en arriendo, ¿qué opciones tienen? 🏠 Presupuesto aproximado:', '¡Hola! Quiero agendar visita a un inmueble que vi 🔑 ¿Cuándo puedo ir?', '¡Hola! Me interesan los muebles del catálogo 🛋️ ¿Precios y entrega?'],
+    hook: 'un buen hogar cambia todo lo demás',
+    theme: 'kraft', layout: 'magazine',
+  },
+  {
+    id: 'eventos', re: /evento|fiesta|cumplea[nñ]os|quince|boda|catering|sal[oó]n/,
+    industry: 'comercio_retail', labels: ['Eventos & Celebraciones', 'Fiestas Inolvidables'],
+    names: ['Momentos Mágicos', 'Fiesta Total', 'Celebraciones Pro'],
+    products: ['Decoración para eventos', 'Salón de fiestas completo', 'Catering y banquetería'],
+    headlines: [
+      ['Tu fiesta', 'perfecta y sin estrés'],
+      ['Celebraciones', 'que nadie olvida'],
+      ['Todo tu evento', 'en un solo lugar'],
+    ],
+    subs: ['Decoración, sonido, banquete y coordinación completa', 'Cotizamos según tu fecha y presupuesto'],
+    badges: ['🎉 FIESTAS INOLVIDABLES', '🎈 TODO INCLUIDO'],
+    benefits: ['🎉 Decoración temática', '🔊 Sonido e iluminación', '🍰 Banquete a tu medida', '📸 Recuerdos de calidad', '📅 Agenda tu fecha ya', '💰 Paquetes a tu presupuesto'],
+    wa: ['¡Hola! Quiero cotizar la decoración para un evento 🎈 Fecha aproximada:', '¡Hola! Me interesa el salón completo para una celebración 🎉 ¿Qué incluye?', '¡Hola! Quiero información del catering para personas 🍰 ¿Precios?'],
+    hook: 'los mejores recuerdos nacen de buenas fiestas',
+    theme: 'aurora', layout: 'arc',
+  },
+  {
+    id: 'profesional', re: /abogad|jur[ií]dic|notar[ií]|contab|contador|impuesto|asesor|consultor|profesional|arquitecto|gestor[ií]a|tr[aá]mite|dise[nñ]o/,
+    industry: 'servicios_profesionales', labels: ['Servicios Profesionales', 'Expertos a tu Servicio'],
+    names: ['Primera Clase', 'Soluciones Expertas', 'Aliados Pro'],
+    products: ['Asesoría profesional personalizada', 'Trámites y consultoría', 'Diseño y soluciones a medida'],
+    headlines: [
+      ['Expertos reales', 'a tu servicio'],
+      ['Resolvemos tu caso', 'con experiencia'],
+      ['Tu aliado experto', 'en cada trámite'],
+    ],
+    subs: ['Experiencia comprobada, confidencialidad y resultados', 'Primera consulta sin costo para que decidas tranquilo'],
+    badges: ['💼 EXPERTOS CERTIFICADOS', '⭐ CONFIANZA Y SERIEDAD'],
+    benefits: ['💼 Experiencia comprobada', '🔒 Total confidencialidad', '📋 Casos resueltos con orden', '🕐 Puntualidad y claridad', '💬 Comunicación directa', '📄 Documentación impecable'],
+    wa: ['¡Hola! Necesito asesoría profesional, ¿puedo agendar una consulta? 💼 Mi caso es:', '¡Hola! Quiero cotizar un trámite/consultoría 📄 ¿Qué documentos necesito?', '¡Hola! Me interesan los planes de acompañamiento profesional 🤝 ¿Me cuentan?'],
+    hook: 'los problemas serios se resuelven con expertos',
+    theme: 'obsidian', layout: 'swiss',
+  },
+];
+
+const FALLBACK_NICHE: Niche = {
+  id: 'generico', re: /.*/,
+  industry: 'comercio_retail', labels: ['Tu Negocio de Confianza', 'Calidad y Buen Trato'],
+  names: ['El Buen Precio', 'Casa Central', 'Punto de Encuentro'],
+  products: ['Lo mejor del pueblo', 'Productos y servicios de primera', 'Tu promoción estrella'],
+  headlines: [
+    ['Calidad y buen trato', 'en tu pueblo'],
+    ['Lo mejor para ti', 'está aquí'],
+    ['Descubre lo nuevo', 'que tenemos para ti'],
+  ],
+  subs: ['Atención amable, precios justos y productos de primera', 'Tu negocio de confianza, cerca de ti'],
+  badges: ['⭐ NEGOCIO DESTACADO', '💎 CALIDAD GARANTIZADA'],
+  benefits: ['🥇 Calidad garantizada', '⚡ Atención inmediata', '📍 Cerca de ti en el pueblo', '💰 Precios justos', '🤝 Trato amable y honesto', '🎁 Promociones frecuentes'],
+  wa: ['¡Hola! Vi su anuncio y me interesa 🙌 ¿Me dan más información?', '¡Hola! Quiero pedir/cotizar a domicilio 🛵 Mi dirección es:', '¡Hola! Me interesan los planes especiales 📦 ¿Me cuentan opciones?'],
+  hook: 'un buen negocio se conoce por su gente',
+  theme: 'wood', layout: 'bento',
+};
+
+/** Rotea un arreglo con una semilla (cada clic = combinación distinta). */
+function rotate<T>(arr: T[], seed: number): T {
+  return arr[seed % arr.length];
+}
+
+/** Detecta el giro del negocio analizando el brief palabra por palabra. */
+function detectNiche(brief: string, categoryHint?: string): Niche {
+  const t = brief.toLowerCase();
+  for (const n of NICHES) if (n.re.test(t)) return n;
+  if (categoryHint) {
+    const h = categoryHint.toLowerCase();
+    for (const n of NICHES) if (n.re.test(h)) return n;
+  }
+  return FALLBACK_NICHE;
+}
+
+/**
+ * 🧠 Motor sintético · PASADA 1: dirección de arte completa desde el brief.
+ */
+export function synthesizeArtDirection(
+  input: CampaignInput,
+  opts?: { previousThemeId?: string; previousLayoutId?: string; seed?: number },
+): ArtDirection {
+  const seed = Math.floor(Math.random() * 100000);
+  void opts;
+  const niche = detectNiche(`${input.brief} ${input.slogan} ${input.product} ${input.businessName}`, input.categoryHint);
+  const industry = niche.industry;
+  return {
+    industryType: industry,
+    brandName: input.businessName.trim() || rotate(niche.names, seed),
+    productTitle: input.product.trim() || rotate(niche.products, seed),
+    categoryLabel: rotate(niche.labels, Math.floor(seed / 7)),
+    themeId: niche.theme,
+    layoutId: niche.layout,
+    valueProposition: rotate(niche.subs, Math.floor(seed / 3)),
+    imagePromptEn: INDUSTRY_PHOTO_PROMPTS[industry],
+  };
+}
+
+/**
+ * 🧠 Motor sintético · PASADA 2: campaña completa (titular, beneficios, copy
+ * de las 5 pestañas, mensajes de WhatsApp y 4 versiones de difusión).
+ */
+export function synthesizeCampaign(input: CampaignInput, art: ArtDirection): MarketingCampaign {
+  const seed = Math.floor(Math.random() * 100000);
+  const niche = detectNiche(`${input.brief} ${input.slogan} ${input.product} ${input.businessName}`, input.categoryHint);
+  const isService = input.priceMode === 'servicio';
+  const brand = input.businessName.trim() || art.brandName;
+  const product = input.product.trim() || art.productTitle;
+  const addr = input.address.trim() || input.municipality;
+  const place = input.municipality || 'Gachetá';
+  const [plain, highlight] = rotate(niche.headlines, seed);
+  const price =
+    !isService && input.promoPrice != null
+      ? ` a SOLO $${input.promoPrice.toLocaleString('es-CO')}`
+      : '';
+  const normalTxt =
+    !isService && input.normalPrice != null && input.promoPrice != null && input.normalPrice > input.promoPrice
+      ? ` (antes $${input.normalPrice.toLocaleString('es-CO')})`
+      : '';
+
+  const b0 = rotate(niche.benefits, seed);
+  const b1 = rotate(niche.benefits, seed + 2);
+  const b2 = rotate(niche.benefits, seed + 4);
+  const hook = niche.hook;
+
+  return {
+    industryType: art.industryType,
+    themeId: art.themeId,
+    layoutId: art.layoutId,
+    valueProposition: art.valueProposition,
+    badgeText: rotate(niche.badges, Math.floor(seed / 11)),
+    headline: { plain, highlight },
+    sub: rotate(niche.subs, Math.floor(seed / 5)),
+    benefits: [b0, b1, b2],
+    cta: isService ? '💬 Agenda hoy por WhatsApp' : '👉 Pide el tuyo HOY por WhatsApp',
+    priceLabel: isService
+      ? input.priceLabel.trim() || `💬 ${art.productTitle} · Cotiza sin compromiso`
+      : null,
+    imagePromptEn: art.imagePromptEn,
+    visualHooks: {
+      slide1_hook: `${product}${price ? ' con oferta de hoy' : ''}: ${hook.charAt(0).toUpperCase()}${hook.slice(1)}`,
+      slide1_sub: `Conoce por qué en ${place} ya lo están eligiendo`,
+      slide2_headline: `${b0.replace(/^[^\p{L}\p{N}]+/u, '')} y ${b1.replace(/^[^\p{L}\p{N}]+/u, '').toLowerCase()}`,
+      slide2_bullets: [b0, b1, b2],
+      slide3_cta: `Últimos cupos de hoy 👉 Escríbenos al WhatsApp de ${brand}`,
+    },
+    whatsappStatusSequence: {
+      status1: `🤔 ¿Sabías que ${hook}? En ${place} ya lo descubrieron con ${brand}. Mañana te contamos la oferta 👀`,
+      status2: `${plain} ${highlight}${price}${normalTxt}\n✅ ${b0.replace(/^[^\p{L}\p{N}]+/u, '')}\n✅ ${b2.replace(/^[^\p{L}\p{N}]+/u, '')}\n📍 ${addr}`,
+      status3: `⏰ Últimas horas con esta promo de ${brand} en ${place}.\n${b1.replace(/^[^\p{L}\p{N}]+/u, '')} — y la gente ya está escribiendo 📲\n👉 Escríbenos antes que se acabe`,
+    },
+    socialMediaCopy: {
+      pas: `😤 Problema: buscar buen ${product.toLowerCase()} en ${place} termina en decepciones.\n🔥 Agitación: pierdes tiempo, plata y paciencia con mediocridades.\n✅ Solución: ${brand}. ${hook.charAt(0).toUpperCase()}${hook.slice(1)} — ${b0.replace(/^[^\p{L}\p{N}]+/u, '').toLowerCase()}.\n📍 ${addr} · ${isService ? 'Cotiza hoy' : 'Pide hoy'} 👉 WhatsApp`,
+      aida: `⚡ ATENCIÓN: ${plain} ${highlight}${price}${normalTxt}.\n💡 INTERÉS: ${hook.charAt(0).toUpperCase()}${hook.slice(1)}.\n❤️ DESEO: ${b1.replace(/^[^\p{L}\p{N}]+/u, '')}.\n👉 ACCIÓN: escribe HOY al WhatsApp de ${brand} · 📍 ${addr}`,
+    },
+    videoReelScript: {
+      t0_3: `Plano cercano del ${product.toLowerCase()} con luz cálida. Voz: "¿Buscas ${product.toLowerCase()} de verdad en ${place}?"`,
+      t3_10: `Demostración: mostramos ${b0.replace(/^[^\p{L}\p{N}]+/u, '').toLowerCase()} y ${b2.replace(/^[^\p{L}\p{N}]+/u, '').toLowerCase()}. Voz: "Esto hace la diferencia y aquí lo comprobas."`,
+      t10_15: `Voz: "${plain} ${highlight}. Escríbenos hoy, ${addr}. WhatsApp en pantalla 👉" + logo de ${brand}`,
+    },
+    salesClosingTemplates: {
+      priceReply: isService
+        ? `¡Hola! 😊 La cotización depende de lo que necesites. ${product}: ${b0.replace(/^[^\p{L}\p{N}]+/u, '').toLowerCase()}. Cuéntame tu caso y te envío el presupuesto hoy mismo 👉`
+        : `¡Hola! 😊 ${product} queda en $${(input.promoPrice ?? 0).toLocaleString('es-CO')}${normalTxt}. Con domicilio disponible en ${place} 🛵 ¿Te lo aparto?`,
+      hesitantReply: `Te entiendo 👌 Por eso te cuento: ${b2.replace(/^[^\p{L}\p{N}]+/u, '')} y si no te convence, conversamos sin compromiso. Hoy tenemos cupos limitados, ¿te guardo uno?`,
+      dispatchUpsell: `¡Perfecto, confirmado! 🛵 Llega a ${addr}. ¿Te sumamos ${b1.replace(/^[^\p{L}\p{N}]+/u, '').toLowerCase()}? A los clientes de primera compra les queda un precio especial 😉`,
+    },
+    waLine1Msg: niche.wa[0],
+    waLine2Msg: niche.wa[1],
+    waLine3Msg: niche.wa[2],
+    dispatchVersions: [
+      `${plain} ${highlight}${price}${normalTxt} ✨\n${hook.charAt(0).toUpperCase()}${hook.slice(1)}: eso garantiza ${brand}.\n✅ ${b0}\n✅ ${b2}\n📍 ${addr} · ${place}\n👉 Escríbenos: WhatsApp`,
+      `🚀 ${product}${price} en ${place}.\n${b1}\n${b2}\nCupos de hoy limitados — escribe YA 👉 WhatsApp`,
+      `👀 ¿Ya conociste ${brand}?\n${b0.replace(/^[^\p{L}\p{N}]+/u, '')} y atención de primera.\n${isService ? 'Cotiza sin compromiso' : 'Pide a domicilio'} 🛵\n📍 ${addr} · 👉 WhatsApp`,
+      `🔥 RECOMENDADO EN ${place.toUpperCase()}: ${product}${price}${normalTxt}.\n${b2}\n📍 ${addr}\nEscríbenos ahora y asegúrate el tuyo 👉 WhatsApp`,
+    ],
+  };
+}
+
+/** Conveniencia: dirección de arte + campaña sintética en una sola llamada. */
+export function synthesizeSmartCampaignFromBrief(
+  input: CampaignInput,
+  opts?: { previousThemeId?: string; previousLayoutId?: string; seed?: number },
+): { art: ArtDirection; campaign: MarketingCampaign } {
+  const art = synthesizeArtDirection(input, opts);
+  const campaign = synthesizeCampaign(input, art);
+  return { art, campaign };
 }

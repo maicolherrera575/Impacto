@@ -1,20 +1,50 @@
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * 🚀 AGENCIA IA & MULTI-WHATSAPP STUDIO V11 (exclusivo del administrador)
+ *
+ * V11.0 — Motor de diseño editorial HTML/CSS/SVG a 1080p con `html-to-image`:
+ *  · El afiche ya NO se dibuja a mano con `ctx.fillRect` (plano y con textos
+ *    superpuestos): ahora es un artboard HTML real (540×960 / 540×540) con
+ *    tipografías de Google Fonts, sombras 3D, gradientes y clip-paths,
+ *    exportado con `toPng(node, { pixelRatio: 2 })` → PNG 1080×1920 nítido.
+ *  · Fin del banner "🐝 pollinations.ai — At its limit right now": toda foto
+ *    IA se inspecciona en un canvas 16×16 y si trae el cartel de bloqueo se
+ *    descarta; el sistema cae al Banco Fotográfico Comercial HD (120+ fotos
+ *    reales de Unsplash en 20 categorías, rotando en cada clic).
+ *  · IA infalible: sanitizador JSON + cadena de modelos con reintento +
+ *    motor sintético local `synthesizeSmartCampaignFromBrief` que SIEMPRE
+ *    llena nombre, categoría, titular, subtítulo, sello, 3 beneficios, las
+ *    5 pestañas de copy, los 3 mensajes de WhatsApp y los 4 despachos.
+ *  · QR GIGANTE (≥135px en lienzo 540 → 270px en el PNG 1080p) con UNA
+ *    sola etiqueta: "📱 ESCANEA EL QR".
+ * Piezas: 0 bytes en Supabase (todo vive en el navegador y se autoguarda).
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as QRCode from 'qrcode';
+import { toPng, getFontEmbedCSS } from 'html-to-image';
 import { Check, Copy, Dices, Download, ImagePlus, Loader2, Send, Sparkles, Trash2, Wand2 } from 'lucide-react';
 import type { Offer, Profile } from '../../types';
 import { categoryMeta } from '../../types';
-import { generateArtDirection, generateCampaignCopy, industryFromHint, normSpaces } from '../../services/gemini.service';
-import { INDUSTRY_PHOTO_PROMPTS } from '../../services/gemini.service';
-import type { ArtDirection, CampaignFocus, IndustryType, MarketingCampaign, PriceMode } from '../../services/gemini.service';
+import {
+  generateArtDirection,
+  generateCampaignCopy,
+  normSpaces,
+  synthesizeCampaign,
+  synthesizeSmartCampaignFromBrief,
+} from '../../services/gemini.service';
+import type { ArtDirection, CampaignFocus, MarketingCampaign, PriceMode } from '../../services/gemini.service';
+import { loadBankPhoto, isPollinationsBlockImage } from '../../utils/commercialPhotoBank';
+import {
+  AfficheArtboard,
+  AFFICHE_THEMES,
+} from './AfficheArtboard';
+import type { AfficheFormat, AfficheLayout, AffichePiece, AfficheProps } from './AfficheArtboard';
 import { useToast } from '../ui/Toast';
 import { cx, formatCOP } from '../../utils/format';
 import { waLink } from '../../utils/whatsapp';
 import { clearDraft, loadDraft, saveDraft } from '../../utils/draft';
-
-// ═══════════════════════════════════════════════════════════════════════════
-// 🚀 AGENCIA IA & MULTI-WHATSAPP STUDIO V7 (exclusivo del administrador)
-// Piezas HD 1080p y QR: 100% en el navegador con <canvas> → 0 bytes en Supabase.
-// ═══════════════════════════════════════════════════════════════════════════
 
 interface MarketingStudioProps {
   merchants: Profile[];
@@ -53,56 +83,19 @@ interface Texts {
   priceLabel: string;
 }
 
-type Format = 'story' | 'square';
-type Layout = 'bento' | 'magazine' | 'diagonal' | 'swiss' | 'polaroid' | 'portal' | 'arc' | 'strip';
-type Piece = 0 | 1 | 2 | 3;
-type PhotoMode = 'card' | 'full' | 'diag' | 'window';
-/** Textura material/ambiental de fondo propia de cada tema (dibujada 100% en canvas). */
-type ThemePattern = 'wood' | 'marble' | 'neon' | 'kraft' | 'ember' | 'topo' | 'deco' | 'clinic' | 'burst' | 'pop' | 'aurora' | 'mono';
+type Format = AfficheFormat;
+type Layout = AfficheLayout;
+type Piece = AffichePiece;
 
-interface Theme {
-  id: string;
-  label: string;
-  bg1: string;
-  bg2: string;
-  glow: string;
-  glow2: string;
-  accent: string;
-  accent2: string;
-  text: string;
-  sub: string;
-  pattern: ThemePattern;
-  /** Fondo claro: las tarjetas de cristal y las barras invierten su contraste. */
-  light?: boolean;
-  /** Fuente display de agencia cargada desde Google Fonts. */
-  fontD: string;
-}
-
-/** V10: 12 FONDOS CON TEXTURAS REALES (madera, mármol, neón, kraft…). */
-const THEMES: Theme[] = [
-  { id: 'wood', label: '🪵 Madera Rústica', bg1: '#2b1a0e', bg2: '#4a2c17', glow: 'rgba(245,158,11,0.20)', glow2: 'rgba(120,72,30,0.35)', accent: '#f59e0b', accent2: '#fbbf24', text: '#fff6ea', sub: '#e2c9a8', pattern: 'wood', fontD: 'Anton' },
-  { id: 'marble', label: '🏛️ Mármol & Oro', bg1: '#f5f2ec', bg2: '#e6dfd1', glow: 'rgba(203,175,109,0.25)', glow2: 'rgba(255,255,255,0.6)', accent: '#b8860b', accent2: '#9a7b3f', text: '#1c1917', sub: '#57534e', pattern: 'marble', light: true, fontD: 'Playfair Display' },
-  { id: 'cyber', label: '🚀 Cyber Marketing', bg1: '#090d1f', bg2: '#141c46', glow: 'rgba(56,189,248,0.28)', glow2: 'rgba(168,85,247,0.28)', accent: '#22d3ee', accent2: '#a855f7', text: '#eaf2ff', sub: '#9fb3d9', pattern: 'neon', fontD: 'Space Grotesk' },
-  { id: 'kraft', label: '📜 Papel Kraft', bg1: '#e9dcc3', bg2: '#d8c5a0', glow: 'rgba(120,90,50,0.16)', glow2: 'rgba(255,255,255,0.5)', accent: '#8c5a2b', accent2: '#2f5d3a', text: '#2b2118', sub: '#6b5844', pattern: 'kraft', light: true, fontD: 'Archivo Black' },
-  { id: 'ember', label: '🔥 Brasa Gourmet', bg1: '#180808', bg2: '#3b0d06', glow: 'rgba(249,115,22,0.30)', glow2: 'rgba(239,68,68,0.18)', accent: '#f97316', accent2: '#fbbf24', text: '#fff3e4', sub: '#e6c4a3', pattern: 'ember', fontD: 'Anton' },
-  { id: 'emerald', label: '🌿 Esmeralda Andina', bg1: '#061812', bg2: '#0e3a2a', glow: 'rgba(16,185,129,0.30)', glow2: 'rgba(253,224,71,0.14)', accent: '#10b981', accent2: '#a7f3d0', text: '#eafff5', sub: '#a7d8c4', pattern: 'topo', fontD: 'Archivo Black' },
-  { id: 'obsidian', label: '💎 Obsidiana & Oro', bg1: '#08080a', bg2: '#141118', glow: 'rgba(245,158,11,0.26)', glow2: 'rgba(255,255,255,0.08)', accent: '#f59e0b', accent2: '#fde68a', text: '#fff7e6', sub: '#cfc8b8', pattern: 'deco', fontD: 'Playfair Display' },
-  { id: 'clinic', label: '🩺 Clínico Zafiro', bg1: '#f0f7fb', bg2: '#dcecf5', glow: 'rgba(14,165,233,0.16)', glow2: 'rgba(255,255,255,0.65)', accent: '#0284c7', accent2: '#0ea5e9', text: '#0f2436', sub: '#4a6478', pattern: 'clinic', light: true, fontD: 'Space Grotesk' },
-  { id: 'terracotta', label: '🧱 Terracota Sol', bg1: '#7c2d12', bg2: '#b45309', glow: 'rgba(253,230,138,0.30)', glow2: 'rgba(255,237,213,0.20)', accent: '#fdba74', accent2: '#fde68a', text: '#fff7ed', sub: '#fcd9b6', pattern: 'burst', fontD: 'Bebas Neue' },
-  { id: 'pop', label: '⚡ Pop Amarillo', bg1: '#facc15', bg2: '#f59e0b', glow: 'rgba(15,23,42,0.22)', glow2: 'rgba(255,255,255,0.5)', accent: '#111827', accent2: '#dc2626', text: '#111827', sub: '#3f3f46', pattern: 'pop', light: true, fontD: 'Archivo Black' },
-  { id: 'aurora', label: '🌌 Aurora Creativa', bg1: '#12071f', bg2: '#2b0a4e', glow: 'rgba(236,72,153,0.30)', glow2: 'rgba(45,212,191,0.25)', accent: '#ec4899', accent2: '#2dd4bf', text: '#fdf4ff', sub: '#d8b4fe', pattern: 'aurora', fontD: 'Bebas Neue' },
-  { id: 'slate', label: '📐 Pizarra Titanio', bg1: '#181b20', bg2: '#2a2e35', glow: 'rgba(255,255,255,0.10)', glow2: 'rgba(132,204,22,0.18)', accent: '#ffffff', accent2: '#84cc16', text: '#ffffff', sub: '#b9bec9', pattern: 'mono', fontD: 'Archivo Black' },
-];
-
-const LAYOUTS: Array<{ id: Layout; label: string; hint: string }> = [
-  { id: 'bento', label: '🏆 Master Bento', hint: 'Zonas 100% aprovechadas + QR gigante' },
-  { id: 'magazine', label: '📸 Full-Bleed', hint: 'Portada de revista' },
-  { id: 'diagonal', label: '⚡ Corte Diagonal', hint: 'Spotlight dinámico' },
+const AFFICHE_LAYOUTS: Array<{ id: Layout; label: string; hint: string }> = [
+  { id: 'bento', label: '🍱 Bento Modular', hint: 'Foto + tarjetas de beneficios' },
+  { id: 'magazine', label: '📰 Portada Full-Bleed', hint: 'Foto 100% de fondo + cristal' },
+  { id: 'diagonal', label: '⚡ Corte Diagonal', hint: 'Recorte dinámico con insignia' },
   { id: 'polaroid', label: '🖼️ Polaroid 3D', hint: 'Foto inclinada con marco blanco' },
-  { id: 'arc', label: '🏛️ Arco de Lujo', hint: 'Foto en arco con marco dorado' },
-  { id: 'portal', label: '🔮 Portal Circular', hint: 'Foto en círculo central' },
-  { id: 'swiss', label: '📐 Grilla Suiza', hint: 'Retícula numerada' },
-  { id: 'strip', label: '🎞️ Franjas de Impacto', hint: 'Foto, titular, contacto' },
+  { id: 'arc', label: '🏛️ Arco Imperial', hint: 'Foto en arco con borde dorado' },
+  { id: 'portal', label: '🔮 Portal Circular', hint: 'Foto en círculo con anillos' },
+  { id: 'swiss', label: '📐 Grilla Suiza', hint: 'Retícula numerada de precisión' },
+  { id: 'strip', label: '🎞️ Franjas de Impacto', hint: 'Banda de titular editorial' },
 ];
 
 const BADGE_PRESETS: Array<{ id: string; label: string }> = [
@@ -112,232 +105,41 @@ const BADGE_PRESETS: Array<{ id: string; label: string }> = [
   { id: 'verificado', label: '✅ NEGOCIO VERIFICADO' },
 ];
 
+/** Presets manuales HD (el banco automático vive en commercialPhotoBank). */
 const PHOTO_PRESETS: Array<{ id: string; label: string }> = [
   { id: 'photo-1568901346375-23c9450c5869', label: '🍔 Gastronomía' },
   { id: 'photo-1509440159596-0249088772ff', label: '🥐 Panadería/Café' },
   { id: 'photo-1544025162-d76694265947', label: '🥩 Asadero/Carnes' },
-  { id: 'photo-1500595046743-cd271d694d30', label: '🚜 Agro/Ganadería' },
-  { id: 'photo-1501700493788-fa1a4fc9fe62', label: '🛻 Transporte/4x4' },
+  { id: 'photo-1500595046743-cd271d694d30', label: '🐄 Agro/Campo' },
+  { id: 'photo-1606811841689-23dfddce3e95', label: '🦷 Odontología' },
+  { id: 'photo-1560066984-138dadb34c00', label: '💅 Belleza/Spa' },
+  { id: 'photo-1503951914875-452162b0f3f1', label: '💈 Barbería' },
+  { id: 'photo-1552053831-71594a27632d', label: '🐶 Mascotas' },
+  { id: 'photo-1460925895917-afdab627c93f', label: '📈 Marketing' },
+  { id: 'photo-1498050108023-c5249f4df085', label: '💻 Tecnología' },
   { id: 'photo-1504148455328-c376907d081c', label: '🛠️ Ferretería' },
-  { id: 'photo-1606811841689-23dfddce3e95', label: '🦷 Salud/Odonto' },
-  { id: 'photo-1560066984-138dadb34c00', label: '💇‍♀️ Belleza/Spa' },
-  { id: 'photo-1441986300917-64674bd600d8', label: '🛍️ Ropa/Comercio' },
-  { id: 'photo-1518770660439-4636190af55', label: '💻 Tecnología' },
+  { id: 'photo-1501700493788-fa1a4fc9fe62', label: '🚚 Transporte' },
 ];
 
 const FOCUS_OPTIONS: Array<{ id: CampaignFocus; label: string }> = [
-  { id: 'remate', label: '🔥 Remate / Urgencia' },
-  { id: 'prestigio', label: '💎 Prestigio' },
-  { id: 'confianza', label: '🤝 Confianza local' },
-  { id: 'viral', label: '⚡ Impacto viral' },
+  { id: 'remate', label: '🔥 Remate de precios' },
+  { id: 'prestigio', label: '👑 Prestigio / premium' },
+  { id: 'confianza', label: '🤝 Confianza / cercanía' },
+  { id: 'viral', label: '⚡ Viral / llamativo' },
 ];
 
+/** Descriptor fotográfico EN INGLÉS del enfoque (prompt de respaldo). */
 const FOCUS_PHOTO_MOODS: Record<CampaignFocus, string> = {
-  remate: 'bold high contrast advertising shot, dramatic urgent lighting',
-  prestigio: 'luxury editorial photography, elegant golden soft lighting',
-  confianza: 'authentic warm documentary style, natural daylight, family business',
-  viral: 'trendy vibrant modern shot, punchy saturated colors',
+  remate: 'close-up product hero shot, vibrant offer energy, warm rim light, 8k advertising photography, no text, no logos',
+  prestigio: 'elegant premium scene, luxury tones, dramatic soft light, 8k editorial photography, no text, no logos',
+  confianza: 'friendly team at work, natural daylight, trustworthy atmosphere, 8k commercial photography, no text, no logos',
+  viral: 'eye-catching viral composition, bold colors, dynamic motion energy, 8k social media photography, no text, no logos',
 };
 
 const PRESET_URL = (id: string): string =>
-  `https://images.unsplash.com/${id}?w=1080&q=80&fm=jpg&fit=crop`;
+  `https://images.unsplash.com/${id}?auto=format&fit=crop&w=1080&q=85`;
 
-// ── Librería de 40 fotografías editoriales HD (5 por rubro, rotación aleatoria)
-// Se cargan al instante para que el lienzo JAMÁS quede vacío; la foto IA a
-// medida de pollinations llega después y reemplaza suavemente la instantánea.
-const INDUSTRY_LABELS: Record<IndustryType, string> = {
-  digital_tech: '💻 Marketing/Tech',
-  gastronomia: '🍽️ Gastronomía',
-  salud_belleza: '🩺 Salud/Belleza',
-  agro_campo: '🚜 Agro/Campo',
-  transporte_logistica: '🛻 Transporte',
-  comercio_retail: '🛍️ Comercio',
-  servicios_profesionales: '💼 Servicios Pro',
-  construccion_hogar: '🏗️ Construcción',
-};
-
-const INDUSTRY_PHOTOS: Record<IndustryType, string[]> = {
-  digital_tech: [
-    'photo-1518770660439-4636190af55',
-    'photo-1461749280684-dccba630e2f6',
-    'photo-1519389950473-47ba0277781c',
-    'photo-1550745165-9bc0b252726f',
-    'photo-1531297484001-80022131f5a1',
-  ],
-  gastronomia: [
-    'photo-1568901346375-23c9450c5869',
-    'photo-1509440159596-0249088772ff',
-    'photo-1544025162-d76694265947',
-    'photo-1565299624946-b28f40a0ae38',
-    'photo-1555939594-58d7cb561ad1',
-  ],
-  salud_belleza: [
-    'photo-1606811841689-23dfddce3e95',
-    'photo-1560066984-138dadb34c00',
-    'photo-1596462502278-27bfdc403348',
-    'photo-1576091160399-112ba8d25d1d',
-    'photo-1588776814546-1ffcf47267a5',
-  ],
-  agro_campo: [
-    'photo-1500595046743-cd271d694d30',
-    'photo-1500382017468-9049fed747ef',
-    'photo-1560493676-04071c5f467b',
-    'photo-1625246333195-78d9c8adad30',
-    'photo-1574943320219-553eb213f72d',
-  ],
-  transporte_logistica: [
-    'photo-1501700493788-fa1a4fc9fe62',
-    'photo-1601584115197-04ecc0da31d7',
-    'photo-1519003722824-194ddf4c2e91',
-    'photo-1568607918850-51c8d6ac40e5',
-    'photo-1558618666-fcd25c85cd64',
-  ],
-  comercio_retail: [
-    'photo-1441986300917-64674bd600d8',
-    'photo-1483985988355-763728e1935b',
-    'photo-1472851294608-062f824d29cc',
-    'photo-1607083206968-1361166ea65e',
-    'photo-1555529669-e69e7aa0ba9a',
-  ],
-  servicios_profesionales: [
-    'photo-1450101499163-c8848c66ca85',
-    'photo-1521791136064-7986c2920216',
-    'photo-1507003211169-0a1dd7228f2d',
-    'photo-1573496359142-b8d87734a5a2',
-    'photo-1560264280-88b68371db39',
-  ],
-  construccion_hogar: [
-    'photo-1504148455328-c376907d081c',
-    'photo-1541888946425-d81bb19240f5',
-    'photo-1581094794329-c8112a89af12',
-    'photo-1600585154340-be6161a56a0c',
-    'photo-1416331108676-a22ccb276e35',
-  ],
-};
-
-/** Diccionario inteligente de 60 fotos comerciales HD por palabras clave del
- *  brief (V10): elige la foto del TEMA EXACTO del negocio, jamás una calle
- *  cualquiera para un servicio de marketing digital. */
-const PHOTO_KEYWORD_MAP: Array<{ re: RegExp; ids: string[] }> = [
-  { re: /marketing|publicidad|redes|agencia|social|anuncio|branding|seo|emprendimien/, ids: ['photo-1460925895917-afdab627c93f', 'photo-1551288049-bebda4e38f71', 'photo-1518770660439-4636190af55', 'photo-1531297484001-80022131f5a1', 'photo-1519389950473-47ba0277781c'] },
-  { re: /web|p[aá]gina|computador|software|tecnolog|datos|sistema|celular|app/, ids: ['photo-1498050108023-c5249f4df085', 'photo-1461749280684-dccba630e2f6', 'photo-1550745165-9bc0b252726f', 'photo-1519389950473-47ba0277781c', 'photo-1531297484001-80022131f5a1'] },
-  { re: /odont|diente|dental|brackets/, ids: ['photo-1606811841689-23dfddce3e95', 'photo-1588776814546-1ffcf47267a5', 'photo-1576091160399-112ba8d25d1d', 'photo-1606811841689-23dfddce3e95'] },
-  { re: /salud|medic|doctor|cl[ií]nica|farmacia|droguer|vacuna|enfermer|laboratorio/, ids: ['photo-1559839734-2b71ea197ec2', 'photo-1576091160399-112ba8d25d1d', 'photo-1588776814546-1ffcf47267a5', 'photo-1596462502278-27bfdc403348', 'photo-1559839734-2b71ea197ec2'] },
-  { re: /belleza|peluquer|spa|est[eé]tica|u[nñ]as|masaje|cosm[eé]tic/, ids: ['photo-1560066984-138dadb34c00', 'photo-1596462502278-27bfdc403348', 'photo-1560066984-138dadb34c00', 'photo-1596462502278-27bfdc403348'] },
-  { re: /restaurante|almuerzo|men[uú]|comida|pizza|hamburguesa|corrientazo/, ids: ['photo-1568901346375-23c9450c5869', 'photo-1565299624946-b28f40a0ae38', 'photo-1600891964092-4316c288032e', 'photo-1514933651103-005eec06c04b', 'photo-1555939594-58d7cb561ad1'] },
-  { re: /asado|pollo|carne|parrilla|asadero|chuzo|costilla/, ids: ['photo-1544025162-d76694265947', 'photo-1555939594-58d7cb561ad1', 'photo-1544025162-d76694265947', 'photo-1555939594-58d7cb561ad1'] },
-  { re: /panader|pan\b|pastel|postre|dulce|reposter|torta|bolo/, ids: ['photo-1509440159596-0249088772ff', 'photo-1565958011703-44f9829ba187', 'photo-1551024506-0bccd828d307', 'photo-1565958011703-44f9829ba187'] },
-  { re: /caf[eé]|bebida|jugo|malteada|chocolate|gaseosa/, ids: ['photo-1509042239860-f550ce710b93', 'photo-1495474472287-4d71bcdd2085', 'photo-1509042239860-f550ce710b93', 'photo-1495474472287-4d71bcdd2085'] },
-  { re: /agro|ganado|vaca|finca|cultivo|semilla|concentrado|abono|campa|trucha/, ids: ['photo-1500595046743-cd271d694d30', 'photo-1500382017468-9049fed747ef', 'photo-1560493676-04071c5f467b', 'photo-1625246333195-78d9c8adad30', 'photo-1574943320219-553eb213f72d'] },
-  { re: /veterinar|perro|mascota|gato/, ids: ['photo-1552053831-71594a27632d', 'photo-1517849845537-4d257902454a', 'photo-1552053831-71594a27632d', 'photo-1517849845537-4d257902454a'] },
-  { re: /transporte|flete|camion|domicilio|despacho|log[ií]stica|camioneta|carga/, ids: ['photo-1501700493788-fa1a4fc9fe62', 'photo-1601584115197-04ecc0da31d7', 'photo-1519003722824-194ddf4c2e91', 'photo-1568607918850-51c8d6ac40e5', 'photo-1558618666-fcd25c85cd64'] },
-  { re: /moto|motocicleta|taxi/, ids: ['photo-1558981403-c5f9899a28bc', 'photo-1558981403-c5f9899a28bc', 'photo-1558618666-fcd25c85cd64'] },
-  { re: /ropa|moda|boutique|tienda|almac[eé]n|supermercado|comercio|calzado|regalo/, ids: ['photo-1521572163474-6864f9cf17ab', 'photo-1445205170230-e053b7e0c1a1', 'photo-1441986300917-64674bd600d8', 'photo-1483985988355-763728e1935b', 'photo-1472851294608-062f824d29cc'] },
-  { re: /abogad|jur[ií]dic|notar[ií]|contab|contador|impuesto|asesor|consultor|profesional|arquitecto/, ids: ['photo-1589829545856-d10d557cf95f', 'photo-1454165804606-c3d57bc86b40', 'photo-1554224155-672265f51298', 'photo-1450101499163-c8848c66ca85', 'photo-1521791136064-7986c2920216'] },
-  { re: /construcci[oó]n|obra|ferreter|alba[nñ]il|electricis|plomero|materiales|herramienta|hogar|remodela|pintura/, ids: ['photo-1504148455328-c376907d081c', 'photo-1541888946425-d81bb19240f5', 'photo-1581094794329-c8112a89af12', 'photo-1600585154340-be6161a56a0c', 'photo-1416331108676-a22ccb276e35', 'photo-1486406146926-c627a92ad1ab'] },
-];
-
-/** Carga una foto HD del tema EXACTO del brief (diccionario por palabras) y
- *  si no hay coincidencia cae a la librería del rubro. */
-async function loadKeywordPhoto(text: string, industry: IndustryType): Promise<string | null> {
-  const t = text.toLowerCase();
-  const group = PHOTO_KEYWORD_MAP.find((g) => g.re.test(t));
-  if (group) {
-    const ids = [...new Set(group.ids)].sort(() => Math.random() - 0.5);
-    for (const id of ids) {
-      try {
-        const img = await loadImage(PRESET_URL(id));
-        const off = document.createElement('canvas');
-        off.width = 1080;
-        off.height = 1080;
-        const octx = off.getContext('2d');
-        if (!octx) return null;
-        octx.drawImage(img, 0, 0, 1080, 1080);
-        return off.toDataURL('image/jpeg', 0.9);
-      } catch {
-        // Foto no disponible: prueba la siguiente del grupo.
-      }
-    }
-  }
-  return loadCuratedIndustryPhoto(industry);
-}
-
-/** Adivina el rubro por palabras clave del brief (cliente externo sin categoría). */
-function guessIndustry(text: string): IndustryType {
-  const t = text.toLowerCase();
-  if (/marketing|digital|redes|software|pagina|p[aá]gina|web|tecnolog|publicidad|agencia/.test(t)) return 'digital_tech';
-  if (/restaurante|comida|pizza|asado|panader|caf[eé]|almuerzo|men[uú]|sabor/.test(t)) return 'gastronomia';
-  if (/odont|dental|salud|m[eé]dico|belleza|spa|est[eé]tica|peluquer|farmacia|droguer/.test(t)) return 'salud_belleza';
-  if (/agro|campo|veterinar|finca|ganado|cultivo|abono|semilla|concentrado/.test(t)) return 'agro_campo';
-  if (/transporte|flete|domicilio|camion|moto|despacho|log[ií]stica/.test(t)) return 'transporte_logistica';
-  if (/tienda|ropa|venta|almac[eé]n|boutique|supermercado|comercio/.test(t)) return 'comercio_retail';
-  if (/construcci[oó]n|obra|ferreter|alba[nñ]il|hogar|mueble|electricis|plomero/.test(t)) return 'construccion_hogar';
-  return 'servicios_profesionales';
-}
-
-/** Carga en rotación aleatoria una foto editorial del rubro; prueba las 5. */
-async function loadCuratedIndustryPhoto(industry: IndustryType): Promise<string | null> {
-  const ids = [...INDUSTRY_PHOTOS[industry]].sort(() => Math.random() - 0.5);
-  for (const id of ids) {
-    try {
-      const img = await loadImage(PRESET_URL(id));
-      const off = document.createElement('canvas');
-      off.width = 1080;
-      off.height = 1080;
-      const octx = off.getContext('2d');
-      if (!octx) return null;
-      octx.drawImage(img, 0, 0, 1080, 1080);
-      return off.toDataURL('image/jpeg', 0.9);
-    } catch {
-      // Foto no disponible: prueba la siguiente del rubro.
-    }
-  }
-  return null;
-}
-
-// ── Utilidades de dibujo y teléfono ────────────────────────────────────────
-
-function rr(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r);
-  ctx.closePath();
-}
-
-function wrapLines(ctx: CanvasRenderingContext2D, text: string, maxW: number, maxLines: number): string[] {
-  const words = text.trim().split(/\s+/).filter(Boolean);
-  const lines: string[] = [];
-  let cur = '';
-  for (const w of words) {
-    const next = cur ? `${cur} ${w}` : w;
-    if (ctx.measureText(next).width > maxW && cur) {
-      lines.push(cur);
-      cur = w;
-    } else {
-      cur = next;
-    }
-  }
-  if (cur) lines.push(cur);
-  if (lines.length > maxLines) {
-    const kept = lines.slice(0, maxLines);
-    kept[maxLines - 1] = `${kept[maxLines - 1]}…`;
-    return kept;
-  }
-  return lines;
-}
-
-/** Convierte un hex (#rrggbb) en rgba con alfa. */
-function alpha(hex: string, a: number): string {
-  const h = hex.replace('#', '');
-  const full = h.length === 3
-    ? h.split('').map((c) => c + c).join('')
-    : h;
-  const n = parseInt(full, 16);
-  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
-}
+// ── Utilidades ───────────────────────────────────────────────────────────────
 
 function normalizePhone(raw: string): string {
   let digits = raw.replace(/\D/g, '');
@@ -383,1518 +185,24 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
-// ═════════════════════════ Motor de render canvas V7 ═════════════════════════
-
-interface RenderArgs {
-  theme: Theme;
-  format: Format;
-  layout: Layout;
-  piece: Piece;
-  photo: HTMLImageElement | null;
-  qr: HTMLImageElement | null;
-  brand: BrandData;
-  texts: Texts;
-  badge: string;
-  showPrice: boolean;
-  showBenefits: boolean;
-  showQr: boolean;
-  zoom: number;
-  posY: number;
-}
-
-function photoModeOf(layout: Layout): PhotoMode {
-  switch (layout) {
-    case 'magazine':
-      return 'full';
-    case 'diagonal':
-      return 'diag';
-    case 'swiss':
-      return 'window';
-    default:
-      return 'card';
-  }
-}
-
-/** Fondo editorial: degradado diagonal + malla de luces radiales suaves. */
-function backdrop(ctx: CanvasRenderingContext2D, W: number, H: number, t: Theme): void {
-  const g = ctx.createLinearGradient(0, 0, W, H);
-  g.addColorStop(0, t.bg1);
-  g.addColorStop(1, t.bg2);
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, W, H);
-  const spots: Array<[number, number, number, string]> = [
-    [W * 0.22, H * 0.16, W * 0.55, t.glow],
-    [W * 0.85, H * 0.4, W * 0.5, t.glow2],
-    [W * 0.5, H * 0.9, W * 0.6, t.glow],
-  ];
-  for (const [x, y, r, color] of spots) {
-    const g2 = ctx.createRadialGradient(x, y, 0, x, y, r);
-    g2.addColorStop(0, color);
-    g2.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = g2;
-    ctx.fillRect(0, 0, W, H);
-  }
-}
-
-/** Haz de luz radial para el layout diagonal. */
-function lightBeam(ctx: CanvasRenderingContext2D, W: number, H: number, t: Theme): void {
-  const g = ctx.createRadialGradient(W * 0.72, H * 0.2, 0, W * 0.72, H * 0.2, W * 0.95);
-  g.addColorStop(0, alpha(t.accent, 0.32));
-  g.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, W, H);
-}
-
-/** Retícula arquitectónica sutil para el layout swiss. */
-function swissGrid(ctx: CanvasRenderingContext2D, W: number, H: number, fs: number): void {
-  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
-  ctx.lineWidth = Math.max(1, 1.5 * fs);
-  for (let gx = 90 * fs; gx < W; gx += 120 * fs) {
-    ctx.beginPath();
-    ctx.moveTo(gx, 40 * fs);
-    ctx.lineTo(gx, H - 40 * fs);
-    ctx.stroke();
-  }
-  for (let gy = 90 * fs; gy < H; gy += 140 * fs) {
-    ctx.beginPath();
-    ctx.moveTo(30 * fs, gy);
-    ctx.lineTo(W - 30 * fs, gy);
-    ctx.stroke();
-  }
-}
-
-/** Motor de 12 texturas materiales/ambientales reales (V10): madera con
- *  vetas, mármol Carrara, neón de estudio, papel kraft, brasa volcánica,
- *  halftone pop, aurora fluida y más — cero fondos negros planos. */
-function drawThemePattern(ctx: CanvasRenderingContext2D, W: number, H: number, t: Theme, fs: number): void {
-  ctx.save();
-  switch (t.pattern) {
-    case 'wood': {
-      // Tablones de roble con vetas onduladas, nudos y luz cálida lateral.
-      const plank = 96 * fs;
-      for (let y = 0; y < H; y += plank) {
-        ctx.fillStyle = `rgba(${y % (plank * 2) === 0 ? '58,36,19' : '50,30,15'},0.55)`;
-        ctx.fillRect(0, y, W, plank);
-        ctx.strokeStyle = 'rgba(24,13,6,0.65)';
-        ctx.lineWidth = Math.max(1.5, 3 * fs);
-        ctx.beginPath();
-        ctx.moveTo(0, y + plank);
-        ctx.lineTo(W, y + plank);
-        ctx.stroke();
-        // Vetas internas del tablón.
-        ctx.strokeStyle = alpha(t.accent, 0.10);
-        ctx.lineWidth = Math.max(1, 2 * fs);
-        for (let v = 0; v < 4; v++) {
-          const vy = y + 18 * fs + v * 22 * fs;
-          ctx.beginPath();
-          for (let x = 0; x <= W; x += 30 * fs) {
-            const yy = vy + Math.sin(x / (120 * fs) + v * 2 + y) * 7 * fs;
-            if (x === 0) ctx.moveTo(x, yy);
-            else ctx.lineTo(x, yy);
-          }
-          ctx.stroke();
-        }
-        // Nudo de madera ocasional.
-        if ((y / plank) % 3 === 0) {
-          const kx = W * (0.18 + ((y / plank) % 5) * 0.16);
-          const ky = y + plank * 0.5;
-          ctx.strokeStyle = 'rgba(24,13,6,0.5)';
-          ctx.beginPath();
-          ctx.ellipse(kx, ky, 16 * fs, 10 * fs, 0.4, 0, Math.PI * 2);
-          ctx.stroke();
-          ctx.beginPath();
-          ctx.ellipse(kx, ky, 8 * fs, 5 * fs, 0.4, 0, Math.PI * 2);
-          ctx.stroke();
-        }
-      }
-      // Luz cálida diagonal.
-      const warm = ctx.createLinearGradient(0, 0, W, H * 0.5);
-      warm.addColorStop(0, alpha(t.accent, 0.12));
-      warm.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.fillStyle = warm;
-      ctx.fillRect(0, 0, W, H * 0.6);
-      break;
-    }
-    case 'marble': {
-      // Mármol Carrara: parches suaves + vetas grises y doradas.
-      for (let i = 0; i < 10; i++) {
-        const px = (i * 197) % W;
-        const py = (i * 311) % H;
-        const g = ctx.createRadialGradient(px, py, 0, px, py, 150 * fs);
-        g.addColorStop(0, 'rgba(140,130,115,0.10)');
-        g.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = g;
-        ctx.fillRect(px - 150 * fs, py - 150 * fs, 300 * fs, 300 * fs);
-      }
-      const veins: Array<[string, number]> = [
-        ['rgba(120,112,100,0.35)', 2.5],
-        ['rgba(180,134,11,0.30)', 2],
-        ['rgba(120,112,100,0.22)', 1.5],
-        ['rgba(180,134,11,0.20)', 1.5],
-      ];
-      veins.forEach(([color, w], i) => {
-        ctx.strokeStyle = color;
-        ctx.lineWidth = Math.max(1, w * fs);
-        let vx = W * (0.15 + i * 0.18);
-        ctx.beginPath();
-        ctx.moveTo(vx, -20);
-        let vy = -20;
-        while (vy < H + 20) {
-          vx += Math.sin(vy / (90 * fs) + i * 1.7) * 26 * fs;
-          vy += 28 * fs;
-          ctx.lineTo(vx, vy);
-        }
-        ctx.stroke();
+/** 🧠 V11: carrera contra reloj — si la IA tarda más de `ms`, se rechaza y el
+ *  motor sintético local toma el control (jamás cajas vacías). */
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`timeout-${ms}`)), ms);
+    promise
+      .then((v) => {
+        clearTimeout(timer);
+        resolve(v);
+      })
+      .catch((e: unknown) => {
+        clearTimeout(timer);
+        reject(e);
       });
-      break;
-    }
-    case 'neon': {
-      // Suelo de retícula en perspectiva + ondas de luz digital neón.
-      ctx.strokeStyle = alpha(t.accent, 0.16);
-      ctx.lineWidth = Math.max(1, 1.5 * fs);
-      const hz = H * 0.62;
-      for (let i = -6; i <= 6; i++) {
-        ctx.beginPath();
-        ctx.moveTo(W / 2 + i * W * 0.09, hz);
-        ctx.lineTo(W / 2 + i * W * 0.42, H);
-        ctx.stroke();
-      }
-      for (let y = hz, k = 0; y < H; y += 14 * fs * (k + 1), k++) {
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(W, y);
-        ctx.stroke();
-      }
-      // Ondas sinusoidales brillantes en el cielo del fondo.
-      for (const [color, off, amp] of [
-        [t.accent, 0, 26],
-        [t.accent2, 1.2, 18],
-      ] as Array<[string, number, number]>) {
-        ctx.strokeStyle = alpha(color, 0.35);
-        ctx.lineWidth = Math.max(1.5, 3 * fs);
-        ctx.shadowColor = alpha(color, 0.5);
-        ctx.shadowBlur = 24 * fs;
-        ctx.beginPath();
-        for (let x = 0; x <= W; x += 20 * fs) {
-          const y = H * 0.16 + off * 34 * fs + Math.sin(x / (150 * fs) + off * 2) * amp * fs;
-          if (x === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
-        }
-        ctx.stroke();
-        ctx.shadowColor = 'transparent';
-        ctx.shadowBlur = 0;
-      }
-      break;
-    }
-    case 'kraft': {
-      // Papel artesanal: motas de fibra, puntos de pulpa y bordes orgánicos.
-      for (let i = 0; i < 260; i++) {
-        const px = ((i * 761) % 1080) * (W / 1080);
-        const py = ((i * 493) % 1920) * (H / 1920);
-        ctx.fillStyle = i % 3 === 0 ? 'rgba(120,90,50,0.10)' : 'rgba(255,255,255,0.14)';
-        ctx.beginPath();
-        ctx.arc(px, py, (i % 4 === 0 ? 2.4 : 1.4) * fs, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.strokeStyle = 'rgba(140,90,43,0.16)';
-      ctx.lineWidth = Math.max(1, 1.5 * fs);
-      for (let i = 0; i < 14; i++) {
-        const fy = (i * 137) % H;
-        ctx.beginPath();
-        for (let x = (i * 53) % 120, moved = false; x < W; x += 26 * fs) {
-          const yy = fy + Math.sin(x / (40 * fs) + i) * 4 * fs;
-          if (!moved) {
-            ctx.moveTo(x, yy);
-            moved = true;
-          } else ctx.lineTo(x, yy);
-        }
-        ctx.stroke();
-      }
-      // Marco de papel con doble filo terracota/bosque.
-      ctx.strokeStyle = alpha(t.accent, 0.4);
-      ctx.lineWidth = Math.max(1.5, 3 * fs);
-      ctx.strokeRect(26 * fs, 26 * fs, W - 52 * fs, H - 52 * fs);
-      break;
-    }
-    case 'ember': {
-      // Piedra volcánica con resplandor de fuego abajo + brasas ascendentes.
-      const fire = ctx.createLinearGradient(0, H * 0.55, 0, H);
-      fire.addColorStop(0, 'rgba(0,0,0,0)');
-      fire.addColorStop(0.75, alpha(t.accent, 0.22));
-      fire.addColorStop(1, alpha(t.accent, 0.45));
-      ctx.fillStyle = fire;
-      ctx.fillRect(0, H * 0.55, W, H * 0.45);
-      const spots: Array<[number, number, number]> = [
-        [W * 0.12, H * 0.2, 10], [W * 0.24, H * 0.34, 6], [W * 0.86, H * 0.24, 8], [W * 0.78, H * 0.4, 12],
-        [W * 0.08, H * 0.62, 7], [W * 0.9, H * 0.58, 9], [W * 0.5, H * 0.1, 6], [W * 0.35, H * 0.15, 8],
-      ];
-      for (const [px, py, s] of spots) {
-        const g = ctx.createRadialGradient(px, py, 0, px, py, s * 4 * fs);
-        g.addColorStop(0, alpha(t.accent2, 0.5));
-        g.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = g;
-        ctx.beginPath();
-        ctx.arc(px, py, s * 4 * fs, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      break;
-    }
-    case 'topo': {
-      // Curvas topográficas suaves de montaña andina + luz solar dorada.
-      ctx.strokeStyle = alpha(t.accent2, 0.16);
-      ctx.lineWidth = Math.max(1, 2 * fs);
-      for (let i = 0; i < 6; i++) {
-        const baseY = H * (0.12 + i * 0.15);
-        ctx.beginPath();
-        for (let x = 0; x <= W; x += 24 * fs) {
-          const y = baseY + Math.sin(x / (170 * fs) + i * 1.4) * 26 * fs;
-          if (x === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
-        }
-        ctx.stroke();
-      }
-      break;
-    }
-    case 'deco': {
-      // Arcos art-déco concéntricos + líneas verticales de champán.
-      ctx.strokeStyle = alpha(t.accent, 0.16);
-      ctx.lineWidth = Math.max(1, 2 * fs);
-      for (let r = 120 * fs; r < W * 0.9; r += 110 * fs) {
-        ctx.beginPath();
-        ctx.arc(W * 0.5, -W * 0.32, r, 0, Math.PI);
-        ctx.stroke();
-      }
-      ctx.strokeStyle = alpha(t.accent, 0.10);
-      for (let x = 70 * fs; x < W; x += 90 * fs) {
-        ctx.beginPath();
-        ctx.moveTo(x, H * 0.62);
-        ctx.lineTo(x, H);
-        ctx.stroke();
-      }
-      break;
-    }
-    case 'clinic': {
-      // Cristal limpio: anillos de pureza + pulso ECG + cruces sutiles.
-      ctx.strokeStyle = alpha(t.accent, 0.12);
-      ctx.lineWidth = Math.max(1.5, 3 * fs);
-      const cx2 = W * 0.82;
-      const cy2 = H * 0.16;
-      for (const r of [60 * fs, 95 * fs]) {
-        ctx.beginPath();
-        ctx.arc(cx2, cy2, r, 0, Math.PI * 2);
-        ctx.stroke();
-      }
-      ctx.strokeStyle = alpha(t.accent, 0.35);
-      ctx.lineWidth = Math.max(1.5, 3 * fs);
-      ctx.beginPath();
-      ctx.moveTo(0, H * 0.14);
-      ctx.lineTo(W * 0.3, H * 0.14);
-      ctx.lineTo(W * 0.38, H * 0.07);
-      ctx.lineTo(W * 0.46, H * 0.2);
-      ctx.lineTo(W * 0.54, H * 0.14);
-      ctx.lineTo(W, H * 0.14);
-      ctx.stroke();
-      break;
-    }
-    case 'burst': {
-      // Rayos de sol comerciales radiales + halftone viral.
-      const sunX = W * 0.5;
-      const sunY = H * 0.05;
-      ctx.fillStyle = alpha(t.accent, 0.10);
-      for (let i = 0; i < 14; i++) {
-        const a1 = (i / 14) * Math.PI * 2;
-        const a2 = a1 + Math.PI / 14;
-        ctx.beginPath();
-        ctx.moveTo(sunX, sunY);
-        ctx.lineTo(sunX + Math.cos(a1) * H, sunY + Math.sin(a1) * H);
-        ctx.lineTo(sunX + Math.cos(a2) * H, sunY + Math.sin(a2) * H);
-        ctx.closePath();
-        ctx.fill();
-      }
-      ctx.fillStyle = alpha(t.accent, 0.16);
-      for (let row = 0; row < 7; row++) {
-        for (let col = 0; col < 7; col++) {
-          const hx = W * 0.05 + col * 34 * fs;
-          const hy = H * 0.86 - row * 30 * fs;
-          ctx.beginPath();
-          ctx.arc(hx, hy, (1 - row / 8) * 6 * fs, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
-      break;
-    }
-    case 'pop': {
-      // Alto contraste retail: franja diagonal negra + halftone gigante.
-      ctx.fillStyle = 'rgba(17,24,39,0.10)';
-      ctx.save();
-      ctx.translate(W / 2, H / 2);
-      ctx.rotate(-0.5);
-      ctx.fillRect(-W, -34 * fs, W * 2, 68 * fs);
-      ctx.restore();
-      ctx.fillStyle = 'rgba(17,24,39,0.14)';
-      for (let row = 0; row < 10; row++) {
-        for (let col = 0; col <= row; col++) {
-          ctx.beginPath();
-          ctx.arc(W * 0.88 - col * 30 * fs, H * 0.06 + row * 30 * fs, 5 * fs, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
-      ctx.strokeStyle = 'rgba(220,38,38,0.5)';
-      ctx.lineWidth = Math.max(2, 5 * fs);
-      ctx.beginPath();
-      ctx.moveTo(W * 0.06, H * 0.045);
-      ctx.lineTo(W * 0.06, H * 0.045 + 60 * fs);
-      ctx.stroke();
-      break;
-    }
-    case 'aurora': {
-      // Cintas fluidas de magenta, índigo y turquesa estilo agencia creativa.
-      for (const [color, yBase, amp, w] of [
-        [t.accent, 0.24, 60, 90],
-        [t.accent2, 0.34, 44, 60],
-        ['rgba(99,102,241,0.5)', 0.15, 70, 40],
-      ] as Array<[string, number, number, number]>) {
-        ctx.strokeStyle = alpha(color, 0.30);
-        ctx.lineWidth = w * fs;
-        ctx.filter = 'blur(0px)';
-        ctx.beginPath();
-        for (let x = -40; x <= W + 40; x += 24 * fs) {
-          const y = H * yBase + Math.sin(x / (210 * fs) + yBase * 9) * amp * fs;
-          if (x <= -40) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
-        }
-        ctx.stroke();
-      }
-      ctx.filter = 'none';
-      break;
-    }
-    case 'mono': {
-      // Concreto pulido: motas grises + líneas técnicas + crosshairs de plano.
-      for (let i = 0; i < 90; i++) {
-        const px = ((i * 439) % 1080) * (W / 1080);
-        const py = ((i * 677) % 1920) * (H / 1920);
-        ctx.fillStyle = 'rgba(255,255,255,0.05)';
-        ctx.fillRect(px, py, 2.5 * fs, 2.5 * fs);
-      }
-      ctx.strokeStyle = 'rgba(255,255,255,0.07)';
-      ctx.lineWidth = Math.max(1, 1.5 * fs);
-      for (let x = -H; x < W + H; x += 130 * fs) {
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x + H * 0.4, H);
-        ctx.stroke();
-      }
-      ctx.strokeStyle = alpha(t.accent2, 0.5);
-      ctx.lineWidth = Math.max(1.2, 2.5 * fs);
-      for (const [px, py] of [[W * 0.12, H * 0.24], [W * 0.88, H * 0.2], [W * 0.86, H * 0.8]] as Array<[number, number]>) {
-        const s = 26 * fs;
-        ctx.beginPath();
-        ctx.moveTo(px - s, py);
-        ctx.lineTo(px + s, py);
-        ctx.moveTo(px, py - s);
-        ctx.lineTo(px, py + s);
-        ctx.stroke();
-      }
-      break;
-    }
-  }
-  ctx.restore();
-}
-
-/** Adorno vectorial de agencia según el layout (flechas, ráfagas, rayos, checks). */
-function drawLayoutOrnament(ctx: CanvasRenderingContext2D, W: number, H: number, t: Theme, layout: Layout, fs: number): void {
-  ctx.save();
-  ctx.strokeStyle = alpha(t.accent2, 0.5);
-  ctx.fillStyle = alpha(t.accent2, 0.5);
-  ctx.lineWidth = Math.max(2, 4 * fs);
-  ctx.lineJoin = 'round';
-  ctx.lineCap = 'round';
-  if (layout === 'bento') {
-    // Flecha de crecimiento escalonada (esquina superior derecha).
-    const x0 = W * 0.6;
-    const y0 = H * 0.115;
-    ctx.beginPath();
-    ctx.moveTo(x0, y0 + 60 * fs);
-    ctx.lineTo(x0 + 55 * fs, y0 + 18 * fs);
-    ctx.lineTo(x0 + 110 * fs, y0 + 52 * fs);
-    ctx.lineTo(x0 + 165 * fs, y0 - 8 * fs);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(x0 + 165 * fs, y0 - 8 * fs);
-    ctx.lineTo(x0 + 138 * fs, y0 - 2 * fs);
-    ctx.moveTo(x0 + 165 * fs, y0 - 8 * fs);
-    ctx.lineTo(x0 + 160 * fs, y0 + 20 * fs);
-    ctx.stroke();
-  } else if (layout === 'magazine') {
-    // Anillo de ráfaga con marcas radiales (esquina superior izquierda).
-    const cx2 = W * 0.14;
-    const cy2 = H * 0.14;
-    ctx.beginPath();
-    ctx.arc(cx2, cy2, 46 * fs, 0, Math.PI * 2);
-    ctx.stroke();
-    for (let i = 0; i < 8; i++) {
-      const a = (i / 8) * Math.PI * 2;
-      ctx.beginPath();
-      ctx.moveTo(cx2 + Math.cos(a) * 58 * fs, cy2 + Math.sin(a) * 58 * fs);
-      ctx.lineTo(cx2 + Math.cos(a) * 76 * fs, cy2 + Math.sin(a) * 76 * fs);
-      ctx.stroke();
-    }
-  } else if (layout === 'diagonal') {
-    // Rayo angular gigante translúcido.
-    ctx.fillStyle = alpha(t.accent2, 0.16);
-    ctx.beginPath();
-    ctx.moveTo(W * 0.78, H * 0.06);
-    ctx.lineTo(W * 0.62, H * 0.2);
-    ctx.lineTo(W * 0.72, H * 0.21);
-    ctx.lineTo(W * 0.56, H * 0.36);
-    ctx.lineTo(W * 0.84, H * 0.18);
-    ctx.lineTo(W * 0.74, H * 0.17);
-    ctx.closePath();
-    ctx.fill();
-  } else if (layout === 'swiss') {
-    // Check circular de ejecutivo (esquina superior derecha).
-    const cx2 = W * 0.86;
-    const cy2 = H * 0.12;
-    ctx.beginPath();
-    ctx.arc(cx2, cy2, 42 * fs, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(cx2 - 18 * fs, cy2);
-    ctx.lineTo(cx2 - 4 * fs, cy2 + 15 * fs);
-    ctx.lineTo(cx2 + 20 * fs, cy2 - 14 * fs);
-    ctx.stroke();
-  } else if (layout === 'polaroid') {
-    // Marcas de cinta adhesiva en las esquinas de la polaroid.
-    ctx.fillStyle = alpha(t.accent2, 0.35);
-    for (const [tx, ty, rot] of [[W * 0.3, H * 0.14, -0.5], [W * 0.7, H * 0.14, 0.5]] as Array<[number, number, number]>) {
-      ctx.save();
-      ctx.translate(tx, ty);
-      ctx.rotate(rot);
-      ctx.fillRect(-46 * fs, -12 * fs, 92 * fs, 24 * fs);
-      ctx.restore();
-    }
-  } else if (layout === 'portal') {
-    // Órbitas planetarias alrededor del portal circular.
-    ctx.strokeStyle = alpha(t.accent2, 0.3);
-    ctx.lineWidth = Math.max(1.5, 3 * fs);
-    const cx2 = W * 0.5;
-    const cy2 = H * 0.27;
-    for (const r of [0.34, 0.4]) {
-      ctx.beginPath();
-      ctx.arc(cx2, cy2, W * r, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-  } else if (layout === 'arc') {
-    // Doble arco dorado que repite la silueta de la foto.
-    ctx.strokeStyle = alpha(t.accent2, 0.4);
-    ctx.lineWidth = Math.max(1.5, 3 * fs);
-    const aw = W * 0.7;
-    const ax = (W - aw) / 2;
-    for (const grow of [0, 26 * fs]) {
-      ctx.beginPath();
-      ctx.arc(W / 2, H * 0.05 + aw / 2 + grow, aw / 2 + grow, Math.PI, 0);
-      ctx.stroke();
-    }
-    ctx.beginPath();
-    ctx.moveTo(ax, H * 0.05 + aw / 2);
-    ctx.lineTo(ax, H * 0.62);
-    ctx.moveTo(ax + aw, H * 0.05 + aw / 2);
-    ctx.lineTo(ax + aw, H * 0.62);
-    ctx.stroke();
-  } else {
-    // Trío de franjas: ticks diagonales repetidos en la banda de contacto.
-    ctx.strokeStyle = alpha(t.accent2, 0.35);
-    ctx.lineWidth = Math.max(2, 4 * fs);
-    for (let x = 40 * fs; x < W; x += 70 * fs) {
-      ctx.beginPath();
-      ctx.moveTo(x, H * 0.66);
-      ctx.lineTo(x + 26 * fs, H * 0.7);
-      ctx.stroke();
-    }
-  }
-  ctx.restore();
-}
-
-/** Dibuja la foto con recorte según el layout, zoom y posición vertical. */
-function drawPhotoBox(
-  ctx: CanvasRenderingContext2D,
-  img: HTMLImageElement,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  mode: PhotoMode,
-  zoom: number,
-  posY: number,
-  t: Theme,
-  fs: number,
-): void {
-  ctx.save();
-  if (mode === 'diag') {
-    const cut = h * 0.34;
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    ctx.lineTo(x + w, y);
-    ctx.lineTo(x + w, y + h - cut);
-    ctx.lineTo(x, y + h);
-    ctx.closePath();
-    ctx.clip();
-  } else if (mode !== 'full') {
-    rr(ctx, x, y, w, h, mode === 'card' ? 44 * fs : 28 * fs);
-    ctx.clip();
-  }
-  const s = Math.max(w / img.width, h / img.height) * zoom;
-  const iw = img.width * s;
-  const ih = img.height * s;
-  const ix = x + (w - iw) / 2;
-  const iy = y + Math.min(Math.max((h - ih) * posY, h - ih), 0);
-  ctx.drawImage(img, ix, iy, iw, ih);
-  // V10: foto 100% nítida — la viñeta oscura solo aplica en full-bleed
-  // (para legibilidad del texto); en tarjeta/diagonal/ventana se ve limpia.
-  if (mode === 'full') {
-    const vig = ctx.createLinearGradient(0, y + h * 0.55, 0, y + h);
-    vig.addColorStop(0, 'rgba(0,0,0,0)');
-    vig.addColorStop(1, 'rgba(0,0,0,0.85)');
-    ctx.fillStyle = vig;
-    ctx.fillRect(x, y + h * 0.55, w, h * 0.45);
-  }
-  ctx.restore();
-  if (mode === 'window') {
-    rr(ctx, x, y, w, h, 28 * fs);
-    ctx.strokeStyle = alpha(t.accent, 0.75);
-    ctx.lineWidth = Math.max(1.5, 3 * fs);
-    ctx.stroke();
-  }
-}
-
-/** Foto recortada en círculo perfecto (arquitectura medallón). */
-function drawPhotoCircle(
-  ctx: CanvasRenderingContext2D,
-  img: HTMLImageElement,
-  cx: number,
-  cy: number,
-  r: number,
-  zoom: number,
-  posY: number,
-): void {
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(cx, cy, r, 0, Math.PI * 2);
-  ctx.clip();
-  const s = Math.max((r * 2) / img.width, (r * 2) / img.height) * zoom;
-  const iw = img.width * s;
-  const ih = img.height * s;
-  const drift = ih > r * 2 ? (ih - r * 2) * (0.5 - posY) * 0.8 : 0;
-  ctx.drawImage(img, cx - iw / 2, cy - ih / 2 + drift, iw, ih);
-  const vig = ctx.createRadialGradient(cx, cy, r * 0.55, cx, cy, r);
-  vig.addColorStop(0, 'rgba(0,0,0,0)');
-  vig.addColorStop(1, 'rgba(0,0,0,0.35)');
-  ctx.fillStyle = vig;
-  ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
-  ctx.restore();
-}
-
-/** Composición inicial de agencia cuando aún no hay foto (V10: NUNCA un
- *  parche morado ni emojis): vidrio neutro translúcido, anillos finos y
- *  iniciales tipográficas en blanco — la foto IA llega al instante. */
-function drawPhotoPlaceholder(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  brand: BrandData,
-  t: Theme,
-  fs: number,
-): void {
-  ctx.save();
-  rr(ctx, x, y, w, h, 44 * fs);
-  ctx.clip();
-  // Vidrio neutro (sin color de acento: la foto manda).
-  ctx.fillStyle = t.light ? 'rgba(15,23,42,0.06)' : 'rgba(255,255,255,0.06)';
-  ctx.fillRect(x, y, w, h);
-  // Anillos concéntricos finos en blanco translúcido.
-  ctx.strokeStyle = 'rgba(255,255,255,0.22)';
-  ctx.lineWidth = Math.max(1, 2 * fs);
-  for (const r of [0.16, 0.28, 0.4]) {
-    ctx.beginPath();
-    ctx.arc(x + w / 2, y + h * 0.44, w * r, 0, Math.PI * 2);
-    ctx.stroke();
-  }
-  // Iniciales tipográficas gigantes en blanco limpio (sin glow de color).
-  const initials = (brand.name || 'IM')
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((p) => p[0])
-    .join('')
-    .toUpperCase() || 'IM';
-  ctx.textAlign = 'center';
-  ctx.font = `900 ${Math.round(w * 0.3)}px "${t.fontD}", system-ui, sans-serif`;
-  ctx.fillStyle = 'rgba(255,255,255,0.85)';
-  ctx.fillText(initials, x + w / 2, y + h * 0.52);
-  // Nombre del negocio abajo, en tono neutro.
-  ctx.font = `700 ${Math.round(34 * fs)}px system-ui, sans-serif`;
-  ctx.fillStyle = t.light ? 'rgba(255,255,255,0.75)' : t.sub;
-  let name = brand.name || 'Tu Negocio';
-  while (ctx.measureText(name).width > w - 90 * fs && name.length > 6) name = name.slice(0, -2);
-  ctx.fillText(name, x + w / 2, y + h - 52 * fs);
-  ctx.restore();
-  rr(ctx, x, y, w, h, 44 * fs);
-  ctx.strokeStyle = t.light ? 'rgba(15,23,42,0.25)' : 'rgba(255,255,255,0.35)';
-  ctx.lineWidth = Math.max(1, 2.5 * fs);
-  ctx.stroke();
-  ctx.textAlign = 'left';
-}
-
-/** Sello superior glassmorphism con brillo sutil y borde metálico fino. */
-function drawBadgeGlass(ctx: CanvasRenderingContext2D, cx: number, y: number, text: string, t: Theme, fs: number, align: 'center' | 'left' = 'center'): number {
-  if (!text.trim()) return 0;
-  const size = Math.round(34 * fs);
-  ctx.font = `800 ${size}px "${t.fontD}", system-ui, sans-serif`;
-  const chars = Array.from(text.trim());
-  const maxTextW = 940 * fs;
-  while (chars.length > 4 && ctx.measureText(chars.join('')).width > maxTextW) chars.pop();
-  const txt = chars.length < Array.from(text.trim()).length ? chars.join('') + '…' : chars.join('');
-  const tw = ctx.measureText(txt).width;
-  const padX = 26 * fs;
-  const h = 62 * fs;
-  const w = tw + padX * 2;
-  const x = align === 'left' ? cx : cx - w / 2;
-  rr(ctx, x, y, w, h, h / 2);
-  ctx.fillStyle = 'rgba(255,255,255,0.10)';
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(255,255,255,0.35)';
-  ctx.lineWidth = Math.max(1.2, 2 * fs);
-  ctx.stroke();
-  const sheen = ctx.createLinearGradient(x, y, x, y + h);
-  sheen.addColorStop(0, 'rgba(255,255,255,0.20)');
-  sheen.addColorStop(0.5, 'rgba(255,255,255,0)');
-  sheen.addColorStop(1, 'rgba(255,255,255,0.07)');
-  ctx.fillStyle = sheen;
-  rr(ctx, x, y, w, h, h / 2);
-  ctx.fill();
-  ctx.fillStyle = t.text;
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(txt, x + padX, y + h / 2 + size * 0.06);
-  ctx.textBaseline = 'alphabetic';
-  return h;
-}
-
-/** Titular de agencia a DOS TONOS con word-wrap garantizado y espacios
- *  SIEMPRE correctos (V8): texto normalizado y ancho de espacio explícito
- *  medido con la misma fuente del titular. */
-function drawMixedHeadline(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  plainRaw: string,
-  highlightRaw: string,
-  maxW: number,
-  size: number,
-  t: Theme,
-  align: 'center' | 'left',
-): number {
-  const plain = plainRaw.replace(/\s+/g, ' ').trim();
-  const highlight = highlightRaw.replace(/\s+/g, ' ').trim();
-  type Tok = { w: string; c: string; x: number };
-  const tokens: Tok[] = [];
-  plain.split(/\s+/).filter(Boolean).forEach((w) => tokens.push({ w, c: t.text, x: 0 }));
-  highlight.split(/\s+/).filter(Boolean).forEach((w) => tokens.push({ w, c: t.accent, x: 0 }));
-  if (tokens.length === 0) return 0;
-  ctx.font = `900 ${size}px "${t.fontD}", system-ui, sans-serif`;
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'alphabetic';
-  const spaceW = ctx.measureText(' ').width;
-  const lines: Tok[][] = [];
-  let cur: Tok[] = [];
-  let curW = 0;
-  for (const tk of tokens) {
-    const tw = ctx.measureText(tk.w).width;
-    const add = cur.length > 0 ? spaceW + tw : tw;
-    if (curW + add > maxW && cur.length > 0) {
-      lines.push(cur);
-      cur = [{ w: tk.w, c: tk.c, x: 0 }];
-      curW = tw;
-    } else {
-      cur.push({ w: tk.w, c: tk.c, x: curW });
-      curW += add;
-    }
-  }
-  if (cur.length > 0) lines.push(cur);
-  let yy = y;
-  for (const line of lines) {
-    const last = line[line.length - 1];
-    const lw = last.x + ctx.measureText(last.w).width;
-    const startX = align === 'left' ? x : x - lw / 2;
-    ctx.shadowColor = 'rgba(0,0,0,0.5)';
-    ctx.shadowBlur = size * 0.25;
-    ctx.shadowOffsetY = size * 0.07;
-    for (const tk of line) {
-      ctx.fillStyle = tk.c;
-      ctx.fillText(tk.w, startX + tk.x, yy);
-    }
-    ctx.shadowColor = 'transparent';
-    ctx.shadowBlur = 0;
-    ctx.shadowOffsetY = 0;
-    yy += size * 1.16;
-  }
-  return yy - y - size * 0.16;
-}
-
-/** Píldoras horizontales de cristal con los beneficios (una por línea). */
-function drawBenefitPills(
-  ctx: CanvasRenderingContext2D,
-  cx: number,
-  y: number,
-  items: string[],
-  t: Theme,
-  maxW: number,
-  fs: number,
-): number {
-  if (items.length === 0) return y;
-  const size = Math.round(38 * fs);
-  ctx.font = `700 ${size}px system-ui, sans-serif`;
-  const pillH = 66 * fs;
-  const gap = 16 * fs;
-  let cy = y;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  for (const item of items.slice(0, 3)) {
-    const w = Math.min(maxW, ctx.measureText(item).width + 56 * fs);
-    const x = cx - w / 2;
-    rr(ctx, x, cy, w, pillH, pillH / 2);
-    ctx.fillStyle = t.light ? 'rgba(15,23,42,0.06)' : 'rgba(255,255,255,0.07)';
-    ctx.fill();
-    ctx.strokeStyle = t.light ? 'rgba(15,23,42,0.16)' : 'rgba(255,255,255,0.16)';
-    ctx.lineWidth = Math.max(1, 1.5 * fs);
-    ctx.stroke();
-    let txt = item;
-    while (ctx.measureText(txt).width > w - 40 * fs && txt.length > 4) txt = txt.slice(0, -2);
-    ctx.fillStyle = t.text;
-    ctx.fillText(txt, cx, cy + pillH / 2 + size * 0.08);
-    cy += pillH + gap;
-  }
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'alphabetic';
-  return cy - gap;
-}
-
-/** V10 · Zona 3 del Master Bento: 3 tarjetas GRANDES de beneficios (92px de
- *  alto, ancho completo 70→1010) con icono grande a la izquierda y texto
- *  bold de 34px perfectamente legible sobre tarjeta de cristal contrastada. */
-function drawBenefitCards(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  w: number,
-  cardH: number,
-  items: string[],
-  t: Theme,
-  fs: number,
-): number {
-  const size = Math.round(34 * fs);
-  const iconSize = Math.round(44 * fs);
-  const gap = 18 * fs;
-  let cy = y;
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
-  for (const item of items.slice(0, 3)) {
-    rr(ctx, x, cy, w, cardH, 20 * fs);
-    ctx.fillStyle = t.light ? 'rgba(15,23,42,0.06)' : 'rgba(255,255,255,0.10)';
-    ctx.fill();
-    ctx.strokeStyle = t.light ? 'rgba(15,23,42,0.15)' : 'rgba(255,255,255,0.20)';
-    ctx.lineWidth = Math.max(1.2, 2 * fs);
-    ctx.stroke();
-    // Icono: emoji inicial del beneficio (o ✅ si no trae).
-    const m = /^\p{Extended_Pictographic}/u.exec(item.trim());
-    const icon = m ? m[0] : '✅';
-    const body = m ? item.trim().slice(icon.length).trim() : item.trim();
-    ctx.font = `${iconSize}px system-ui, sans-serif`;
-    ctx.fillText(icon, x + 30 * fs, cy + cardH / 2);
-    ctx.font = `700 ${size}px system-ui, sans-serif`;
-    ctx.fillStyle = t.text;
-    let txt = body;
-    while (ctx.measureText(txt).width > w - 130 * fs && txt.length > 4) txt = txt.slice(0, -2);
-    ctx.fillText(txt, x + 96 * fs, cy + cardH / 2 + size * 0.05);
-    cy += cardH + gap;
-  }
-  ctx.textBaseline = 'alphabetic';
-  return cy - gap;
-}
-
-/** Etiqueta de precio/servicio flotante con efecto 3D sobre la foto. */
-function drawPriceFloat(
-  ctx: CanvasRenderingContext2D,
-  brand: BrandData,
-  priceLabel: string,
-  t: Theme,
-  fs: number,
-  ax: number,
-  ayBottom: number,
-  anchor: 'right' | 'center',
-): number {
-  const promo = brand.promoPrice;
-  const showNormal = brand.normalPrice != null && promo != null && brand.normalPrice > promo;
-  if (promo == null && !priceLabel.trim()) return 0;
-  const big = Math.round(promo != null ? 108 * fs : 44 * fs);
-  const small = Math.round(40 * fs);
-  const promoTxt = promo != null ? formatCOP(promo) : priceLabel.trim();
-  ctx.font = `900 ${big}px "${t.fontD}", system-ui, sans-serif`;
-  const promoW = ctx.measureText(promoTxt).width;
-  const normalTxt = showNormal && brand.normalPrice != null ? formatCOP(brand.normalPrice) : '';
-  ctx.font = `700 ${small}px system-ui, sans-serif`;
-  const normW = normalTxt ? ctx.measureText(normalTxt).width : 0;
-  const padX = 36 * fs;
-  const w = Math.max(promoW, normW) + padX * 2;
-  const h = (normalTxt ? 196 : promo != null ? 152 : 84) * fs;
-  const x = anchor === 'right' ? ax - w : ax - w / 2;
-  const y = ayBottom - h;
-  rr(ctx, x, y, w, h, 30 * fs);
-  ctx.fillStyle = 'rgba(8,10,14,0.55)';
-  ctx.fill();
-  ctx.strokeStyle = alpha(t.accent, 0.6);
-  ctx.lineWidth = Math.max(1.2, 2.5 * fs);
-  ctx.stroke();
-  ctx.textAlign = 'center';
-  if (normalTxt) {
-    ctx.font = `700 ${small}px system-ui, sans-serif`;
-    ctx.fillStyle = t.sub;
-    ctx.fillText(normalTxt, x + w / 2, y + 52 * fs);
-    const nw = ctx.measureText(normalTxt).width;
-    ctx.strokeStyle = t.text;
-    ctx.lineWidth = 4 * fs;
-    ctx.beginPath();
-    ctx.moveTo(x + w / 2 - nw / 2, y + 44 * fs);
-    ctx.lineTo(x + w / 2 + nw / 2, y + 44 * fs);
-    ctx.stroke();
-  }
-  ctx.font = `900 ${big}px "${t.fontD}", system-ui, sans-serif`;
-  ctx.fillStyle = t.accent;
-  ctx.shadowColor = 'rgba(0,0,0,0.6)';
-  ctx.shadowBlur = 22 * fs;
-  ctx.shadowOffsetY = 5 * fs;
-  const baseline = promo != null ? y + h - 28 * fs : y + h / 2 + big * 0.34;
-  ctx.fillText(promoTxt, x + w / 2, baseline);
-  ctx.shadowColor = 'transparent';
-  ctx.shadowBlur = 0;
-  ctx.shadowOffsetY = 0;
-  ctx.textAlign = 'left';
-  return h;
-}
-
-/** Tarjeta Dock de Conversión V10: negocio + dirección + botón WhatsApp +
- *  QR GIGANTE (hasta 230px) sobre blanco puro con leyenda "ESCANEA AQUÍ". */
-function drawDock(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  brand: BrandData,
-  qr: HTMLImageElement | null,
-  t: Theme,
-  fs: number,
-  withQr: boolean,
-): void {
-  rr(ctx, x, y, w, h, 36 * fs);
-  ctx.fillStyle = t.light ? 'rgba(15,23,42,0.05)' : 'rgba(255,255,255,0.08)';
-  ctx.fill();
-  ctx.strokeStyle = t.light ? 'rgba(15,23,42,0.18)' : 'rgba(255,255,255,0.18)';
-  ctx.lineWidth = Math.max(1, 2 * fs);
-  ctx.stroke();
-  ctx.textAlign = 'left';
-  let textW = w;
-  if (withQr && qr) {
-    // ── QR GIGANTE con leyenda superior e inferior ──
-    const legend = 'ESCANEA AQUÍ';
-    const legendSize = Math.round(24 * fs);
-    const legendH = legendSize + 10 * fs;
-    const qrSize = Math.max(0, Math.min(230 * fs, h - legendH * 2 - 16 * fs, w * 0.3));
-    if (qrSize >= 90 * fs) {
-      const qx = x + w - qrSize - 28 * fs;
-      const qy = y + 12 * fs + legendH;
-      ctx.font = `800 ${legendSize}px system-ui, sans-serif`;
-      ctx.fillStyle = t.light ? 'rgba(15,23,42,0.75)' : 'rgba(255,255,255,0.85)';
-      ctx.textAlign = 'center';
-      ctx.fillText(legend, qx + qrSize / 2, qy - 8 * fs);
-      ctx.fillText(legend, qx + qrSize / 2, qy + qrSize + legendSize + 2 * fs);
-      ctx.textAlign = 'left';
-      rr(ctx, qx, qy, qrSize, qrSize, 18 * fs);
-      ctx.fillStyle = '#ffffff';
-      ctx.fill();
-      ctx.drawImage(qr, qx + 8 * fs, qy + 8 * fs, qrSize - 16 * fs, qrSize - 16 * fs);
-      textW = qx - x - 24 * fs;
-    }
-  }
-  const pad = 30 * fs;
-  const maxTextW = textW - pad;
-  // Etiqueta del negocio (categoría) en mayúsculas pequeñas.
-  ctx.font = `700 ${Math.round(24 * fs)}px system-ui, sans-serif`;
-  ctx.fillStyle = t.light ? 'rgba(15,23,42,0.55)' : 'rgba(255,255,255,0.65)';
-  let label = (brand.slogan || 'ATENCIÓN INMEDIATA').toUpperCase();
-  while (ctx.measureText(label).width > maxTextW && label.length > 6) label = label.slice(0, -2);
-  ctx.fillText(label, x + pad, y + pad + 18 * fs);
-  // Nombre de la marca en grande (46px).
-  ctx.fillStyle = t.text;
-  ctx.font = `900 ${Math.round(46 * fs)}px "${t.fontD}", system-ui, sans-serif`;
-  let name = brand.name || 'Tu Negocio';
-  while (ctx.measureText(name).width > maxTextW && name.length > 4) name = name.slice(0, -2);
-  ctx.fillText(name, x + pad, y + pad + 66 * fs);
-  // Ubicación (28px).
-  ctx.font = `600 ${Math.round(28 * fs)}px system-ui, sans-serif`;
-  ctx.fillStyle = t.light ? 'rgba(15,23,42,0.65)' : t.sub;
-  let addr = `📍 ${brand.address || brand.municipality || 'Gachetá'}`;
-  while (ctx.measureText(addr).width > maxTextW && addr.length > 6) addr = addr.slice(0, -2);
-  ctx.fillText(addr, x + pad, y + pad + 104 * fs);
-  // Botón verde de WhatsApp con el número gigante (44px bold).
-  const btnH = 84 * fs;
-  const btnY = y + h - pad - btnH;
-  const btnTxt = (brand.phoneDisplay || '📲 Escríbenos por WhatsApp').trim();
-  ctx.font = `900 ${Math.round(44 * fs)}px "${t.fontD}", system-ui, sans-serif`;
-  let phone = btnTxt;
-  while (ctx.measureText(phone).width > maxTextW && phone.length > 6) phone = phone.slice(0, -2);
-  const btnW = Math.min(maxTextW, ctx.measureText(phone).width + 56 * fs);
-  rr(ctx, x + pad, btnY, btnW, btnH, btnH / 2);
-  ctx.fillStyle = '#16a34a';
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(255,255,255,0.35)';
-  ctx.lineWidth = Math.max(1.5, 2.5 * fs);
-  ctx.stroke();
-  ctx.fillStyle = '#ffffff';
-  ctx.textAlign = 'center';
-  ctx.fillText(phone, x + pad + btnW / 2, btnY + btnH / 2 + 44 * fs * 0.34);
-  ctx.textAlign = 'left';
-}
-
-/** Barra de contacto inferior con QR compacto opcional. */
-function drawContactBar(
-  ctx: CanvasRenderingContext2D,
-  W: number,
-  H: number,
-  brand: BrandData,
-  qr: HTMLImageElement | null,
-  t: Theme,
-  fs: number,
-  withQr: boolean,
-): void {
-  const barH = (withQr && qr ? 156 : 112) * fs;
-  const y = H - barH;
-  ctx.fillStyle = t.light ? 'rgba(15,23,42,0.85)' : 'rgba(0,0,0,0.52)';
-  ctx.fillRect(0, y, W, barH);
-  ctx.strokeStyle = 'rgba(255,255,255,0.12)';
-  ctx.lineWidth = Math.max(1, 2 * fs);
-  ctx.beginPath();
-  ctx.moveTo(0, y);
-  ctx.lineTo(W, y);
-  ctx.stroke();
-  ctx.textAlign = 'left';
-  ctx.fillStyle = '#ffffff';
-  ctx.font = `900 ${Math.round(38 * fs)}px "${t.fontD}", system-ui, sans-serif`;
-  ctx.fillText((brand.name || 'Tu Negocio').slice(0, 30), 60 * fs, y + 48 * fs);
-  ctx.font = `900 ${Math.round(34 * fs)}px "${t.fontD}", system-ui, sans-serif`;
-  ctx.fillStyle = t.light ? '#a5f3fc' : t.accent;
-  ctx.fillText((brand.phoneDisplay || '📲 Escríbenos por WhatsApp').slice(0, 34), 60 * fs, y + barH - 26 * fs);
-  if (withQr && qr) {
-    const qs = 120 * fs;
-    const qx = W - qs - 44 * fs;
-    const qy = y + (barH - qs) / 2;
-    rr(ctx, qx - 10 * fs, qy - 10 * fs, qs + 20 * fs, qs + 20 * fs, 16 * fs);
-    ctx.fillStyle = '#ffffff';
-    ctx.fill();
-    ctx.drawImage(qr, qx, qy, qs, qs);
-  }
-}
-
-/** Lista numerada 01/02/03 del layout swiss. */
-function drawNumbered(ctx: CanvasRenderingContext2D, x: number, y: number, items: string[], t: Theme, maxW: number, fs: number): number {
-  const itemSize = Math.round(38 * fs);
-  const gap = 30 * fs;
-  let cy = y;
-  ctx.textAlign = 'left';
-  items.slice(0, 3).forEach((item, i) => {
-    ctx.font = `800 ${Math.round(30 * fs)}px system-ui, sans-serif`;
-    ctx.fillStyle = t.accent;
-    ctx.fillText(`0${i + 1}`, x, cy + itemSize);
-    ctx.font = `600 ${itemSize}px system-ui, sans-serif`;
-    ctx.fillStyle = t.text;
-    const lines = wrapLines(ctx, item, maxW - 74 * fs, 1);
-    ctx.fillText(lines[0] ?? item, x + 74 * fs, cy + itemSize);
-    cy += itemSize + gap;
   });
-  return cy - gap;
 }
 
-/** Tarjeta ejecutiva blanca (layout swiss) con QR nítido. */
-function drawExecCard(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  brand: BrandData,
-  qr: HTMLImageElement | null,
-  fs: number,
-  withQr: boolean,
-): void {
-  rr(ctx, x, y, w, h, 28 * fs);
-  ctx.fillStyle = '#f8fafc';
-  ctx.fill();
-  const pad = 30 * fs;
-  const qrSize = withQr && qr ? h - pad * 2 : 0;
-  const maxTextW = w - pad * 2 - qrSize - (qrSize > 0 ? 24 * fs : 0);
-  ctx.textAlign = 'left';
-  ctx.fillStyle = '#0f172a';
-  ctx.font = `900 ${Math.round(40 * fs)}px system-ui, sans-serif`;
-  let name = brand.name || 'Tu Negocio';
-  while (ctx.measureText(name).width > maxTextW && name.length > 4) name = name.slice(0, -2);
-  ctx.fillText(name, x + pad, y + pad + 38 * fs);
-  ctx.font = `600 ${Math.round(28 * fs)}px system-ui, sans-serif`;
-  ctx.fillStyle = '#475569';
-  let addr = `📍 ${brand.address || brand.municipality || 'Gachetá'}`;
-  while (ctx.measureText(addr).width > maxTextW && addr.length > 6) addr = addr.slice(0, -2);
-  ctx.fillText(addr, x + pad, y + pad + 76 * fs);
-  ctx.font = `900 ${Math.round(40 * fs)}px system-ui, sans-serif`;
-  ctx.fillStyle = '#0f766e';
-  let phone = brand.phoneDisplay || '📲 Escríbenos por WhatsApp';
-  while (ctx.measureText(phone).width > maxTextW && phone.length > 6) phone = phone.slice(0, -2);
-  ctx.fillText(phone, x + pad, y + h - pad - 2 * fs);
-  if (qrSize > 0 && qr) {
-    ctx.drawImage(qr, x + w - pad - qrSize, y + pad, qrSize, qrSize);
-  }
-}
-
-// ═════════════════════════ Compositor de piezas ═════════════════════════════
-
-function drawPiece(canvas: HTMLCanvasElement, a: RenderArgs): void {
-  const W = 1080;
-  const H = a.format === 'story' ? 1920 : 1080;
-  canvas.width = W;
-  canvas.height = H;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return;
-  const fs = a.format === 'story' ? 1 : 0.62;
-  const t = a.theme;
-  const T = a.texts;
-  const mode = photoModeOf(a.layout);
-  backdrop(ctx, W, H, t);
-  drawThemePattern(ctx, W, H, t, fs);
-  drawLayoutOrnament(ctx, W, H, t, a.layout, fs);
-
-  /** Texto del bloque de precio cuando no hay promo (modalidad servicio). */
-  const priceText = (): string => T.priceLabel.trim() || '💬 Cotiza gratis por WhatsApp';
-
-  /** Subtítulo centrado con word-wrap; devuelve la altura dibujada. */
-  const drawSub = (cy: number): number => {
-    if (!T.sub.trim()) return 0;
-    ctx.font = `600 ${Math.round(40 * fs)}px system-ui, sans-serif`;
-    ctx.fillStyle = t.sub;
-    ctx.textAlign = 'center';
-    const lines = wrapLines(ctx, T.sub, W - 230, 2);
-    let yy = cy;
-    for (const line of lines) {
-      ctx.fillText(line, W / 2, yy + 40 * fs);
-      yy += 52 * fs;
-    }
-    ctx.textAlign = 'left';
-    return yy - cy;
-  };
-
-  const bottomContact = (): void => {
-    if (a.showQr && a.qr) drawContactBar(ctx, W, H, a.brand, a.qr, t, fs, true);
-    else drawContactBar(ctx, W, H, a.brand, a.qr, t, fs, false);
-  };
-
-  // ═══ PIEZA 0 · MASTER TODO-EN-UNO (4 layouts) ═══
-  if (a.piece === 0) {
-    if (a.layout === 'magazine') {
-      if (a.photo) drawPhotoBox(ctx, a.photo, 0, 0, W, H, 'full', a.zoom, a.posY, t, fs);
-      const gTop = ctx.createLinearGradient(0, 0, 0, H * 0.3);
-      gTop.addColorStop(0, 'rgba(0,0,0,0.55)');
-      gTop.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.fillStyle = gTop;
-      ctx.fillRect(0, 0, W, H * 0.3);
-      const gBot = ctx.createLinearGradient(0, H * 0.42, 0, H);
-      gBot.addColorStop(0, 'rgba(0,0,0,0)');
-      gBot.addColorStop(1, alpha(t.bg1, 0.95));
-      ctx.fillStyle = gBot;
-      ctx.fillRect(0, H * 0.42, W, H * 0.58);
-      ctx.strokeStyle = 'rgba(255,255,255,0.35)';
-      ctx.lineWidth = Math.max(1.5, 3 * fs);
-      rr(ctx, 36 * fs, 36 * fs, W - 72 * fs, H - 72 * fs, 40 * fs);
-      ctx.stroke();
-      if (a.badge) drawBadgeGlass(ctx, W / 2, 96 * fs, a.badge, t, fs);
-      let y = H * (a.format === 'story' ? 0.56 : 0.5);
-      y += drawMixedHeadline(ctx, W / 2, y + 100 * fs, T.plain, T.highlight, W - 170, 100 * fs, t, 'center') + 14 * fs;
-      y += drawSub(y) + 10 * fs;
-      if (a.showBenefits) y = drawBenefitPills(ctx, W / 2, y + 12 * fs, T.benefits, t, W - 230, fs * 0.85) + 12 * fs;
-      const barH = 150 * fs;
-      if (a.showPrice) drawPriceFloat(ctx, a.brand, priceText(), t, fs, W / 2, H - barH - 34 * fs, 'center');
-      bottomContact();
-      return;
-    }
-    if (a.layout === 'bento') {
-      // 🏆 MASTER BENTO V10: 4 zonas verticales al 100% del lienzo.
-      const ms = H / 1920; // escala maestra (story = 1, cuadrado ≈ 0.56)
-      // ── ZONA 1 · Y 40→860 (43%): fotografía grande + sello + precio ──
-      const px = 40;
-      const pw = W - 80;
-      const py = 40 * ms;
-      const ph = 820 * ms;
-      if (a.photo) drawPhotoBox(ctx, a.photo, px, py, pw, ph, 'card', a.zoom, a.posY, t, ms);
-      else drawPhotoPlaceholder(ctx, px, py, pw, ph, a.brand, t, ms);
-      if (a.badge) drawBadgeGlass(ctx, px + pw / 2, py + 26 * ms, a.badge, t, ms);
-      if (a.showPrice) drawPriceFloat(ctx, a.brand, priceText(), t, ms, px + pw - 60 * ms, py + ph - 30 * ms, 'right');
-      // ── ZONA 2 · Y 890→1180 (15%): categoría + titular gigante + subtítulo ──
-      let y = 890 * ms;
-      const kicker = (a.brand.slogan || '').trim();
-      if (kicker) {
-        // Categoría en mayúsculas con letter-spacing manual (NUNCA pegada).
-        ctx.font = `800 ${Math.round(30 * ms)}px system-ui, sans-serif`;
-        ctx.fillStyle = t.light ? 'rgba(15,23,42,0.65)' : t.accent2;
-        ctx.textAlign = 'left';
-        const label = kicker.toUpperCase().slice(0, 42);
-        const ls = 7 * ms;
-        const wTotal = [...label].reduce((s, ch) => s + ctx.measureText(ch).width + ls, -ls);
-        let sx = W / 2 - wTotal / 2;
-        for (const ch of label) {
-          ctx.fillText(ch, sx, y + 30 * ms);
-          sx += ctx.measureText(ch).width + ls;
-        }
-        y += 56 * ms;
-      }
-      y += drawMixedHeadline(ctx, W / 2, y + 74 * ms, T.plain, T.highlight, W - 110, 72 * ms, t, 'center') + 12 * ms;
-      if (T.sub.trim()) {
-        ctx.font = `600 ${Math.round(32 * ms)}px system-ui, sans-serif`;
-        ctx.fillStyle = t.sub;
-        ctx.textAlign = 'center';
-        const lines = wrapLines(ctx, T.sub, W - 260, 2);
-        for (const line of lines) {
-          ctx.fillText(line, W / 2, y + 32 * ms);
-          y += 42 * ms;
-        }
-        ctx.textAlign = 'left';
-      }
-      // ── ZONA 3 · Y 1200→1540 (18%): 3 tarjetas grandes de beneficios ──
-      if (a.showBenefits) drawBenefitCards(ctx, 70, Math.max(y + 30 * ms, 1200 * ms), 940, 92 * ms, T.benefits, t, ms);
-      // ── ZONA 4 · Y 1575→1855 (16%): dock de cierre + QR GIGANTE 230px ──
-      if (a.showQr && a.qr) drawDock(ctx, 50, 1575 * ms, 980, 280 * ms, a.brand, a.qr, t, ms, true);
-      else drawContactBar(ctx, W, H, a.brand, a.qr, t, ms, false);
-      return;
-    }
-    if (a.layout === 'diagonal') {
-      lightBeam(ctx, W, H, t);
-      const ph = H * 0.5;
-      if (a.photo) drawPhotoBox(ctx, a.photo, 0, 0, W, ph, 'diag', a.zoom, a.posY, t, fs);
-      else drawPhotoPlaceholder(ctx, 40, 40, W - 80, ph - 60, a.brand, t, fs);
-      if (a.badge) drawBadgeGlass(ctx, W / 2, 96 * fs, a.badge, t, fs);
-      if (a.showPrice) drawPriceFloat(ctx, a.brand, priceText(), t, fs, W - 80 * fs, ph + 26 * fs, 'right');
-      let y = ph + 64 * fs;
-      y += drawMixedHeadline(ctx, W / 2, y + 80 * fs, T.plain, T.highlight, W - 170, 80 * fs, t, 'center') + 10 * fs;
-      y += drawSub(y) + 8 * fs;
-      const dockH = 190 * fs;
-      if (a.showBenefits) y = drawBenefitPills(ctx, W / 2, y + 10 * fs, T.benefits, t, W - 240, fs * 0.85) + 12 * fs;
-      if (a.showQr && a.qr) drawDock(ctx, 56, H - dockH - 50 * fs, W - 112, dockH, a.brand, a.qr, t, fs, true);
-      else drawContactBar(ctx, W, H, a.brand, a.qr, t, fs, false);
-      return;
-    }
-    // swiss
-    swissGrid(ctx, W, H, fs);
-    const px = 70;
-    const py = 130 * fs;
-    const pw = W - 140;
-    const ph = H * 0.32;
-    if (a.photo) drawPhotoBox(ctx, a.photo, px, py, pw, ph, 'window', a.zoom, a.posY, t, fs);
-    else drawPhotoPlaceholder(ctx, px, py, pw, ph, a.brand, t, fs);
-    let y = py + ph + 64 * fs;
-    y += drawMixedHeadline(ctx, 90, y + 74 * fs, T.plain, T.highlight, W - 180, 74 * fs, t, 'left') + 12 * fs;
-    if (T.sub.trim()) {
-      ctx.font = `600 ${Math.round(36 * fs)}px system-ui, sans-serif`;
-      ctx.fillStyle = t.sub;
-      const lines = wrapLines(ctx, T.sub, W - 260, 2);
-      for (const line of lines) {
-        ctx.fillText(line, 90, y + 36 * fs);
-        y += 46 * fs;
-      }
-      y += 8 * fs;
-    }
-    if (a.showBenefits) y = drawNumbered(ctx, 90, y + 14 * fs, T.benefits, t, W - 180, fs) + 16 * fs;
-    const execH = 180 * fs;
-    if (a.showPrice) {
-      const lbl = a.brand.promoPrice != null ? `💰 OFERTA ${formatCOP(a.brand.promoPrice)}` : priceText();
-      drawBadgeGlass(ctx, 90, Math.min(y + 10 * fs, H - execH - 150 * fs), lbl, t, fs * 0.95, 'left');
-    }
-    if (a.showQr && a.qr) drawExecCard(ctx, 56, H - execH - 50 * fs, W - 112, execH, a.brand, a.qr, fs, true);
-    else drawContactBar(ctx, W, H, a.brand, a.qr, t, fs, false);
-    return;
-  }
-  if (a.layout === 'polaroid') {
-    // 🖼️ POLAROID 3D: marco blanco inclinado con la foto + pie de foto,
-    // titular y beneficios debajo, dock de contacto al fondo.
-    const fw = W * 0.72;
-    const fh = fw * 1.02;
-    const fcx = W / 2;
-    const fcy = H * 0.33;
-    ctx.save();
-    ctx.translate(fcx, fcy);
-    ctx.rotate(-0.055);
-    ctx.shadowColor = 'rgba(0,0,0,0.45)';
-    ctx.shadowBlur = 60 * fs;
-    ctx.shadowOffsetY = 24 * fs;
-    ctx.fillStyle = '#fdfdf8';
-    rr(ctx, -fw / 2, -fh / 2, fw, fh, 18 * fs);
-    ctx.fill();
-    ctx.shadowColor = 'transparent';
-    ctx.shadowBlur = 0;
-    ctx.shadowOffsetY = 0;
-    const pix = -fw / 2 + 26 * fs;
-    const piy = -fh / 2 + 26 * fs;
-    const piw = fw - 52 * fs;
-    const pih = fh * 0.72;
-    if (a.photo) {
-      ctx.save();
-      rr(ctx, pix, piy, piw, pih, 10 * fs);
-      ctx.clip();
-      const s = Math.max(piw / a.photo.width, pih / a.photo.height) * a.zoom;
-      const iw2 = a.photo.width * s;
-      const ih2 = a.photo.height * s;
-      ctx.drawImage(a.photo, pix + (piw - iw2) / 2, piy + Math.min(Math.max((pih - ih2) * a.posY, pih - ih2), 0), iw2, ih2);
-      ctx.restore();
-    } else {
-      drawPhotoPlaceholder(ctx, pix, piy, piw, pih, a.brand, t, fs);
-    }
-    // Pie de foto dentro del marco blanco.
-    ctx.fillStyle = '#1f2937';
-    ctx.font = `700 ${Math.round(30 * fs)}px system-ui, sans-serif`;
-    ctx.textAlign = 'center';
-    let cap = T.sub.trim() || a.brand.product || '';
-    while (ctx.measureText(cap).width > fw - 70 * fs && cap.length > 6) cap = cap.slice(0, -2);
-    ctx.fillText(cap, 0, fh / 2 - 40 * fs);
-    ctx.restore();
-    ctx.textAlign = 'left';
-    if (a.badge) drawBadgeGlass(ctx, W / 2, 36 * fs, a.badge, t, fs);
-    if (a.showPrice) drawPriceFloat(ctx, a.brand, priceText(), t, fs, W - 90 * fs, fcy + fh / 2 + 44 * fs, 'right');
-    let y = fcy + fh / 2 + 62 * fs;
-    y += drawMixedHeadline(ctx, W / 2, y + 82 * fs, T.plain, T.highlight, W - 150, 82 * fs, t, 'center') + 10 * fs;
-    if (a.showBenefits) y = drawBenefitPills(ctx, W / 2, y + 8 * fs, T.benefits, t, W - 240, fs * 0.8) + 10 * fs;
-    const dockH = 190 * fs;
-    if (a.showQr && a.qr) drawDock(ctx, 56, H - dockH - 46 * fs, W - 112, dockH, a.brand, a.qr, t, fs, true);
-    else drawContactBar(ctx, W, H, a.brand, a.qr, t, fs, false);
-    return;
-  }
-  if (a.layout === 'portal') {
-    // 🔮 PORTAL CIRCULAR: la foto vive dentro de un círculo con anillos de
-    // órbita; titular centrado, tarjetas de beneficios y dock de contacto.
-    const r = W * 0.3;
-    const cy = 170 * fs + r;
-    if (a.badge) drawBadgeGlass(ctx, W / 2, 80 * fs, a.badge, t, fs);
-    if (a.photo) drawPhotoCircle(ctx, a.photo, W / 2, cy, r, a.zoom, a.posY);
-    else drawPhotoPlaceholder(ctx, W / 2 - r, cy - r, r * 2, r * 2, a.brand, t, fs);
-    ctx.strokeStyle = alpha(t.accent, 0.85);
-    ctx.lineWidth = Math.max(3, 7 * fs);
-    ctx.beginPath();
-    ctx.arc(W / 2, cy, r + 14 * fs, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.strokeStyle = alpha(t.accent2, 0.4);
-    ctx.lineWidth = Math.max(1.5, 3 * fs);
-    ctx.beginPath();
-    ctx.arc(W / 2, cy, r + 34 * fs, 0, Math.PI * 2);
-    ctx.stroke();
-    let y = cy + r + 80 * fs;
-    y += drawMixedHeadline(ctx, W / 2, y + 92 * fs, T.plain, T.highlight, W - 160, 92 * fs, t, 'center') + 12 * fs;
-    y += drawSub(y) + 10 * fs;
-    if (a.showBenefits) y = drawBenefitPills(ctx, W / 2, y + 10 * fs, T.benefits, t, W - 250, fs * 0.8) + 12 * fs;
-    const dockH = 190 * fs;
-    if (a.showPrice) drawPriceFloat(ctx, a.brand, priceText(), t, fs, W / 2, H - dockH - 60 * fs, 'center');
-    if (a.showQr && a.qr) drawDock(ctx, 56, H - dockH - 46 * fs, W - 112, dockH, a.brand, a.qr, t, fs, true);
-    else drawContactBar(ctx, W, H, a.brand, a.qr, t, fs, false);
-    return;
-  }
-  if (a.layout === 'arc') {
-    // 🏛️ ARCO DE LUJO: foto en arco con marco dorado doble, titular debajo.
-    const aw = W * 0.66;
-    const ax = (W - aw) / 2;
-    const aTop = H * 0.06;
-    const aBottom = H * 0.56;
-    const archPath = (): void => {
-      ctx.beginPath();
-      ctx.arc(W / 2, aTop + aw / 2, aw / 2, Math.PI, 0);
-      ctx.lineTo(ax + aw, aBottom);
-      ctx.lineTo(ax, aBottom);
-      ctx.closePath();
-    };
-    ctx.save();
-    archPath();
-    ctx.clip();
-    if (a.photo) {
-      const s = Math.max(aw / a.photo.width, (aBottom - aTop) / a.photo.height) * a.zoom;
-      const iw2 = a.photo.width * s;
-      const ih2 = a.photo.height * s;
-      ctx.drawImage(a.photo, W / 2 - iw2 / 2, aTop + Math.min(Math.max(((aBottom - aTop) - ih2) * a.posY, (aBottom - aTop) - ih2), 0), iw2, ih2);
-    } else {
-      drawPhotoPlaceholder(ctx, ax, aTop, aw, aBottom - aTop, a.brand, t, fs);
-    }
-    ctx.restore();
-    ctx.strokeStyle = alpha(t.accent2, 0.9);
-    ctx.lineWidth = Math.max(3, 8 * fs);
-    archPath();
-    ctx.stroke();
-    ctx.strokeStyle = alpha(t.accent2, 0.4);
-    ctx.lineWidth = Math.max(1.5, 3 * fs);
-    const grow = 20 * fs;
-    ctx.beginPath();
-    ctx.arc(W / 2, aTop + aw / 2, aw / 2 + grow, Math.PI, 0);
-    ctx.lineTo(ax + aw + grow, aBottom + grow);
-    ctx.lineTo(ax - grow, aBottom + grow);
-    ctx.closePath();
-    ctx.stroke();
-    if (a.badge) drawBadgeGlass(ctx, W / 2, aTop + 24 * fs, a.badge, t, fs);
-    let y = aBottom + 64 * fs;
-    y += drawMixedHeadline(ctx, W / 2, y + 88 * fs, T.plain, T.highlight, W - 140, 88 * fs, t, 'center') + 10 * fs;
-    if (T.sub.trim()) {
-      ctx.font = `600 ${Math.round(34 * fs)}px system-ui, sans-serif`;
-      ctx.fillStyle = t.sub;
-      ctx.textAlign = 'center';
-      const lines = wrapLines(ctx, T.sub, W - 240, 2);
-      for (const line of lines) {
-        ctx.fillText(line, W / 2, y + 34 * fs);
-        y += 44 * fs;
-      }
-      ctx.textAlign = 'left';
-      y += 6 * fs;
-    }
-    if (a.showBenefits) y = drawBenefitPills(ctx, W / 2, y + 10 * fs, T.benefits, t, W - 250, fs * 0.78) + 10 * fs;
-    if (a.showPrice) drawPriceFloat(ctx, a.brand, priceText(), t, fs, W - 80 * fs, H - (a.showQr && a.qr ? 280 : 180) * fs, 'right');
-    const dockH = 190 * fs;
-    if (a.showQr && a.qr) drawDock(ctx, 56, H - dockH - 40 * fs, W - 112, dockH, a.brand, a.qr, t, fs, true);
-    else drawContactBar(ctx, W, H, a.brand, a.qr, t, fs, false);
-    return;
-  }
-  if (a.layout === 'strip') {
-    // 🎞️ TRÍO DE FRANJAS: foto arriba, banda de titular, contacto abajo.
-    const band1 = H * 0.32;
-    if (a.photo) drawPhotoBox(ctx, a.photo, 0, 0, W, band1, 'full', a.zoom, a.posY, t, fs);
-    else drawPhotoPlaceholder(ctx, 0, 0, W, band1, a.brand, t, fs);
-    if (a.badge) drawBadgeGlass(ctx, W / 2, band1 - 56 * fs, a.badge, t, fs * 0.9);
-    // Banda 2: panel de titular con doble filo de acento.
-    const band2 = H * 0.36;
-    ctx.fillStyle = alpha(t.bg2, 0.9);
-    ctx.fillRect(0, band1, W, band2);
-    ctx.strokeStyle = alpha(t.accent, 0.7);
-    ctx.lineWidth = Math.max(2, 5 * fs);
-    ctx.beginPath();
-    ctx.moveTo(0, band1 + 3 * fs);
-    ctx.lineTo(W, band1 + 3 * fs);
-    ctx.moveTo(0, band1 + band2 - 3 * fs);
-    ctx.lineTo(W, band1 + band2 - 3 * fs);
-    ctx.stroke();
-    let y = band1 + 70 * fs;
-    y += drawMixedHeadline(ctx, W / 2, y + 88 * fs, T.plain, T.highlight, W - 170, 88 * fs, t, 'center') + 12 * fs;
-    y += drawSub(y) + 10 * fs;
-    if (a.showBenefits) y = drawBenefitPills(ctx, W / 2, y + 8 * fs, T.benefits, t, W - 260, fs * 0.72) + 8 * fs;
-    // Banda 3: precio flotante + contacto.
-    if (a.showPrice) drawPriceFloat(ctx, a.brand, priceText(), t, fs, W / 2, H - 170 * fs, 'center');
-    bottomContact();
-    return;
-  }
-
-  // ═══ PIEZA 1 · GANCHO MAGNÉTICO ═══
-  if (a.piece === 1) {
-    if (a.layout === 'magazine') {
-      if (a.photo) drawPhotoBox(ctx, a.photo, 0, 0, W, H, 'full', a.zoom, a.posY, t, fs);
-      const gBot = ctx.createLinearGradient(0, H * 0.35, 0, H);
-      gBot.addColorStop(0, 'rgba(0,0,0,0)');
-      gBot.addColorStop(1, alpha(t.bg1, 0.95));
-      ctx.fillStyle = gBot;
-      ctx.fillRect(0, H * 0.35, W, H * 0.65);
-      if (a.badge) drawBadgeGlass(ctx, W / 2, 96 * fs, a.badge, t, fs);
-      let y = H * 0.6;
-      y += drawMixedHeadline(ctx, W / 2, y + 104 * fs, T.plain, T.highlight, W - 150, 104 * fs, t, 'center') + 14 * fs;
-      y += drawSub(y);
-      if (a.showBenefits) y = drawBenefitPills(ctx, W / 2, y + 14 * fs, T.benefits, t, W - 240, fs * 0.8) + 10 * fs;
-      bottomContact();
-      return;
-    }
-    const inset = a.layout === 'swiss' ? 70 : 60;
-    const ph = H * 0.52;
-    if (a.photo) drawPhotoBox(ctx, a.photo, inset, 110 * fs, W - inset * 2, ph, mode === 'full' ? 'card' : mode, a.zoom, a.posY, t, fs);
-    else drawPhotoPlaceholder(ctx, inset, 110 * fs, W - inset * 2, ph, a.brand, t, fs);
-    if (a.badge) drawBadgeGlass(ctx, W / 2, 110 * fs + 30 * fs, a.badge, t, fs);
-    let y = 110 * fs + ph + 70 * fs;
-    y += drawMixedHeadline(ctx, W / 2, y + 98 * fs, T.plain, T.highlight, W - 150, 98 * fs, t, 'center') + 12 * fs;
-    y += drawSub(y) + 10 * fs;
-    drawBadgeGlass(ctx, W / 2, Math.min(y + 8 * fs, H - 220 * fs), T.cta, t, fs);
-    bottomContact();
-    return;
-  }
-
-  // ═══ PIEZA 2 · OFERTA / BENEFICIOS ═══
-  if (a.piece === 2) {
-    if (a.layout === 'magazine') {
-      if (a.photo) drawPhotoBox(ctx, a.photo, 0, 0, W, H, 'full', a.zoom, a.posY, t, fs);
-      const gBot = ctx.createLinearGradient(0, H * 0.3, 0, H);
-      gBot.addColorStop(0, 'rgba(0,0,0,0)');
-      gBot.addColorStop(1, alpha(t.bg1, 0.96));
-      ctx.fillStyle = gBot;
-      ctx.fillRect(0, H * 0.3, W, H * 0.7);
-      if (a.badge) drawBadgeGlass(ctx, W / 2, 96 * fs, a.badge, t, fs);
-      let y = H * 0.48;
-      y += drawMixedHeadline(ctx, W / 2, y + 84 * fs, T.plain, T.highlight, W - 170, 84 * fs, t, 'center') + 12 * fs;
-      y += drawSub(y) + 10 * fs;
-      if (a.showBenefits) y = drawBenefitPills(ctx, W / 2, y + 10 * fs, T.benefits, t, W - 240, fs * 0.82) + 12 * fs;
-      const barH = 150 * fs;
-      if (a.showPrice) drawPriceFloat(ctx, a.brand, priceText(), t, fs, W / 2, H - barH - 34 * fs, 'center');
-      bottomContact();
-      return;
-    }
-    const inset = a.layout === 'swiss' ? 70 : 60;
-    const ph = H * 0.26;
-    if (a.photo) drawPhotoBox(ctx, a.photo, inset, 100 * fs, W - inset * 2, ph, mode === 'full' ? 'card' : mode, a.zoom, a.posY, t, fs);
-    else drawPhotoPlaceholder(ctx, inset, 100 * fs, W - inset * 2, ph, a.brand, t, fs);
-    if (a.badge) drawBadgeGlass(ctx, W / 2, 100 * fs + 26 * fs, a.badge, t, fs);
-    let y = 100 * fs + ph + 60 * fs;
-    y += drawMixedHeadline(ctx, W / 2, y + 74 * fs, T.plain, T.highlight, W - 170, 74 * fs, t, 'center') + 12 * fs;
-    y += drawSub(y) + 10 * fs;
-    if (a.showBenefits) y = drawBenefitPills(ctx, W / 2, y + 10 * fs, T.benefits, t, W - 240, fs * 0.85) + 14 * fs;
-    const barH = (a.showQr && a.qr ? 150 : 112) * fs;
-    if (a.showPrice) drawPriceFloat(ctx, a.brand, priceText(), t, fs, W / 2, H - barH - 30 * fs, 'center');
-    bottomContact();
-    return;
-  }
-
-  // ═══ PIEZA 3 · CIERRE + CONTACTO QR ═══
-  if (a.piece === 3) {
-    if (a.badge) drawBadgeGlass(ctx, W / 2, 96 * fs, a.badge, t, fs);
-    let y = H * 0.22;
-    ctx.font = `900 ${Math.round(80 * fs)}px "${t.fontD}", system-ui, sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.fillStyle = t.text;
-    ctx.shadowColor = 'rgba(0,0,0,0.5)';
-    ctx.shadowBlur = 20 * fs;
-    const ctaLines = wrapLines(ctx, T.cta, W - 190, 3);
-    for (const line of ctaLines) {
-      ctx.fillText(line, W / 2, y + 80 * fs);
-      y += 94 * fs;
-    }
-    ctx.shadowColor = 'transparent';
-    ctx.shadowBlur = 0;
-    ctx.textAlign = 'left';
-    y += 16 * fs;
-    y += drawSub(y);
-    if (a.showBenefits) y = drawBenefitPills(ctx, W / 2, y + 16 * fs, T.benefits, t, W - 240, fs * 0.85) + 12 * fs;
-    ctx.font = `900 ${Math.round(54 * fs)}px "${t.fontD}", system-ui, sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.fillStyle = t.accent;
-    ctx.fillText((a.brand.name || 'Impulso').slice(0, 30), W / 2, Math.max(y + 60 * fs, H * 0.62));
-    ctx.textAlign = 'left';
-    const dockH = 250 * fs;
-    if (a.showQr && a.qr) drawDock(ctx, 56, H - dockH - 60 * fs, W - 112, dockH, a.brand, a.qr, t, fs, true);
-    else drawContactBar(ctx, W, H, a.brand, a.qr, t, fs, false);
-  }
-}
-
-// ═════════════════════════════════ Componente ═══════════════════════════════
+// ═══════════════════════════════ Componente ═════════════════════════════════
 
 /** Texto honesto cuando aún no hay campaña generada (NUNCA copy prefabricado). */
 const EMPTY_COPY = '✨ Genera la campaña con IA y este texto aparecerá aquí';
@@ -2019,7 +327,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
   const [copied, setCopied] = useState<string | null>(null);
   const [copyTab, setCopyTab] = useState<CopyTab>('pas');
 
-  // ── Estudio gráfico ──
+  // ── Estudio gráfico (V11: artboard HTML en vez de canvas 2D) ──
   const [themeIdx, setThemeIdx] = useState(1);
   const [format, setFormat] = useState<Format>('story');
   const [layout, setLayout] = useState<Layout>('bento');
@@ -2029,18 +337,22 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
   const [showPrice, setShowPrice] = useState(true);
   const [showBenefits, setShowBenefits] = useState(true);
   const [showQr, setShowQr] = useState(true);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // ── Fotografía ──
   const [customPhoto, setCustomPhoto] = useState<string | null>(null);
   const [photoZoom, setPhotoZoom] = useState(1);
   const [photoPosY, setPhotoPosY] = useState(0.5);
   const [photoBusy, setPhotoBusy] = useState(false);
-  const [photoImg, setPhotoImg] = useState<HTMLImageElement | null>(null);
-  const [qrImg, setQrImg] = useState<HTMLImageElement | null>(null);
+  /** URL (dataURL o remota) del QR gigante — ya no se dibuja en canvas. */
+  const [qrUrl, setQrUrl] = useState<string | null>(null);
   /** Generación actual de foto: invalida descargas en segundo plano si el
    *  admin cambia o sube una foto manualmente mientras tanto. */
   const photoGenRef = useRef(0);
+  /** Refs de los 4 artboards ocultos full-size (exportación toPng). */
+  const packRefs = useRef<Array<HTMLDivElement | null>>([null, null, null, null]);
+  /** CSS de las Google Fonts embebido una vez (para exportar con tipografía real). */
+  const fontCssRef = useRef('');
+  const [exporting, setExporting] = useState(false);
 
   // ── Autoguardado instantáneo (cero pérdida de datos del admin) ──
   /** Evita que el autoguardado pise el borrador con vacíos antes de restaurar. */
@@ -2089,9 +401,9 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
         priceLabel: sanitizeLegacy(d.texts.priceLabel) || '💬 Cotiza gratis por WhatsApp',
       });
     }
-    if (typeof d.themeIdx === 'number' && d.themeIdx >= 0 && d.themeIdx < THEMES.length) setThemeIdx(d.themeIdx);
+    if (typeof d.themeIdx === 'number' && d.themeIdx >= 0 && d.themeIdx < AFFICHE_THEMES.length) setThemeIdx(d.themeIdx);
     if (d.format === 'story' || d.format === 'square') setFormat(d.format);
-    if (LAYOUTS.some((l) => l.id === d.layout)) setLayout(d.layout as Layout);
+    if (AFFICHE_LAYOUTS.some((l) => l.id === d.layout)) setLayout(d.layout as Layout);
     if (d.piece === 0 || d.piece === 1 || d.piece === 2 || d.piece === 3) setPiece(d.piece);
     if (typeof d.badgeMode === 'string') setBadgeMode(d.badgeMode);
     if (typeof d.badgeCustom === 'string') setBadgeCustom(sanitizeLegacy(d.badgeCustom));
@@ -2216,23 +528,20 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     };
   }, [mode, merchants, merchantId, merchantOffers, offerId, extName, extSlogan, extProduct, extNormalPrice, extPromoPrice, extAddress, extUrl, lines]);
 
-  // ── Cero cuadros vacíos (V8): al elegir negocio, carga al instante una foto
-  // editorial del rubro detectado (en silencio, sin toast) para que el lienzo
-  // jamás muestre un recuadro vacío con un emoji.
+  // ── Cero cuadros vacíos (V11): al elegir negocio, el Banco Fotográfico HD
+  // carga al instante una foto real del rubro detectado (en silencio, sin
+  // toast) para que el lienzo jamás muestre un recuadro vacío con un emoji.
   const hasBrandNow = mode === 'plataforma' ? merchantId !== '' : extName.trim() !== '';
   useEffect(() => {
     if (!hasBrandNow) return;
     if (customPhoto || brand.photo) return;
     let alive = true;
     const genId = ++photoGenRef.current;
-    const merchantCategory = merchants.find((m) => m.id === merchantId)?.category;
-    const industry: IndustryType = merchantCategory
-      ? industryFromHint(merchantCategory)
-      : guessIndustry(`${extName} ${extSlogan} ${extProduct} ${briefText}`);
     void (async () => {
-      // V10: la foto del preset se elige por las PALABRAS del brief
-      // (diccionario de 60 fotos HD por tema), jamás al azar.
-      const dataUrl = await loadKeywordPhoto(`${extName} ${extSlogan} ${extProduct} ${briefText}`, industry);
+      const dataUrl = await loadBankPhoto(
+        `${extName} ${extSlogan} ${extProduct} ${briefText}`,
+        Math.floor(Math.random() * 1000),
+      );
       if (alive && dataUrl && photoGenRef.current === genId) setCustomPhoto(dataUrl);
     })();
     return () => {
@@ -2260,7 +569,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     };
   }, [brand, priceMode, texts.priceLabel]);
 
-  /** Textos finales del canvas: editables con defaults inteligentes. */
+  /** Textos finales del artboard: editables con defaults inteligentes. */
   const T = useMemo<Texts>(() => {
     const benefits = texts.benefits.map((b, i) => b.trim() || (dflt.benefits[i] ?? ''));
     return {
@@ -2289,27 +598,11 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
   const primaryLink = lineLinks[0] || brand.url;
   const qrTarget = primaryLink || `${window.location.origin}`;
 
-  // Foto efectiva (subida/IA/preset) con fallback a la del comercio.
+  // Foto efectiva (subida/IA/banco) con fallback a la del comercio.
   const effectivePhoto = customPhoto ?? brand.photo;
-  useEffect(() => {
-    if (!effectivePhoto) {
-      setPhotoImg(null);
-      return;
-    }
-    let alive = true;
-    loadImage(effectivePhoto)
-      .then((img) => {
-        if (alive) setPhotoImg(img);
-      })
-      .catch(() => {
-        if (alive) setPhotoImg(null);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [effectivePhoto]);
 
-  // QR codificado localmente (0 bytes en la base de datos).
+  // QR codificado localmente (0 bytes en la base de datos) — se muestra como
+  // <img> dataURL en el artboard: captura limpia, sin tainting del canvas.
   useEffect(() => {
     let alive = true;
     QRCode.toDataURL(qrTarget, {
@@ -2319,62 +612,65 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       color: { dark: '#0f172a', light: '#ffffff' },
     })
       .then((url) => {
-        if (!alive) return;
-        const img = new Image();
-        img.onload = () => {
-          if (alive) setQrImg(img);
-        };
-        img.src = url;
+        if (alive) setQrUrl(url);
       })
-      .catch(() => setQrImg(null));
+      .catch(() => setQrUrl(null));
     return () => {
       alive = false;
     };
   }, [qrTarget]);
 
-  // V9: re-render del lienzo cuando las Google Fonts de agencia terminan de
-  // cargar (evita afiches dibujados con la fuente de reserva del sistema).
-  const [fontsReady, setFontsReady] = useState(false);
+  // V11: embebe el CSS de las Google Fonts UNA vez para que la exportación
+  // con html-to-image salga con la tipografía de agencia real (no la fallback).
   useEffect(() => {
-    const families = ['Anton', 'Archivo Black', 'Bebas Neue', 'Playfair Display', 'Space Grotesk'];
-    let alive = true;
-    void Promise.all(families.map((f) => document.fonts.load(`900 64px "${f}"`)))
-      .then(() => {
-        if (alive) setFontsReady(true);
+    void getFontEmbedCSS(document.body)
+      .then((css) => {
+        fontCssRef.current = css;
       })
       .catch(() => {
-        /* Sin fuentes disponibles: el canvas sigue con la de reserva */
+        /* Sin CSS embebible: la exportación usa las fuentes ya renderizadas */
       });
-    return () => {
-      alive = false;
-    };
   }, []);
 
-  // Render en vivo del lienzo HD.
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    drawPiece(canvas, {
-      theme: THEMES[themeIdx],
-      format,
-      layout,
-      piece,
-      photo: photoImg,
-      qr: qrImg,
-      brand,
-      texts: T,
-      badge,
-      showPrice,
-      showBenefits,
-      showQr,
-      zoom: photoZoom,
-      posY: photoPosY,
-    });
-  }, [themeIdx, format, layout, piece, photoImg, qrImg, brand, T, badge, showPrice, showBenefits, showQr, photoZoom, photoPosY, fontsReady]);
+  /** Props del artboard para una pieza dada (preview y pack comparten esto). */
+  const artboardProps = (p: Piece): AfficheProps => ({
+    themeId: AFFICHE_THEMES[themeIdx]?.id ?? 'marble',
+    layout,
+    format,
+    piece: p,
+    brand: {
+      name: brand.name,
+      slogan: brand.slogan,
+      product: brand.product,
+      promoPrice: brand.promoPrice,
+      normalPrice: brand.normalPrice,
+      address: brand.address,
+      municipality: brand.municipality,
+      phoneDisplay: brand.phoneDisplay,
+    },
+    texts: { plain: T.plain, highlight: T.highlight, sub: T.sub, benefits: T.benefits, cta: T.cta },
+    badge,
+    showPrice,
+    showBenefits,
+    showQr,
+    photoUrl: effectivePhoto,
+    qrUrl,
+    photoZoom,
+    photoPosY,
+  });
 
-  /** ✨ Cadena V9: el BRIEF es la fuente maestra única (sirve solo, sin
-   *  elegir comercio). PASADA 1 → foto instantánea → PASADA 2, con variación
-   *  infinita (semilla creativa + evitación del tema/layout anterior). */
+  /** Opciones de exportación comunes de toPng (1080p = pixelRatio 2). */
+  const pngOptions = (): Parameters<typeof toPng>[1] => ({
+    pixelRatio: 2,
+    cacheBust: true,
+    width: 540,
+    height: format === 'story' ? 960 : 540,
+    ...(fontCssRef.current ? { fontEmbedCSS: fontCssRef.current } : {}),
+  });
+
+  /** ✨ Cadena V11: el BRIEF es la fuente maestra única (sirve solo, sin
+   *  elegir comercio). PASADA 1 → foto instantánea del banco → PASADA 2.
+   *  Si la IA falla o tarda >7s, el motor sintético local llena TODO. */
   async function generate(): Promise<void> {
     if (!brand.name.trim() && !briefText.trim()) {
       toast.error('Escribe el brief del negocio: la IA deduce todo desde ahí ✨');
@@ -2385,8 +681,6 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     const merchantCategory = merchants.find((m) => m.id === merchantId)?.category;
     const lastArt = campaign;
     try {
-      // ── PASADA 1 · Estrategia y dirección de arte ──
-      toast.info('🧠 Pasada 1/2 · Analizando el brief y diseñando la dirección de arte…');
       const input = {
         businessName: brand.name,
         slogan: brand.slogan,
@@ -2404,55 +698,63 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
         previousThemeId: lastArt?.themeId,
         previousLayoutId: lastArt?.layoutId,
       };
-      const art: ArtDirection = await generateArtDirection(input);
+
+      // ── PASADA 1 · Estrategia y dirección de arte (con red de seguridad) ──
+      toast.info('🧠 Pasada 1/2 · Analizando el brief y diseñando la dirección de arte…');
+      let art: ArtDirection;
+      let res: MarketingCampaign | null = null;
+      let synthetic = false;
+      try {
+        art = await withTimeout(generateArtDirection(input), 7000);
+      } catch {
+        // La API falló o tardó >7s: motor sintético local llenando TODO.
+        const smart = synthesizeSmartCampaignFromBrief(input, {
+          previousThemeId: lastArt?.themeId,
+          previousLayoutId: lastArt?.layoutId,
+        });
+        art = smart.art;
+        res = smart.campaign;
+        synthetic = true;
+      }
+
       // ¿Solo el brief? La IA dedujo marca y producto: los adopta el estudio.
       if (!brand.name.trim()) {
         setMode('externo');
         setExtName(art.brandName);
         setExtProduct(art.productTitle);
       }
-      // V10: el Rubro/Categoría visible SIEMPRE lo actualiza la IA según el
+      // V11: el Rubro/Categoría visible SIEMPRE lo actualiza la IA según el
       // brief (jamás queda "Comida y Bebidas" ni genérico por defecto).
       setExtSlogan(art.categoryLabel);
       const bizName = brand.name.trim() || art.brandName;
       const product = brand.product.trim() || art.productTitle;
       // Aplica el tema y layout recomendados por la IA (rota por rubro).
-      const ti = THEMES.findIndex((t) => t.id === art.themeId);
+      const ti = AFFICHE_THEMES.findIndex((t) => t.id === art.themeId);
       if (ti >= 0) setThemeIdx(ti);
-      if (LAYOUTS.some((l) => l.id === art.layoutId)) setLayout(art.layoutId as Layout);
+      if (AFFICHE_LAYOUTS.some((l) => l.id === art.layoutId)) setLayout(art.layoutId as Layout);
 
-      // ── Auto-imagen paso 1: fotografía del TEMA EXACTO del brief AL INSTANTE ──
-      toast.info(`📷 Foto editorial instantánea del rubro ${INDUSTRY_LABELS[art.industryType]}…`);
-      const curated = await loadKeywordPhoto(briefText.trim() || `${bizName} ${art.categoryLabel} ${product}`, art.industryType);
-      if (curated && photoGenRef.current === genId) setCustomPhoto(curated);
-
-      // ── Auto-imagen paso 2 (segundo plano): foto IA a medida con el prompt ──
+      // ── Auto-imagen paso 1: foto HD real del BANCO COMERCIAL al instante ──
+      toast.info('📷 Foto editorial HD del rubro colocada en el lienzo…');
       void (async () => {
-        try {
-          const seed = Math.floor(Math.random() * 999999);
-          const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(art.imagePromptEn)}?width=1080&height=1080&nologo=true&enhance=true&seed=${seed}`;
-          const img = await loadImage(url);
-          const off = document.createElement('canvas');
-          off.width = 1080;
-          off.height = 1080;
-          const octx = off.getContext('2d');
-          if (!octx) return;
-          octx.drawImage(img, 0, 0, 1080, 1080);
-          if (photoGenRef.current === genId) {
-            setCustomPhoto(off.toDataURL('image/jpeg', 0.92));
-            toast.success('🎨 Foto IA a medida colocada en el lienzo');
-          }
-        } catch {
-          // Se mantiene la foto editorial instantánea del rubro.
-        }
+        const dataUrl = await loadBankPhoto(
+          briefText.trim() || `${bizName} ${art.categoryLabel} ${product}`,
+          Math.floor(Math.random() * 1000),
+        );
+        if (dataUrl && photoGenRef.current === genId) setCustomPhoto(dataUrl);
       })();
 
-      // ── PASADA 2 · Copywriting senior con la estrategia de la pasada 1 ──
-      toast.info('✍️ Pasada 2/2 · Copywriting senior de agencia…');
-      const res: MarketingCampaign = await generateCampaignCopy(
-        { ...input, businessName: bizName, product },
-        art,
-      );
+      const input2 = { ...input, businessName: bizName, product };
+
+      // ── PASADA 2 · Copywriting senior (con red de seguridad sintética) ──
+      if (res == null) {
+        toast.info('✍️ Pasada 2/2 · Copywriting senior de agencia…');
+        try {
+          res = await withTimeout(generateCampaignCopy(input2, art), 9000);
+        } catch {
+          res = synthesizeCampaign(input2, art);
+          synthetic = true;
+        }
+      }
       setCampaign(res);
       const benefits = [res.benefits[0] ?? '', res.benefits[1] ?? '', res.benefits[2] ?? ''];
       setTexts((prev) => ({
@@ -2465,12 +767,45 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       }));
       setBadgeCustom(normSpaces(res.badgeText));
       setBadgeMode('custom');
-      // V10: los 3 mensajes de WhatsApp de las líneas los redacta la IA
+      // V11: los 3 mensajes de WhatsApp de las líneas los redacta la IA
       // a la medida del giro real (ventas / domicilios / planes).
       setLines((prev) =>
         prev.map((l, i) => ({ ...l, message: [res.waLine1Msg, res.waLine2Msg, res.waLine3Msg][i] ?? l.message })),
       );
-      toast.success(`✨ ¡Campaña única lista! Tema ${ti >= 0 ? THEMES[ti].label.split(' ').slice(1).join(' ') : art.themeId} + layout ${art.layoutId} aplicados`);
+
+      // ── Auto-imagen paso 2 (segundo plano): foto IA a medida CON GUARDIA
+      // anti-banner de Pollinations (si trae "At its limit" → banco HD) ──
+      void (async () => {
+        try {
+          const seed = Math.floor(Math.random() * 999999);
+          const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(art.imagePromptEn)}?width=1080&height=1080&nologo=true&enhance=true&seed=${seed}`;
+          const img = await loadImage(url);
+          if (isPollinationsBlockImage(img)) throw new Error('pollinations-block');
+          const off = document.createElement('canvas');
+          off.width = 1080;
+          off.height = 1080;
+          const octx = off.getContext('2d');
+          if (!octx) return;
+          octx.drawImage(img, 0, 0, 1080, 1080);
+          if (photoGenRef.current === genId) {
+            setCustomPhoto(off.toDataURL('image/jpeg', 0.92));
+            toast.success('🎨 Foto IA a medida colocada en el lienzo');
+          }
+        } catch {
+          // Banner de bloqueo o fallo de red: banco comercial HD al rescate.
+          const bank = await loadBankPhoto(
+            briefText.trim() || `${bizName} ${art.categoryLabel} ${product}`,
+            Math.floor(Math.random() * 1000),
+          );
+          if (bank && photoGenRef.current === genId) setCustomPhoto(bank);
+        }
+      })();
+
+      if (synthetic) {
+        toast.info('⚡ IA saturada: campaña generada por el motor sintético local (100% completa)');
+      }
+      const themeLabel = ti >= 0 ? AFFICHE_THEMES[ti].label : art.themeId;
+      toast.success(`✨ ¡Campaña única lista! Tema ${themeLabel} + layout ${art.layoutId} aplicados`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'No se pudo generar la campaña');
     } finally {
@@ -2501,21 +836,18 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     reader.readAsDataURL(file);
   }
 
-  /** 🎨 Foto publicitaria IA gratuita (pollinations) cacheada como dataURL. */
+  /** 🎨 Foto publicitaria IA (pollinations) CON GUARDIA: si el motor devuelve
+   *  el banner de bloqueo "At its limit", se descarta y cae al banco HD. */
   async function generatePhoto(vary: boolean): Promise<void> {
     setPhotoBusy(true);
     const genId = ++photoGenRef.current;
+    const briefSource = briefText.trim() || `${brand.product} ${brand.name} ${brand.slogan}`;
     try {
       const seed = Math.floor(Math.random() * 999999);
-      const mood = FOCUS_PHOTO_MOODS[focus];
-      // V10: el prompt lo dicta la estrategia IA del brief (image_prompt_en);
-      // sin campaña previa, usa el diccionario de prompts del rubro deducido.
-      const briefSource = briefText.trim() || `${brand.product} ${brand.name} ${brand.slogan}`;
-      const prompt =
-        campaign?.imagePromptEn?.trim() ||
-        `${INDUSTRY_PHOTO_PROMPTS[guessIndustry(briefSource)]}, ${mood}, no text`;
+      const prompt = campaign?.imagePromptEn?.trim() || FOCUS_PHOTO_MOODS[focus];
       const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1080&height=1080&nologo=true&enhance=true&seed=${seed}`;
       const img = await loadImage(url);
+      if (isPollinationsBlockImage(img)) throw new Error('pollinations-block');
       const off = document.createElement('canvas');
       off.width = 1080;
       off.height = 1080;
@@ -2527,7 +859,14 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
         toast.success(vary ? '🎲 Nueva toma fotográfica lista' : '🎨 Foto publicitaria IA lista');
       }
     } catch {
-      toast.error('El motor de foto IA no respondió: prueba un preset HD o sube una foto');
+      // Banner de bloqueo de Pollinations o fallo de red → Banco Comercial HD.
+      const bank = await loadBankPhoto(briefSource, Math.floor(Math.random() * 1000));
+      if (bank && photoGenRef.current === genId) {
+        setCustomPhoto(bank);
+        toast.success('📸 Foto HD real del banco comercial aplicada (motor IA saturado)');
+      } else {
+        toast.error('Sin foto disponible ahora: prueba un preset HD o sube una foto');
+      }
     } finally {
       setPhotoBusy(false);
     }
@@ -2556,16 +895,24 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     }
   }
 
-  /** 🎲 V10 · Ley 3: Sorpréndeme cambia textura + arquitectura en un clic,
-   *  siempre evitando el diseño actual para que cada pieza sea distinta. */
+  /** 🎲 V11 · Sorpréndeme: cambia fondo + arquitectura en un clic, SIEMPRE
+   *  evitando el diseño actual, y trae una foto nueva del banco HD. */
   function surpriseDesign(): void {
     let ni = themeIdx;
-    while (THEMES.length > 1 && ni === themeIdx) ni = Math.floor(Math.random() * THEMES.length);
+    while (AFFICHE_THEMES.length > 1 && ni === themeIdx) ni = Math.floor(Math.random() * AFFICHE_THEMES.length);
     setThemeIdx(ni);
-    const others = LAYOUTS.filter((l) => l.id !== layout);
+    const others = AFFICHE_LAYOUTS.filter((l) => l.id !== layout);
     const nl = others[Math.floor(Math.random() * others.length)];
     if (nl) setLayout(nl.id);
-    toast.success(`🎲 Nueva propuesta: ${THEMES[ni].label.split(' ').slice(1).join(' ')} + ${nl ? nl.label.split(' ').slice(1).join(' ') : layout}`);
+    // Foto nueva del banco (otra toma, otro clic).
+    void loadBankPhoto(
+      briefText.trim() || `${brand.name} ${brand.slogan} ${brand.product}`,
+      Math.floor(Math.random() * 1000),
+    ).then((p) => {
+      if (p) setCustomPhoto(p);
+    });
+    const themeName = AFFICHE_THEMES[ni].label.split(' ').slice(1).join(' ');
+    toast.success(`🎲 Nueva propuesta completa: ${themeName} + ${nl ? nl.label.split(' ').slice(1).join(' ') : layout}`);
   }
 
   async function copyText(text: string, key: string, label: string): Promise<void> {
@@ -2579,51 +926,44 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     }
   }
 
-  /** 📥 Exporta la pieza actual en PNG 1080p. */
-  function downloadCurrent(): void {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+  /** 📥 Exporta la pieza actual en PNG 1080p con el artboard HTML. */
+  async function downloadCurrent(): Promise<void> {
+    const node = packRefs.current[piece];
+    if (!node) return;
+    setExporting(true);
     try {
+      const dataUrl = await toPng(node, pngOptions());
       triggerDownload(
-        canvas.toDataURL('image/png'),
+        dataUrl,
         `${slug(brand.name)}-pieza-${piece + 1}-${format === 'story' ? '1080x1920' : '1080x1080'}.png`,
       );
-      toast.success('📥 Pieza HD descargada (lista para publicar)');
+      toast.success('📥 Pieza HD 1080p descargada (lista para publicar)');
     } catch {
-      toast.error('La foto actual bloquea la exportación: prueba otra imagen');
+      toast.error('No se pudo exportar la pieza: prueba con otra imagen');
+    } finally {
+      setExporting(false);
     }
   }
 
   /** 📦 Exporta el pack completo (4 piezas) listo para publicar. */
   async function downloadPack(): Promise<void> {
+    setExporting(true);
     try {
       for (const s of [0, 1, 2, 3] as const) {
-        const c = document.createElement('canvas');
-        drawPiece(c, {
-          theme: THEMES[themeIdx],
-          format,
-          layout,
-          piece: s,
-          photo: photoImg,
-          qr: qrImg,
-          brand,
-          texts: T,
-          badge,
-          showPrice,
-          showBenefits,
-          showQr,
-          zoom: photoZoom,
-          posY: photoPosY,
-        });
+        const node = packRefs.current[s];
+        if (!node) continue;
+        const dataUrl = await toPng(node, pngOptions());
         triggerDownload(
-          c.toDataURL('image/png'),
+          dataUrl,
           `${slug(brand.name)}-pieza-${s + 1}-${format === 'story' ? '1080x1920' : '1080x1080'}.png`,
         );
         await wait(500);
       }
       toast.success('📦 ¡Pack completo de 4 piezas descargado!');
     } catch {
-      toast.error('La foto actual bloquea la exportación: prueba otra imagen');
+      toast.error('No se pudo exportar el pack: prueba con otra imagen');
+    } finally {
+      setExporting(false);
     }
   }
 
@@ -2706,17 +1046,31 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
   const labelCls = 'text-[10px] font-extrabold uppercase tracking-wider text-slate-500';
   const cardCls = 'space-y-2.5 rounded-3xl border border-white/10 bg-impulso-card p-3.5';
 
+  // Preview: artboard HTML escalado (540 → 300px de ancho visible).
+  const PREVIEW_W = 300;
+  const previewScale = PREVIEW_W / 540;
+  const previewH = format === 'story' ? Math.round(960 * previewScale) : PREVIEW_W;
+
   return (
     <div className="space-y-4 p-3 lg:grid lg:grid-cols-12 lg:items-start lg:gap-5 lg:space-y-0 lg:p-4">
+      {/* Artboards ocultos full-size para exportar a 1080p con toPng */}
+      <div style={{ position: 'fixed', left: -10000, top: 0, opacity: 0, pointerEvents: 'none' }} aria-hidden>
+        {([0, 1, 2, 3] as const).map((p) => (
+          <div key={p} ref={(el) => { packRefs.current[p] = el; }}>
+            <AfficheArtboard {...artboardProps(p)} />
+          </div>
+        ))}
+      </div>
+
       {/* Cabecera */}
       <div className="rounded-3xl border border-impulso-emerald/30 bg-gradient-to-br from-impulso-emerald/10 to-transparent p-4 lg:col-span-12">
         <p className="flex items-center gap-2 text-base font-extrabold text-impulso-mint">
           <Sparkles className="h-5 w-5" /> Agencia IA & Multi-WhatsApp Studio
         </p>
         <p className="mt-1 text-[11px] leading-relaxed text-slate-400">
-          Suite profesional: brief IA que lo deduce TODO, fotografía publicitaria a medida del negocio, 12 fondos con
-          texturas reales (madera, mármol, neón, kraft, brasa…), 8 arquitecturas de afiche con tipografía de agencia y
-          piezas HD 1080p con QR gigante real — 0 bytes en la base de datos. Todo se autoguarda mientras trabajas.
+          Motor de diseño editorial HTML a 1080p: 12 fondos texturizados de agencia, 8 arquitecturas de afiche con
+          tipografía real, banco fotográfico HD de 120+ fotos que rota en cada clic y IA infalible que SIEMPRE llena la
+          campaña — 0 bytes en la base de datos. Todo se autoguarda mientras trabajas.
         </p>
         <button
           onClick={clearAllDraft}
@@ -2954,7 +1308,8 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
             </div>
           )}
           <p className="text-[10px] text-slate-500">
-            Foto IA sin costo (motor gratuito), presets HD y subida propia: todo vive en la memoria del navegador.
+            Banco HD de 120+ fotos reales que rota en cada clic, motor IA con guardia anti-banner y subida propia: todo
+            vive en la memoria del navegador.
           </p>
         </div>
 
@@ -2965,11 +1320,11 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
             onClick={surpriseDesign}
             className="pressable flex w-full items-center justify-center gap-2 rounded-xl border border-impulso-gold/50 bg-impulso-gold/10 py-2.5 text-xs font-extrabold text-impulso-gold"
           >
-            <Dices className="h-4 w-4" /> Sorpréndeme (Cambiar Diseño)
+            <Dices className="h-4 w-4" /> 🎲 Sorpréndeme (Nuevo Diseño Completo)
           </button>
-          <p className={labelCls}>Tema editorial · 12 fondos con texturas reales</p>
+          <p className={labelCls}>Fondo texturizado · 12 estilos de agencia</p>
           <div className="no-scrollbar -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
-            {THEMES.map((t, i) => (
+            {AFFICHE_THEMES.map((t, i) => (
               <button
                 key={t.id}
                 onClick={() => setThemeIdx(i)}
@@ -2982,9 +1337,9 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
               </button>
             ))}
           </div>
-          <p className={labelCls}>Layout (estructura del afiche)</p>
+          <p className={labelCls}>Layout (arquitectura del afiche)</p>
           <div className="grid grid-cols-2 gap-1.5">
-            {LAYOUTS.map((l) => (
+            {AFFICHE_LAYOUTS.map((l) => (
               <button
                 key={l.id}
                 onClick={() => setLayout(l.id)}
@@ -3044,7 +1399,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
             [
               [showPrice, setShowPrice, '💰 Precio / promoción (o etiqueta de servicio)'],
               [showBenefits, setShowBenefits, '✅ Los 3 beneficios en tarjetas de cristal'],
-              [showQr, setShowQr, '🔳 Código QR + botón de WhatsApp'],
+              [showQr, setShowQr, '🔳 QR GIGANTE + botón de WhatsApp'],
             ] as const
           ).map(([val, set, label]) => (
             <button
@@ -3061,7 +1416,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
         </div>
       </div>
 
-      {/* ═══ COLUMNA CENTRAL: lienzo en vivo ═══ */}
+      {/* ═══ COLUMNA CENTRAL: artboard en vivo (HTML escalado) ═══ */}
       <div className="lg:sticky lg:top-4 lg:col-span-4">
         <div className="space-y-3">
           <div className="flex rounded-2xl bg-slate-950/60 p-1">
@@ -3105,26 +1460,39 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
             ))}
           </div>
           <div className="grid place-items-center rounded-3xl border border-white/10 bg-slate-950/30 p-3">
-            <canvas
-              ref={canvasRef}
-              className="mx-auto block w-full max-w-[320px] rounded-2xl border border-white/10 shadow-2xl lg:w-auto lg:max-w-none lg:max-h-[68dvh]"
-            />
-            {photoBusy && (
+            <div
+              style={{ width: PREVIEW_W, height: previewH, overflow: 'hidden' }}
+              className="mx-auto block rounded-2xl border border-white/10 shadow-2xl"
+            >
+              <div
+                style={{
+                  width: 540,
+                  height: format === 'story' ? 960 : 540,
+                  transform: `scale(${previewScale})`,
+                  transformOrigin: 'top left',
+                }}
+              >
+                <AfficheArtboard {...artboardProps(piece)} />
+              </div>
+            </div>
+            {(photoBusy || exporting) && (
               <p className="mt-2 flex items-center gap-1.5 text-[10px] font-bold text-impulso-mint">
-                <Loader2 className="h-3 w-3 animate-spin" /> Cargando fotografía…
+                <Loader2 className="h-3 w-3 animate-spin" /> {exporting ? 'Exportando a 1080p…' : 'Cargando fotografía…'}
               </p>
             )}
           </div>
           <div className="grid grid-cols-2 gap-2">
             <button
-              onClick={downloadCurrent}
-              className="pressable col-span-2 flex items-center justify-center gap-2 rounded-2xl bg-impulso-emerald py-3 text-xs font-extrabold text-slate-950"
+              onClick={() => void downloadCurrent()}
+              disabled={exporting}
+              className="pressable col-span-2 flex items-center justify-center gap-2 rounded-2xl bg-impulso-emerald py-3 text-xs font-extrabold text-slate-950 disabled:opacity-50"
             >
               <Download className="h-4 w-4" /> Descargar pieza actual en HD (PNG 1080p)
             </button>
             <button
               onClick={() => void downloadPack()}
-              className="pressable flex items-center justify-center gap-1.5 rounded-2xl border border-impulso-gold/40 bg-impulso-gold/10 py-3 text-[11px] font-extrabold text-impulso-gold"
+              disabled={exporting}
+              className="pressable flex items-center justify-center gap-1.5 rounded-2xl border border-impulso-gold/40 bg-impulso-gold/10 py-3 text-[11px] font-extrabold text-impulso-gold disabled:opacity-50"
             >
               <Download className="h-4 w-4" /> Pack 4 piezas
             </button>
@@ -3309,6 +1677,3 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     </div>
   );
 }
-
-
-
