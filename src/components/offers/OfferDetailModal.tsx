@@ -44,6 +44,8 @@ export function OfferDetailModal({ offer, geoPos, onClose, onReserved, onViewTic
   const [note, setNote] = useState('');
   const [loading, setLoading] = useState(false);
   const [ticket, setTicket] = useState<Ticket | null>(null);
+  /** ⚠️ V18 · Error DENTRO del modal (nunca detrás, invisible). */
+  const [errorMsg, setErrorMsg] = useState('');
 
   useEffect(() => {
     if (offer) {
@@ -51,6 +53,7 @@ export function OfferDetailModal({ offer, geoPos, onClose, onReserved, onViewTic
       setQuantity(1);
       setNote('');
       setTicket(null);
+      setErrorMsg('');
       incrementViews(offer.id);
     }
   }, [offer]);
@@ -64,12 +67,13 @@ export function OfferDetailModal({ offer, geoPos, onClose, onReserved, onViewTic
   const maxQty = Math.min(20, Math.max(1, offer.available_quota));
 
   async function handleReserve() {
+    setErrorMsg('');
     if (name.trim().length < 2) {
-      toast.error('Escribe tu nombre para poder entregarte el pedido');
+      setErrorMsg('Escribe tu nombre para poder entregarte el pedido');
       return;
     }
     if (!/^3\d{9}$/.test(phone.trim())) {
-      toast.error('Tu WhatsApp debe ser un celular de 10 dígitos que empiece por 3 (ej: 3201234567)');
+      setErrorMsg('Tu WhatsApp debe ser un celular de 10 dígitos que empiece por 3 (ej: 3201234567)');
       return;
     }
     setLoading(true);
@@ -105,7 +109,7 @@ export function OfferDetailModal({ offer, geoPos, onClose, onReserved, onViewTic
       onReserved(t);
       toast.success(`¡Apartado! Tu código es ${t.code} 🎟️`);
     } catch (err) {
-      toast.error(friendlyError(err));
+      setErrorMsg(friendlyError(err));
     } finally {
       setLoading(false);
     }
@@ -321,6 +325,14 @@ export function OfferDetailModal({ offer, geoPos, onClose, onReserved, onViewTic
                   conforme a la Ley 1581 de 2012.
                 </span>
               </p>
+
+              {/* ⚠️ V18 · Error DENTRO del modal, imposible de perderse */}
+              {errorMsg && (
+                <div className="flex items-start gap-2 rounded-xl border border-red-500/40 bg-red-500/15 p-3 text-red-200" role="alert">
+                  <span className="mt-0.5 shrink-0">⚠️</span>
+                  <p className="text-xs font-semibold leading-relaxed">{errorMsg}</p>
+                </div>
+              )}
             </div>
 
             <button

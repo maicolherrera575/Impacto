@@ -292,7 +292,21 @@ export interface CreditOrder {
   receipt_thumb: string | null;
   ai_verification_note: string | null;
   status: 'pending' | 'approved' | 'rejected';
+  /** 🔍 V18 · Forense: huella SHA-256 de la imagen, destino IA y dictamen. */
+  receipt_hash?: string | null;
+  destination_detected?: string | null;
+  qr_payload?: string | null;
+  ia_status_ok?: boolean;
   created_at: string;
+}
+
+/** 💳 V18 · Configuración de recaudo del administrador (Nequi/Llave/QR). */
+export interface PaymentConfig {
+  nequiPhone: string;
+  llave: string;
+  holderName: string;
+  qrThumb: string;
+  autoApprove: boolean;
 }
 
 /** Formulario del Creador de Ofertas del comerciante. */

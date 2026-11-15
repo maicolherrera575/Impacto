@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import { Loader2, LogIn, UserPlus } from 'lucide-react';
+import { Loader2, LogIn, UserPlus, X } from 'lucide-react';
 import type { Category } from '../../types';
 import { CATEGORIES, MUNICIPIOS } from '../../types';
 import { ModalShell } from '../ui/ModalShell';
 import { useToast } from '../ui/Toast';
 import { friendlyError } from '../../services/supabase';
-import { signIn, signOut, signUpMerchant, validateInviteCode } from '../../services/profile.service';
+import { ensureSignedInAfterSignUp, signIn, signOut, signUpMerchant, validateInviteCode } from '../../services/profile.service';
 import { cx } from '../../utils/format';
 
 interface AuthModalProps {
@@ -32,12 +32,21 @@ export function AuthModal({ open, onClose, onAuthed, onOpenLegal }: AuthModalPro
   const [inviteCode, setInviteCode] = useState('');
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [loading, setLoading] = useState(false);
+  /** ⚠️ V18 · Errores y avisos DENTRO del modal (nunca detrás, invisibles). */
+  const [errorMsg, setErrorMsg] = useState('');
   const emailOk = /.+@.+\..+/.test(email.trim());
   const passOk = password.length >= 6;
 
   async function submit() {
-    if (!emailOk) return toast.error('Escribe un correo válido');
-    if (!passOk) return toast.error('La contraseña debe tener al menos 6 caracteres');
+    setErrorMsg('');
+    if (!emailOk) {
+      setErrorMsg('Escribe un correo válido');
+      return;
+    }
+    if (!passOk) {
+      setErrorMsg('La contraseña debe tener al menos 6 caracteres');
+      return;
+    }
 
     setLoading(true);
     try {
@@ -48,17 +57,17 @@ export function AuthModal({ open, onClose, onAuthed, onOpenLegal }: AuthModalPro
         onClose();
       } else {
         if (businessName.trim().length < 2) {
-          toast.error('Escribe el nombre de tu negocio');
+          setErrorMsg('Escribe el nombre de tu negocio');
           setLoading(false);
           return;
         }
         if (whatsapp.trim().length < 10 || whatsapp.trim().length > 15) {
-          toast.error('El WhatsApp debe tener entre 10 y 15 dígitos');
+          setErrorMsg('El WhatsApp debe tener entre 10 y 15 dígitos');
           setLoading(false);
           return;
         }
         if (!acceptedTerms) {
-          toast.error('Debes aceptar los términos para continuar');
+          setErrorMsg('Debes aceptar los términos para continuar');
           setLoading(false);
           return;
         }
@@ -68,12 +77,12 @@ export function AuthModal({ open, onClose, onAuthed, onOpenLegal }: AuthModalPro
           try {
             const valid = await validateInviteCode(inviteCode);
             if (!valid) {
-              toast.error('Código de invitación inválido. Verifícalo con el administrador 🛡️');
+              setErrorMsg('Código de invitación inválido. Verifícalo con el administrador 🛡️');
               setLoading(false);
               return;
             }
           } catch (err) {
-            toast.error(friendlyError(err));
+            setErrorMsg(friendlyError(err));
             setLoading(false);
             return;
           }
@@ -91,13 +100,21 @@ export function AuthModal({ open, onClose, onAuthed, onOpenLegal }: AuthModalPro
           onAuthed();
           onClose();
         } else {
-          // Supabase exige confirmar el correo: aviso claro en vez de pantalla en blanco
-          toast.info('¡Cuenta creada! 🎉 Abre tu correo y confirma con el enlace. Luego entra con tu contraseña.');
-          setMode('login');
+          // V18: auto-entrada inmediata con las mismas credenciales (la
+          // cuenta ya queda auto-confirmada por el trigger del servidor).
+          const entered = await ensureSignedInAfterSignUp(email.trim(), password);
+          if (entered) {
+            toast.success('¡Cuenta creada y verificada! Tienes 3 créditos gratis 🎁');
+            onAuthed();
+            onClose();
+          } else {
+            setErrorMsg('La cuenta quedó creada, pero no se pudo entrar automático. Entra con tu correo y contraseña.');
+            setMode('login');
+          }
         }
       }
     } catch (err) {
-      toast.error(friendlyError(err));
+      setErrorMsg(friendlyError(err));
     } finally {
       setLoading(false);
     }
@@ -226,6 +243,14 @@ export function AuthModal({ open, onClose, onAuthed, onOpenLegal }: AuthModalPro
                 </span>
               </label>
             </>
+          )}
+
+          {/* ⚠️ V18 · Error DENTRO del modal, imposible de perderse */}
+          {errorMsg && (
+            <div className="flex items-start gap-2 rounded-xl border border-red-500/40 bg-red-500/15 p-3 text-red-200" role="alert">
+              <X className="mt-0.5 h-4 w-4 shrink-0" />
+              <p className="text-xs font-semibold leading-relaxed">{errorMsg}</p>
+            </div>
           )}
 
           <button

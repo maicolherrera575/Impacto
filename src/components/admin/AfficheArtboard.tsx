@@ -264,6 +264,8 @@ export interface AfficheProps {
   qrHint?: string;
   /** V14: id del estilo tipográfico (AFFICHE_TYPOS) para titular y claves. */
   fontStyle?: string;
+  /** 🔍 V18: escala del titular (0.8 a 1.5) — slider "Tamaño del Titular". */
+  headlineScale?: number;
 }
 
 const money = (v: number): string => `$${v.toLocaleString('es-CO')}`;
@@ -405,7 +407,7 @@ function Badge({ text, t, s }: { text: string; t: AfficheTheme; s: number }) {
  * sticker 3D / barra lateral).
  */
 function Headline({
-  texts, t, s, size = 46, align = 'center', color, styleId,
+  texts, t, s, size = 46, align = 'center', color, styleId, scale = 1,
 }: {
   texts: AfficheTexts;
   t: AfficheTheme;
@@ -414,13 +416,15 @@ function Headline({
   align?: 'center' | 'left';
   color?: string;
   styleId?: string;
+  /** 🔍 V18: multiplicador del tamaño del titular (slider 80%–150%). */
+  scale?: number;
 }) {
   const typo = AFFICHE_TYPOS.find((x) => x.id === styleId) ?? AFFICHE_TYPOS[0];
   const eff = typo.effect;
   const base: CSSProperties = {
     margin: 0,
     fontFamily: `"${typo.font || t.font}", system-ui, sans-serif`,
-    fontSize: (size * s).toFixed(1),
+    fontSize: (size * scale * s).toFixed(1),
     lineHeight: 1.05,
     fontWeight: 900,
     letterSpacing: -0.5,
@@ -705,7 +709,9 @@ function Sticker({ text, s, bg = '#fde047', color = '#111827', rotate = -3 }: { 
  *  · Pieza 4 → tarjeta ejecutiva de cierre con QR GIGANTE central de 220px.
  */
 export function AfficheArtboard(props: AfficheProps): React.ReactElement {
-  const { themeId, layout, format, piece, brand, texts, badge, showPrice, showBenefits, showQr, photoUrl, qrUrl, photoZoom, photoPosY, qrLabel, qrHint } = props;
+  const { themeId, layout, format, piece, brand, texts, badge, showPrice, showBenefits, showQr, photoUrl, qrUrl, photoZoom, photoPosY, qrLabel, qrHint, fontStyle, headlineScale } = props;
+  /** 🔍 V18: escala del titular leída del slider (default 1 = tamaño base). */
+  const hs = headlineScale ?? 1;
   const t = AFFICHE_THEMES.find((x) => x.id === themeId) ?? AFFICHE_THEMES[1];
   const s = format === 'square' ? 0.58 : 1;
   const W = 540;
@@ -1107,7 +1113,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
           <div style={{ ...g.chip, borderRadius: 999, padding: `${7 * s}px ${16 * s}px`, fontSize: 12 * s, fontWeight: 900, letterSpacing: 0.8, textTransform: 'uppercase', whiteSpace: 'nowrap', flexShrink: 0 }}>
             📍 Encuéntranos en {brand.address || brand.municipality || 'Gachetá'}
           </div>
-          <Headline texts={ht('ESCANEA EL CÓDIGO', 'Y TE ATENDEMOS YA')} t={t} s={s} size={34} />
+          <Headline texts={ht('ESCANEA EL CÓDIGO', 'Y TE ATENDEMOS YA')} t={t} s={s} size={34} styleId={fontStyle} scale={hs} />
           {/* QR CENTRAL GIGANTE sobre tarjeta blanca con marco brillante */}
           {qrUrl && (
             <div
@@ -1176,7 +1182,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
             <Badge text={badge} t={t} s={s} />
           </div>
           <div style={{ position: 'absolute', left: pad, right: pad, bottom: pad, display: 'flex', flexDirection: 'column', gap: 12 * s }}>
-            <Headline texts={texts} t={{ ...t, text: '#ffffff' }} s={s} size={46} align="center" />
+            <Headline texts={texts} t={{ ...t, text: '#ffffff' }} s={s} size={46} align="center" styleId={fontStyle} scale={hs} />
             <div style={{ color: '#ffffff' }}>
               <SubHead text={texts.sub} t={t} s={s} color="rgba(255,255,255,0.92)" />
               {showBenefits && benefits.length > 0 && <div style={{ marginTop: 10 * s }}><BenefitPills items={benefits} t={t} s={s} /></div>}
@@ -1231,7 +1237,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
           )}
           {/* Contenido inferior */}
           <div style={{ position: 'absolute', top: '48%', left: 0, right: 0, bottom: 0, display: 'flex', flexDirection: 'column', gap: 8 * s, overflow: 'hidden' }}>
-            <Headline texts={texts} t={t} s={s} size={44} align="center" />
+            <Headline texts={texts} t={t} s={s} size={44} align="center" styleId={fontStyle} scale={hs} />
             {format === 'story' && <SubHead text={texts.sub} t={t} s={s} align="center" />}
             {showBenefits && benefits.length > 0 && <BenefitPills items={benefits} t={t} s={s} />}
             {isService && priceLabel && <CtaButton label={priceLabel} s={s} bg={t.accent2} color={t.light ? '#ffffff' : '#0b0f18'} />}
@@ -1272,7 +1278,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
               </div>
             )}
           </div>
-          <Headline texts={texts} t={t} s={s} size={46} align="center" />
+          <Headline texts={texts} t={t} s={s} size={46} align="center" styleId={fontStyle} scale={hs} />
           {contentBlocks('center')}
           {masterDock}
         </div>
@@ -1300,7 +1306,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
               </div>
             )}
           </div>
-          <Headline texts={texts} t={t} s={s} size={46} align="center" />
+          <Headline texts={texts} t={t} s={s} size={46} align="center" styleId={fontStyle} scale={hs} />
           {contentBlocks('center')}
           {masterDock}
         </div>
@@ -1328,7 +1334,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
               )}
             </div>
           </div>
-          <Headline texts={texts} t={t} s={s} size={46} align="center" />
+          <Headline texts={texts} t={t} s={s} size={46} align="center" styleId={fontStyle} scale={hs} />
           {contentBlocks('center', true)}
           {masterDock}
         </div>
@@ -1354,7 +1360,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
           </div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 * s }}>
             <span style={{ fontFamily: `"${t.font}", system-ui, sans-serif`, fontSize: 34 * s, fontWeight: 900, color: t.accent }}>01</span>
-            <div style={{ flex: 1 }}><Headline texts={texts} t={t} s={s} size={44} align="left" /></div>
+            <div style={{ flex: 1 }}><Headline texts={texts} t={t} s={s} size={44} align="left" styleId={fontStyle} scale={hs} /></div>
           </div>
           {contentBlocks('left')}
           {masterDock}
@@ -1388,7 +1394,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
                 </div>
               )}
             </div>
-            <Headline texts={texts} t={t} s={s} size={42} align="left" />
+            <Headline texts={texts} t={t} s={s} size={42} align="left" styleId={fontStyle} scale={hs} />
             {contentBlocks('left')}
             {masterDock}
           </div>
@@ -1408,7 +1414,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
             <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
           </div>
           <div style={{ ...hard, background: '#ffffff', padding: `${12 * s}px ${16 * s}px` }}>
-            <Headline texts={texts} t={{ ...t, text: '#111827', accent: '#111827', accent2: t.accent2 }} s={s} size={46} align="center" />
+            <Headline texts={texts} t={{ ...t, text: '#111827', accent: '#111827', accent2: t.accent2 }} s={s} size={46} align="center" styleId={fontStyle} scale={hs} />
           </div>
           <div style={{ ...hard, background: t.light ? 'rgba(255,255,255,0.85)' : '#ffffff', padding: `${12 * s}px ${16 * s}px`, display: 'flex', flexDirection: 'column', gap: 8 * s }}>
             <SubHead text={texts.sub} t={{ ...t, text: '#111827', sub: '#3f3f46' }} s={s} align="center" />
@@ -1442,7 +1448,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
             <div style={{ textAlign: 'center' }}>
               <p style={{ margin: 0, fontSize: 11 * s, fontWeight: 800, letterSpacing: 4, textTransform: 'uppercase', color: t.accent2 }}>✦ ✦ ✦</p>
             </div>
-            <Headline texts={texts} t={t} s={s} size={46} align="center" />
+            <Headline texts={texts} t={t} s={s} size={46} align="center" styleId={fontStyle} scale={hs} />
             {contentBlocks('center', true)}
             {masterDock}
           </div>
@@ -1485,7 +1491,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
             )}
           </div>
           <div style={{ ...g.card, borderRadius: 14 * s, borderLeft: `4px solid ${t.accent2}`, padding: `${12 * s}px ${16 * s}px` }}>
-            <Headline texts={texts} t={t} s={s} size={42} align="left" />
+            <Headline texts={texts} t={t} s={s} size={42} align="left" styleId={fontStyle} scale={hs} />
           </div>
           {contentBlocks('center')}
           {masterDock}
@@ -1511,7 +1517,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
             )}
           </div>
           <div style={{ borderTop: `2px dashed ${t.accent}77`, paddingTop: 10 * s }}>
-            <Headline texts={texts} t={t} s={s} size={46} align="center" />
+            <Headline texts={texts} t={t} s={s} size={46} align="center" styleId={fontStyle} scale={hs} />
           </div>
           {contentBlocks('center')}
           {masterDock}
@@ -1534,7 +1540,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
               </div>
             )}
           </div>
-          <Headline texts={texts} t={t} s={s} size={46} align="center" />
+          <Headline texts={texts} t={t} s={s} size={46} align="center" styleId={fontStyle} scale={hs} />
           {contentBlocks('center')}
           {masterDock}
         </div>
@@ -1556,7 +1562,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
               </div>
             )}
           </div>
-          <Headline texts={texts} t={t} s={s} size={46} align="center" />
+          <Headline texts={texts} t={t} s={s} size={46} align="center" styleId={fontStyle} scale={hs} />
           {contentBlocks('center')}
           {masterDock}
         </div>
@@ -1582,7 +1588,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
               </div>
             )}
           </div>
-          <Headline texts={texts} t={t} s={s} size={46} align="center" />
+          <Headline texts={texts} t={t} s={s} size={46} align="center" styleId={fontStyle} scale={hs} />
           {contentBlocks('center')}
           {masterDock}
         </div>
@@ -1600,7 +1606,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
               <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
             </div>
             <div style={{ position: 'absolute', bottom: -6 * s, left: '50%', transform: 'translateX(-50%) rotate(-2deg)', width: 360 * s, ...g.card, borderRadius: 18 * s, padding: `${14 * s}px ${18 * s}px`, boxShadow: '0 20px 44px rgba(0,0,0,0.45)' }}>
-              <Headline texts={texts} t={t} s={s} size={34} align="center" />
+              <Headline texts={texts} t={t} s={s} size={34} align="center" styleId={fontStyle} scale={hs} />
             </div>
             {priceOverlay && (
               <div style={{ position: 'absolute', top: 24 * s, right: 16 * s, transform: 'rotate(5deg)' }}>
@@ -1620,7 +1626,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 * s, height: '100%' }}>
           <Badge text={badge} t={t} s={s} />
           {photoBlock()}
-          <Headline texts={texts} t={t} s={s} size={46} align="center" />
+          <Headline texts={texts} t={t} s={s} size={46} align="center" styleId={fontStyle} scale={hs} />
           {contentBlocks('center')}
           {masterDock}
         </div>

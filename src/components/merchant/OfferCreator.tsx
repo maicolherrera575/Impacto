@@ -57,6 +57,8 @@ export function OfferCreator({ open, onClose, profile, onPublished, initialForm 
   const [aiFilled, setAiFilled] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [compressing, setCompressing] = useState(false);
+  /** ⚠️ V18 · Error DENTRO del modal (nunca detrás, invisible). */
+  const [errorMsg, setErrorMsg] = useState('');
   const speech = useSpeechRecognition((text) => setFreeText(text));
   /** Evita que el autoguardado pise el borrador con vacíos antes de restaurar. */
   const draftReadyRef = useRef(false);
@@ -141,13 +143,14 @@ export function OfferCreator({ open, onClose, profile, onPublished, initialForm 
     const promo = Number(form.promo_price);
     const quota = Number(form.total_quota);
 
-    if (title.length < 3 || title.length > 90) return toast.error('El título debe tener entre 3 y 90 caracteres');
-    if (description.length < 5 || description.length > 280) return toast.error('La descripción debe tener entre 5 y 280 caracteres');
-    if (!Number.isFinite(promo) || promo < 0) return toast.error('Escribe el precio de oferta');
-    if (!Number.isInteger(quota) || quota < 1 || quota > 500) return toast.error('El cupo debe estar entre 1 y 500');
-    if (profile.credits < 1) return toast.error('No tienes créditos. Recarga con el administrador 💚');
+    if (title.length < 3 || title.length > 90) { setErrorMsg('El título debe tener entre 3 y 90 caracteres'); return; }
+    if (description.length < 5 || description.length > 280) { setErrorMsg('La descripción debe tener entre 5 y 280 caracteres'); return; }
+    if (!Number.isFinite(promo) || promo < 0) { setErrorMsg('Escribe el precio de oferta'); return; }
+    if (!Number.isInteger(quota) || quota < 1 || quota > 500) { setErrorMsg('El cupo debe estar entre 1 y 500'); return; }
+    if (profile.credits < 1) { setErrorMsg('No tienes créditos. Recarga con el administrador 💚'); return; }
 
     setPublishing(true);
+    setErrorMsg('');
     try {
       await publishOffer({
         category: form.category,
@@ -169,7 +172,7 @@ export function OfferCreator({ open, onClose, profile, onPublished, initialForm 
       onPublished();
       onClose();
     } catch (err) {
-      toast.error(friendlyError(err));
+      setErrorMsg(friendlyError(err));
     } finally {
       setPublishing(false);
     }
@@ -372,6 +375,14 @@ export function OfferCreator({ open, onClose, profile, onPublished, initialForm 
               </option>
             ))}
           </select>
+
+          {/* ⚠️ V18 · Error DENTRO del modal, imposible de perderse */}
+          {errorMsg && (
+            <div className="flex items-start gap-2 rounded-xl border border-red-500/40 bg-red-500/15 p-3 text-red-200" role="alert">
+              <span className="mt-0.5 shrink-0">⚠️</span>
+              <p className="text-xs font-semibold leading-relaxed">{errorMsg}</p>
+            </div>
+          )}
 
           <button
             onClick={publish}

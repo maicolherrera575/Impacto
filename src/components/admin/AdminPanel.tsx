@@ -30,13 +30,14 @@ import {
 import type { AdminStats, BlockedClient, ForensicReservation, OfferReport } from '../../services/admin.service';
 import {
   fetchCreditOrders,
-  fetchPaymentContact,
+  fetchPaymentConfig,
   resolveCreditOrder,
-  setPaymentContact as savePaymentContactRpc,
+  setPaymentConfig,
 } from '../../services/credits.service';
 import { fetchActiveOffers } from '../../services/offers.service';
 import { analyzeMerchantTrust } from '../../services/gemini.service';
 import { friendlyError } from '../../services/supabase';
+import { compressImageToMicroWebP, compressionSummary } from '../../services/imageCompressor';
 import { cx, formatCOP, timeAgo } from '../../utils/format';
 import { openWhatsApp } from '../../utils/whatsapp';
 import { ForensicInspector } from './ForensicInspector';
@@ -91,17 +92,28 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
   const [resolvingId, setResolvingId] = useState<string | null>(null);
   /** Ficha forense abierta (inspector de IP/GPS). */
   const [inspecting, setInspecting] = useState<ForensicData | null>(null);
-  /** 📱 Número oficial de Nequi/WhatsApp editable desde el panel. */
+  /** 📱 V18 · Config de recaudo (Nequi 3158942112 / Llave / QR / auto-aprobar). */
   const [paymentContact, setPaymentContact] = useState('');
+  const [llaveInput, setLlaveInput] = useState('');
+  const [holderInput, setHolderInput] = useState('');
+  const [qrThumb, setQrThumb] = useState('');
+  const [autoApprove, setAutoApprove] = useState(false);
+  const [qrBusy, setQrBusy] = useState(false);
   const [contactBusy, setContactBusy] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [list, s, contact] = await Promise.all([fetchMerchants(), fetchAdminStatsRpc(), fetchPaymentContact()]);
+      const [list, s, config] = await Promise.all([fetchMerchants(), fetchAdminStatsRpc(), fetchPaymentConfig()]);
       setMerchants(list);
       setStats(s);
-      if (contact) setPaymentContact(contact);
+      if (config) {
+        setPaymentContact(config.nequiPhone || '');
+        setLlaveInput(config.llave || '');
+        setHolderInput(config.holderName || '');
+        setQrThumb(config.qrThumb || '');
+        setAutoApprove(config.autoApprove);
+      }
     } catch (err) {
       toast.error(friendlyError(err));
     } finally {
@@ -243,21 +255,42 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
     }
   }
 
-  /** 📱 Guarda el número oficial de Nequi/WhatsApp en la base de datos. */
+  /** 💳 V18 · Guarda toda la configuración de recaudo (Nequi/Llave/titular/QR/auto). */
   async function savePaymentContact() {
     if (paymentContact.replace(/\D/g, '').length < 10) {
-      toast.error('Escribe el número completo (ej: 573101234567)');
+      toast.error('Escribe el número completo (ej: 3158942112)');
       return;
     }
     setContactBusy(true);
     try {
-      const saved = await savePaymentContactRpc(paymentContact);
-      setPaymentContact(saved);
-      toast.success('📱 Número oficial guardado: todos los comercios pagarán sus recargas a ese Nequi');
+      const saved = await setPaymentConfig({
+        nequiPhone: paymentContact,
+        llave: llaveInput.trim() || null,
+        holderName: holderInput.trim() || null,
+        qrThumb: qrThumb, // '' limpia; dataURL lo asigna; undefined no lo toca
+        autoApprove: autoApprove ? 'on' : 'off',
+      });
+      setPaymentContact(saved.nequiPhone);
+      toast.success('💳 Configuración de cobros guardada: los comercios ya ven tu Nequi, Llave y QR');
     } catch (err) {
       toast.error(friendlyError(err));
     } finally {
       setContactBusy(false);
+    }
+  }
+
+  /** 🖼️ Sube y comprime el QR oficial de recaudo del administrador. */
+  async function pickAdminQr(file: File | undefined) {
+    if (!file) return;
+    setQrBusy(true);
+    try {
+      const thumb = await compressImageToMicroWebP(file, 420, 0.7);
+      setQrThumb(thumb);
+      toast.success(compressionSummary(file, thumb));
+    } catch (err) {
+      toast.error(friendlyError(err));
+    } finally {
+      setQrBusy(false);
     }
   }
 
@@ -755,9 +788,113 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
         {/* ═══ Pestaña 3: Cobros Nequi (bandeja de aprobación en 1 clic) ═══ */}
         {tab === 'cobros' && (
           <div className="space-y-2.5 p-4">
+            {/* 💳 V18 · Configuración de recaudo + aprobación automática */}
+            <section className="rounded-3xl border border-impulso-emerald/25 bg-impulso-panel p-4">
+              <p className="text-sm font-bold text-impulso-mint">💳 Mi Configuración de Recaudo</p>
+              <p className="mt-1 text-xs leading-relaxed text-slate-400">
+                Los comercios pagan a estos datos y los ven en su ventana de recarga. Por defecto: Nequi 3158942112.
+              </p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <div>
+                  <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Número Nequi / Daviplata</p>
+                  <input
+                    value={paymentContact}
+                    onChange={(e) => setPaymentContact(e.target.value.replace(/\D/g, ''))}
+                    placeholder="3158942112"
+                    inputMode="tel"
+                    maxLength={13}
+                    className="mt-1 w-full rounded-xl border border-white/10 bg-slate-950/50 px-3 py-2.5 font-mono text-sm font-bold tracking-wider text-white placeholder:text-slate-600 outline-none focus:border-impulso-emerald/60"
+                  />
+                </div>
+                <div>
+                  <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Llave Bre-B / Transfiya</p>
+                  <input
+                    value={llaveInput}
+                    onChange={(e) => setLlaveInput(e.target.value.slice(0, 40))}
+                    placeholder="@impulso3158942112"
+                    className="mt-1 w-full rounded-xl border border-white/10 bg-slate-950/50 px-3 py-2.5 font-mono text-sm font-bold text-white placeholder:text-slate-600 outline-none focus:border-impulso-emerald/60"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Titular de la cuenta</p>
+                  <input
+                    value={holderInput}
+                    onChange={(e) => setHolderInput(e.target.value.slice(0, 60))}
+                    placeholder="Administrador Impulso"
+                    className="mt-1 w-full rounded-xl border border-white/10 bg-slate-950/50 px-3 py-2.5 text-sm font-bold text-white placeholder:text-slate-600 outline-none focus:border-impulso-emerald/60"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Tu QR oficial de Nequi / Bre-B</p>
+                  <div className="mt-1 flex items-center gap-3">
+                    {qrThumb ? (
+                      <img src={qrThumb} alt="QR de recaudo" className="h-16 w-16 rounded-xl border border-white/10 bg-white object-cover" />
+                    ) : (
+                      <div className="grid h-16 w-16 place-items-center rounded-xl border border-dashed border-white/20 bg-slate-950/50 text-2xl">📷</div>
+                    )}
+                    <div className="flex flex-1 flex-wrap gap-1.5">
+                      <label className="pressable flex cursor-pointer items-center gap-1.5 rounded-xl border border-white/10 bg-slate-950/40 px-3 py-2 text-[11px] font-bold text-slate-200">
+                        {qrBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : '📤'} Subir QR
+                        <input type="file" accept="image/*" className="hidden" onChange={(e) => void pickAdminQr(e.target.files?.[0])} />
+                      </label>
+                      {qrThumb && (
+                        <button
+                          onClick={() => setQrThumb('')}
+                          className="pressable rounded-xl border border-white/10 bg-slate-950/40 px-3 py-2 text-[11px] font-bold text-slate-400"
+                        >
+                          🗑️ Quitar
+                        </button>
+                      )}
+                      <p className="w-full text-[10px] font-semibold text-slate-500">
+                        Si no subes QR, la app genera uno en pantalla con tu Nequi automáticamente.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                {/* ⚡ Switch de aprobación automática */}
+                <button
+                  onClick={() => setAutoApprove((v) => !v)}
+                  className={cx(
+                    'pressable flex items-center justify-between gap-3 rounded-2xl border p-3 text-left transition sm:col-span-2',
+                    autoApprove ? 'border-impulso-gold/50 bg-impulso-gold/10' : 'border-white/10 bg-slate-950/40',
+                  )}
+                >
+                  <span>
+                    <span className={cx('block text-xs font-extrabold', autoApprove ? 'text-impulso-gold' : 'text-slate-300')}>
+                      ⚡ Aprobación Automática Instantánea {autoApprove ? '· ACTIVA' : '· apagada'}
+                    </span>
+                    <span className="mt-0.5 block text-[10px] font-semibold leading-relaxed text-slate-500">
+                      Acredita los créditos al acto solo si la IA confirma: destino a tu cuenta + monto exacto del plan +
+                      referencia y huella de imagen únicas. Todo queda auditado aquí.
+                    </span>
+                  </span>
+                  <span
+                    className={cx(
+                      'relative h-6 w-11 shrink-0 rounded-full transition',
+                      autoApprove ? 'bg-impulso-gold' : 'bg-slate-700',
+                    )}
+                  >
+                    <span
+                      className={cx(
+                        'absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all',
+                        autoApprove ? 'left-[1.4rem]' : 'left-0.5',
+                      )}
+                    />
+                  </span>
+                </button>
+              </div>
+              <button
+                onClick={() => void savePaymentContact()}
+                disabled={contactBusy}
+                className="pressable mt-3 flex w-full items-center justify-center gap-2 rounded-2xl bg-impulso-emerald py-3 text-sm font-extrabold text-slate-950 disabled:opacity-60"
+              >
+                {contactBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : '💾'} Guardar configuración de cobros
+              </button>
+            </section>
+
             <p className="rounded-2xl border border-white/[0.08] bg-slate-950/40 p-3 text-[11px] font-semibold leading-relaxed text-slate-400">
-              💳 Comprobantes Nequi/Daviplata enviados por los comercios. La IA ya leyó cada captura: verifica contra
-              tu app Nequi y aprueba para acreditar los créditos al instante (el comprobante se borra al aprobar).
+              💳 Comprobantes Nequi/Daviplata/Llave enviados por los comercios. La IA forense ya leyó cada captura
+              (destino, monto, fecha y estado): verifica contra tu app y aprueba para acreditar los créditos al instante.
             </p>
 
             {offersLoading ? (
@@ -802,6 +939,12 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
                       {c.ai_verification_note && (
                         <p className="mt-1 line-clamp-2 rounded-lg bg-slate-950/50 px-2 py-1 text-[10px] font-semibold text-slate-300">
                           🤖 {c.ai_verification_note}
+                        </p>
+                      )}
+                      {/* 🟢 V18 · Sello del validador forense (IA + destino + unicidad) */}
+                      {c.ia_status_ok && (
+                        <p className="mt-1 rounded-lg bg-impulso-emerald/10 px-2 py-1 text-[10px] font-extrabold text-impulso-mint">
+                          🟢 Validado por Escáner IA{c.destination_detected ? ` (destino ${c.destination_detected} confirmado · Único uso)` : ' (Único uso)'}
                         </p>
                       )}
                       {c.status !== 'pending' && (
@@ -879,27 +1022,20 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
               </div>
             )}
 
-            {/* 📱 Número oficial de recargas (protegido en la base de datos) */}
+            {/* 💳 V18 · La configuración completa de recaudo vive en la pestaña Cobros */}
             <section className="rounded-3xl border border-impulso-emerald/25 bg-impulso-panel p-4">
-              <p className="text-sm font-bold text-impulso-mint">📱 Mi Número Oficial de Nequi / WhatsApp para Recargas</p>
-              <p className="mt-1 text-xs leading-relaxed text-slate-400">
-                Los comercios verán este número al pagar sus créditos y te escribirán a él al enviar el comprobante.
-                Vive protegido en la base de datos: cámbialo aquí cuando quieras, sin redeploy.
+              <p className="text-sm font-bold text-impulso-mint">
+                💳 Cobros Nequi {paymentContact || '3158942112'} · {autoApprove ? '⚡ Auto-aprobación ACTIVA' : '⏳ Aprobación manual'}
               </p>
-              <input
-                value={paymentContact}
-                onChange={(e) => setPaymentContact(e.target.value.replace(/[^\d+]/g, ''))}
-                placeholder="Ej: 573101234567"
-                inputMode="tel"
-                maxLength={13}
-                className="mt-3 w-full rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3 font-mono text-sm font-bold tracking-wider text-white placeholder:text-slate-600 outline-none focus:border-impulso-emerald/60"
-              />
+              <p className="mt-1 text-xs leading-relaxed text-slate-400">
+                Número Nequi, Llave Bre-B, titular, QR oficial y el switch de aprobación automática se editan en la
+                pestaña 💳 Cobros. Todo vive protegido en la base de datos, sin redeploy.
+              </p>
               <button
-                onClick={() => void savePaymentContact()}
-                disabled={contactBusy}
-                className="pressable mt-2 flex w-full items-center justify-center gap-2 rounded-2xl bg-impulso-emerald py-3 text-sm font-extrabold text-slate-950 disabled:opacity-60"
+                onClick={() => setTab('cobros')}
+                className="pressable mt-2 flex w-full items-center justify-center gap-2 rounded-2xl border border-impulso-emerald/40 bg-impulso-emerald/10 py-2.5 text-xs font-extrabold text-impulso-mint"
               >
-                {contactBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : '💾'} Guardar número oficial
+                Abrir 💳 Cobros
               </button>
             </section>
 

@@ -136,6 +136,31 @@ create trigger impulso_on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
 
+-- 2.3 V18 · Auto-confirmación instantánea de cuentas (fix localhost:3000):
+-- cuando Supabase exige confirmación de correo, el enlace puede llegar roto
+-- (localhost). Este trigger marca la cuenta como confirmada EN EL MISMO
+-- segundo de crearse, así el comerciante entra directo a su panel.
+create or replace function public.auto_confirm_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  new.email_confirmed_at := coalesce(new.email_confirmed_at, now());
+  new.confirmation_token := null;
+  return new;
+end;
+$$;
+
+drop trigger if exists impulso_auto_confirm_user on auth.users;
+create trigger impulso_auto_confirm_user
+  before insert on auth.users
+  for each row execute function public.auto_confirm_new_user();
+
+-- Parche único para cuentas creadas antes de este trigger
+update auth.users set email_confirmed_at = now() where email_confirmed_at is null;
+
 -- ============================================================================
 -- 3. ROW LEVEL SECURITY (RLS)
 -- ============================================================================
@@ -1676,7 +1701,20 @@ alter table public.credit_orders enable row level security;
 create unique index if not exists credit_orders_reference_active_idx
   on public.credit_orders (reference_code) where status in ('pending', 'approved');
 
--- 10.3 El comerciante envía su comprobante tras pagar (V17 · VALIDACIÓN ULTRA ESTRICTA)
+-- 🛡️ V18 · Columnas forenses del validador: huella SHA-256 de la imagen,
+-- destino leído por la IA, payload del QR escaneado y dictamen automático.
+alter table public.credit_orders add column if not exists receipt_hash         text default null;
+alter table public.credit_orders add column if not exists destination_detected text default null;
+alter table public.credit_orders add column if not exists qr_payload           text default null;
+alter table public.credit_orders add column if not exists ia_status_ok         boolean not null default false;
+
+-- 🛡️ V18 · La huella de imagen es única en TODA la plataforma (activa o
+-- pendiente): la misma captura jamás puede canjearse dos veces.
+create unique index if not exists credit_orders_receipt_hash_unique
+  on public.credit_orders (receipt_hash)
+  where receipt_hash is not null and status in ('pending', 'approved');
+
+-- 10.3 El comerciante envía su comprobante tras pagar (V18 · VALIDADOR FORENSE)
 -- Guardias automáticas y en orden:
 --   1) Anti-fuerza bruta: máx. 5 intentos por 15 min (SOLO lectura: un intento
 --      fallido NO escribe nada → la base de datos jamás se satura).
@@ -1684,8 +1722,10 @@ create unique index if not exists credit_orders_reference_active_idx
 --      que empiezan por 3) NO es un comprobante y se rechaza al instante.
 --   3) YA CANJEADO: la misma referencia no puede existir dos veces en
 --      pendientes/aprobadas de TODA la plataforma (nadie la vuelve a cargar).
---   4) CÓDIGO QUEMADO: si otra cuenta ya envió esa referencia y fue rechazada,
+--   4) HUELLA ÚNICA: la misma imagen (hash SHA-256) tampoco puede repetirse.
+--   5) CÓDIGO QUEMADO: si otra cuenta ya envió esa referencia y fue rechazada,
 --      queda invalidada para todos los demás (anti-reciclaje de códigos).
+drop function if exists public.submit_credit_order_rpc(text, integer, numeric, text, text, text, text);
 create or replace function public.submit_credit_order_rpc(
   p_package_name      text,
   p_credits_requested integer,
@@ -1693,7 +1733,11 @@ create or replace function public.submit_credit_order_rpc(
   p_reference_code    text,
   p_payment_method    text default 'Nequi',
   p_receipt_thumb     text default null,
-  p_ai_note           text default null
+  p_ai_note           text default null,
+  p_receipt_hash      text default null,
+  p_destination_detected text default null,
+  p_qr_payload        text default null,
+  p_ia_status_ok      boolean default false
 )
 returns jsonb
 language plpgsql
@@ -1713,11 +1757,14 @@ begin
   if p_amount_cop is null or p_amount_cop < 1000 then
     raise exception 'El valor reportado no es válido';
   end if;
-  if p_payment_method not in ('Nequi', 'Daviplata', 'Bancolombia') then
+  if p_payment_method not in ('Nequi', 'Daviplata', 'Bancolombia', 'Llave') then
     raise exception 'Método de pago inválido';
   end if;
   if p_receipt_thumb is not null and char_length(p_receipt_thumb) > 35000 then
     raise exception 'El comprobante es demasiado pesado. Intenta con otra captura';
+  end if;
+  if p_receipt_hash is not null and char_length(p_receipt_hash) <> 64 then
+    raise exception 'Huella del comprobante inválida. Vuelve a subir la captura';
   end if;
 
   -- Normalización: sin espacios, mayúsculas — un código es un código exacto
@@ -1749,7 +1796,17 @@ begin
      where upper(c.reference_code) = v_code
        and c.status in ('pending', 'approved')
   ) then
-    raise exception 'YA_CANJEADO: ese código ya fue usado para recargar en Impulso. Cada comprobante solo sirve UNA vez — revisa que sea el pago nuevo';
+    raise exception 'YA_CANJEADO: 🚫 CÓDIGO O COMPROBANTE YA UTILIZADO: este pago (Ref: ' || v_code || ') ya fue registrado y vinculado previamente a una cuenta en la plataforma. Cada pago o código QR solo puede canjearse una única vez.';
+  end if;
+
+  -- 🛡️ HUELLA ÚNICA: la misma imagen (SHA-256) jamás se canjea dos veces
+  if p_receipt_hash is not null and exists (
+    select 1
+      from public.credit_orders c
+     where c.receipt_hash = p_receipt_hash
+       and c.status in ('pending', 'approved')
+  ) then
+    raise exception 'YA_CANJEADO: 🚫 ESE COMPROBANTE YA UTILIZADO: esta misma captura (huella de imagen) ya fue registrada por una cuenta. Cada pago solo puede canjearse una única vez.';
   end if;
 
   -- 🛡️ CÓDIGO QUEMADO: rechazado por otra cuenta → invalidado para los demás
@@ -1765,14 +1822,143 @@ begin
 
   insert into public.credit_orders (
     merchant_id, package_name, credits_requested, amount_cop,
-    payment_method, reference_code, receipt_thumb, ai_verification_note, status
+    payment_method, reference_code, receipt_thumb, ai_verification_note, status,
+    receipt_hash, destination_detected, qr_payload, ia_status_ok
   ) values (
     auth.uid(), trim(p_package_name), p_credits_requested, p_amount_cop,
-    p_payment_method, v_code, p_receipt_thumb, p_ai_note, 'pending'
+    p_payment_method, v_code, p_receipt_thumb, p_ai_note, 'pending',
+    nullif(btrim(coalesce(p_receipt_hash, '')), ''), nullif(btrim(coalesce(p_destination_detected, '')), ''),
+    nullif(btrim(coalesce(p_qr_payload, '')), ''), p_ia_status_ok = true
   )
   returning * into v_order;
 
   return to_jsonb(v_order);
+end;
+$$;
+
+-- 10.3b V18 · Verificación INSTANTÁNEA de no-reutilización (solo lectura).
+-- La app la llama ANTES de permitir el envío: si la referencia o la huella
+-- de imagen ya fueron usadas/canjeadas por cualquier cuenta, responde
+-- {used: true, reason: '...'} sin escribir absolutamente nada en la BD.
+create or replace function public.check_receipt_already_used_rpc(
+  p_raw_reference text,
+  p_receipt_hash  text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_code text;
+begin
+  if auth.uid() is null then
+    return jsonb_build_object('used', false, 'reason', '');
+  end if;
+
+  v_code := upper(btrim(coalesce(p_raw_reference, '')));
+  if v_code <> '' then
+    if exists (
+      select 1 from public.credit_orders c
+       where upper(c.reference_code) = v_code
+         and c.status in ('pending', 'approved')
+    ) then
+      return jsonb_build_object(
+        'used', true,
+        'reason', '🚫 CÓDIGO O COMPROBANTE YA UTILIZADO: este pago ya fue registrado y vinculado previamente a una cuenta en la plataforma. Cada pago o código QR solo puede canjearse una única vez.'
+      );
+    end if;
+  end if;
+
+  if coalesce(p_receipt_hash, '') <> '' and exists (
+    select 1 from public.credit_orders c
+     where c.receipt_hash = p_receipt_hash
+       and c.status in ('pending', 'approved')
+  ) then
+    return jsonb_build_object(
+      'used', true,
+      'reason', '🚫 COMPROBANTE YA UTILIZADO: esta misma captura ya fue registrada por una cuenta. Cada pago solo puede canjearse una única vez.'
+    );
+  end if;
+
+  return jsonb_build_object('used', false, 'reason', '');
+end;
+$$;
+
+-- 10.3c V18 · APROBACIÓN AUTOMÁTICA INSTANTÁNEA (con el switch del Admin ON):
+-- acredita los créditos al acto SI Y SOLO SI el servidor confirma, con datos
+-- que el cliente NO puede fingir:
+--   · el dictamen IA marcó el pago exitoso (ia_status_ok),
+--   · el destino leído contiene el número Nequi oficial del Admin (BD),
+--   · el monto coincide EXACTO con un paquete oficial (BD),
+--   · la referencia y la huella son únicas (índices + guardias del submit).
+-- Si algo falla, el comprobante queda 'pending' para revisión humana.
+create or replace function public.auto_approve_credit_order_rpc(p_order_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_order    public.credit_orders;
+  v_admin    text;
+  v_prices   text;
+  v_price    numeric;
+  v_current  numeric;
+begin
+  select value into v_admin from public.app_settings where key = 'nequi_phone';
+  select value into v_prices from public.app_settings where key = 'credit_package_prices';
+  if coalesce((select value from public.app_settings where key = 'auto_approve_credits'), 'off') <> 'on' then
+    return jsonb_build_object('approved', false, 'reason', 'AUTO_APROBACION_OFF');
+  end if;
+
+  select * into v_order from public.credit_orders where id = p_order_id for update;
+  if not found then
+    raise exception 'Orden no encontrada';
+  end if;
+  if v_order.status <> 'pending' then
+    return jsonb_build_object('approved', false, 'reason', 'YA_PROCESADA');
+  end if;
+
+  -- El dictamen IA debe venir completo y exitoso
+  if v_order.ia_status_ok is not true or v_order.destination_detected is null then
+    return jsonb_build_object('approved', false, 'reason', 'IA_INCOMPLETA');
+  end if;
+
+  -- El destino leído debe contener el número oficial del Admin (BD, no cliente)
+  v_current := coalesce(regexp_replace(v_admin, '\D', '', 'g'), '');
+  if v_current = ''
+     or char_length(regexp_replace(v_order.destination_detected, '\D', '', 'g')) < 7
+     or (position(regexp_replace(v_order.destination_detected, '\D', '', 'g') in v_current) = 0
+         and position(v_current in regexp_replace(v_order.destination_detected, '\D', '', 'g')) = 0) then
+    return jsonb_build_object('approved', false, 'reason', 'DESTINO_NO_COINCIDE');
+  end if;
+
+  -- Monto EXACTO contra los paquetes oficiales guardados en la BD
+  v_price := -1;
+  begin
+    for v_price in select (regexp_split_to_table(v_prices, ','))::numeric loop
+      exit when v_price = v_order.amount_cop;
+    end loop;
+  exception when others then
+    v_price := -1;
+  end;
+  if v_price <> v_order.amount_cop then
+    return jsonb_build_object('approved', false, 'reason', 'MONTO_NO_EXACTO');
+  end if;
+
+  update public.credit_orders
+     set status = 'approved',
+         receipt_thumb = null,
+         ai_verification_note = '⚡ Auto-aprobado por Escáner IA (destino ' || v_admin || ' confirmado · monto exacto · referencia y huella únicas)'
+   where id = v_order.id
+   returning * into v_order;
+
+  update public.profiles
+     set credits = credits + v_order.credits_requested
+   where id = v_order.merchant_id;
+
+  return jsonb_build_object('approved', true, 'credits', v_order.credits_requested, 'order', to_jsonb(v_order));
 end;
 $$;
 
@@ -1878,8 +2064,10 @@ end;
 $$;
 
 -- 10.7 Concesión de ejecución (firmas exactas)
-grant execute on function public.submit_credit_order_rpc(text, integer, numeric, text, text, text, text) to authenticated;
-grant execute on function public.admin_credit_orders_list_rpc()                           to authenticated;
+grant execute on function public.submit_credit_order_rpc(text, integer, numeric, text, text, text, text, text, text, text, boolean) to authenticated;
+grant execute on function public.check_receipt_already_used_rpc(text, text)          to authenticated;
+grant execute on function public.auto_approve_credit_order_rpc(uuid)                 to authenticated;
+grant execute on function public.admin_credit_orders_list_rpc()                      to authenticated;
 grant execute on function public.admin_resolve_credit_order_rpc(uuid, text, text)         to authenticated;
 grant execute on function public.auto_prune_expired_data_rpc()                            to anon, authenticated;
 
@@ -1897,11 +2085,45 @@ create table if not exists public.app_settings (
 );
 
 alter table public.app_settings enable row level security;
--- (Sin políticas directas: lectura SOLO vía get_payment_contact_rpc y
---  escritura SOLO vía admin_set_payment_contact_rpc, ambas SECURITY DEFINER.)
+-- (Sin políticas directas: lectura SOLO vía RPCs SECURITY DEFINER y
+--  escritura SOLO vía admin_set_payment_contact_rpc.)
 
--- Lectura del número de pago: SOLO usuarios autenticados (protege el número
--- personal del administrador frente a bots y visitantes anónimos).
+-- 💳 V18 · Configuración oficial de recaudo del Administrador (por defecto).
+-- Editable desde el Panel Admin (pestañas 💳 Cobros y 📊 Resumen).
+insert into public.app_settings (key, value) values
+  ('nequi_phone', '3158942112'),
+  ('payment_llave', '@impulso3158942112'),
+  ('payment_holder_name', 'Administrador Impulso'),
+  ('payment_qr_thumb', ''),
+  ('auto_approve_credits', 'off'),
+  ('credit_package_prices', '10000,24000,45000')
+on conflict (key) do nothing;
+
+-- ⚡ V18 · Lectura completa de la configuración de cobros (solo autenticados).
+create or replace function public.get_payment_config_rpc()
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_value text;
+begin
+  if auth.uid() is null then
+    return null;
+  end if;
+  select jsonb_build_object(
+    'nequiPhone', coalesce((select value from public.app_settings where key = 'nequi_phone'), (select value from public.app_settings where key = 'payment_whatsapp'), ''),
+    'llave', coalesce((select value from public.app_settings where key = 'payment_llave'), ''),
+    'holderName', coalesce((select value from public.app_settings where key = 'payment_holder_name'), ''),
+    'qrThumb', coalesce((select value from public.app_settings where key = 'payment_qr_thumb'), ''),
+    'autoApprove', coalesce((select value from public.app_settings where key = 'auto_approve_credits'), 'off') = 'on'
+  ) into v_value;
+  return v_value;
+end;
+$$;
+
+-- 📱 V18 · Número de contacto legacy (compatibilidad con la app actual).
 create or replace function public.get_payment_contact_rpc()
 returns text
 language plpgsql
@@ -1914,41 +2136,81 @@ begin
   if auth.uid() is null then
     return null;
   end if;
-  select value into v_value from public.app_settings where key = 'payment_whatsapp';
+  select value into v_value from public.app_settings where key = 'nequi_phone';
+  if v_value is null then
+    select value into v_value from public.app_settings where key = 'payment_whatsapp';
+  end if;
   return v_value;
 end;
 $$;
 
--- Guardar el número: SOLO el administrador (rol asignado desde la BD).
--- Normaliza a puros dígitos y valida longitud para que los enlaces wa.me
--- siempre funcionen.
-create or replace function public.admin_set_payment_contact_rpc(p_whatsapp text)
-returns text
+-- 👑 V18 · Guardar la configuración de recaudo: SOLO el administrador.
+-- (p_nequi_phone obligatorio; el resto opcional — null no lo toca).
+drop function if exists public.admin_set_payment_contact_rpc(text);
+create or replace function public.admin_set_payment_contact_rpc(
+  p_nequi_phone   text,
+  p_payment_llave text default null,
+  p_holder_name   text default null,
+  p_qr_thumb      text default null,
+  p_auto_approve  text default null
+)
+returns jsonb
 language plpgsql
 security definer
 set search_path = ''
 as $$
 declare
   v_digits text;
+  v_qr     text;
 begin
   if not public.is_admin() then
     raise exception 'SOLO_ADMIN: esta acción está reservada al administrador';
   end if;
-  v_digits := coalesce(regexp_replace(p_whatsapp, '\D', '', 'g'), '');
+  v_digits := coalesce(regexp_replace(p_nequi_phone, '\D', '', 'g'), '');
   if char_length(v_digits) < 10 or char_length(v_digits) > 13 then
-    raise exception 'Escribe un número válido (entre 10 y 13 dígitos, ej: 573101234567)';
+    raise exception 'Escribe un número válido (entre 10 y 13 dígitos, ej: 3158942112)';
   end if;
+
   insert into public.app_settings (key, value, updated_at)
-  values ('payment_whatsapp', v_digits, now())
-  on conflict (key) do update
-    set value = excluded.value,
-        updated_at = now();
-  return v_digits;
+  values ('nequi_phone', v_digits, now())
+  on conflict (key) do update set value = excluded.value, updated_at = now();
+
+  if p_payment_llave is not null then
+    insert into public.app_settings (key, value, updated_at)
+    values ('payment_llave', btrim(p_payment_llave), now())
+    on conflict (key) do update set value = excluded.value, updated_at = now();
+  end if;
+  if p_holder_name is not null then
+    insert into public.app_settings (key, value, updated_at)
+    values ('payment_holder_name', btrim(p_holder_name), now())
+    on conflict (key) do update set value = excluded.value, updated_at = now();
+  end if;
+  if p_qr_thumb is not null then
+    -- '' limpia el QR; un dataURL lo asigna (micro-WebP ≤ 35000 chars)
+    v_qr := nullif(btrim(p_qr_thumb), '');
+    if v_qr is not null and char_length(v_qr) > 35000 then
+      raise exception 'El QR es demasiado pesado. Súbelo de nuevo (se comprime solo)';
+    end if;
+    insert into public.app_settings (key, value, updated_at)
+    values ('payment_qr_thumb', coalesce(v_qr, ''), now())
+    on conflict (key) do update set value = excluded.value, updated_at = now();
+  end if;
+  if p_auto_approve in ('on', 'off') then
+    insert into public.app_settings (key, value, updated_at)
+    values ('auto_approve_credits', p_auto_approve, now())
+    on conflict (key) do update set value = excluded.value, updated_at = now();
+  end if;
+
+  return jsonb_build_object(
+    'nequiPhone', v_digits,
+    'autoApprove', coalesce((select value from public.app_settings where key = 'auto_approve_credits'), 'off') = 'on'
+  );
 end;
 $$;
 
 grant execute on function public.get_payment_contact_rpc()            to authenticated;
-grant execute on function public.admin_set_payment_contact_rpc(text)  to authenticated;
+grant execute on function public.get_payment_config_rpc()             to authenticated;
+grant execute on function public.admin_set_payment_contact_rpc(text, text, text, text, text) to authenticated;
 
 
 -- ============================================================================

@@ -112,9 +112,15 @@ export function useGeolocation() {
     });
   }, [adoptFix, onError]);
 
-  // ── Auto-GPS: la primera acción de la app es pedir la ubicación ──────────
+  // ── V18 · GPS 100% VOLUNTARIO (Ley 1581 de 2012): la app JAMÁS pide la
+  // ubicación de golpe al entrar. El mapa carga en paz centrado en el Parque
+  // Principal de Gachetá y solo se activa si el usuario da clic en
+  // "📍 Activar mi ubicación" (consentimiento previo e informado, guardado
+  // en localStorage). Si ya dio su consentimiento antes, el rastreo arranca.
   useEffect(() => {
-    request();
+    if (localStorage.getItem('impulso_gps_consent') === 'granted') {
+      request();
+    }
     return stop;
   }, [request, stop]);
 

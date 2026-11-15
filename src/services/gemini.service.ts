@@ -318,14 +318,30 @@ export interface ReceiptVerification {
   amountCop: number | null;
   reference: string | null;
   note: string;
+  /** 🔍 V18 · Forense: número/Llave de destino visible en el comprobante. */
+  destinationDetected: string | null;
+  /** 🔍 V18 · Forense: fecha del pago tal como aparece. */
+  dateDetected: string | null;
+  /** 🔍 V18 · true si el destino coincide con la cuenta oficial del Admin. */
+  isValidDestination: boolean;
+  /** 🔍 V18 · true solo si el estado es "Exitoso/Envío realizado/Aprobado". */
+  statusOk: boolean;
 }
 
-const RECEIPT_PROMPT = `Eres el verificador de pagos de Impulso. Analiza la imagen de un comprobante de pago de Nequi, Daviplata o Bancolombia de Colombia.
+/** Contexto para que la IA valide el destino (número/Llave oficial del Admin). */
+export interface ReceiptContext {
+  /** Número Nequi/Daviplata oficial, ej: 3158942112 */
+  adminPhone: string;
+  /** Llave Bre-B / Transfiya oficial, ej: @impulso3158942112 */
+  adminKey: string;
+}
+
+const RECEIPT_PROMPT = `Eres el verificador forense de pagos de Impulso. Analiza la imagen de un comprobante de pago de Nequi, Daviplata, Transfiya o Bancolombia de Colombia.
 Devuelve ÚNICAMENTE este JSON:
-{"looks_real": true|false, "suspicious": true|false, "amount_cop": número entero del valor pagado o null, "reference": "código de referencia / número de transacción visible (máx 40 caracteres)" o null, "note": "frase corta en español describiendo lo que leíste"}
+{"looks_real": true|false, "suspicious": true|false, "amount_cop": número entero del valor pagado o null, "reference": "código de referencia / número de transacción visible (máx 40 caracteres)" o null, "destination_detected": "número de celular o Llave al que se envió el dinero tal como aparece" o null, "date_detected": "fecha y hora del pago tal como aparecen" o null, "status_ok": true|false, "note": "frase corta en español describiendo lo que leíste"}
 
 Criterios:
-- looks_real: true solo si la imagen parece un comprobante real de Nequi/Daviplata/Bancolombia (pantalla de la app con monto y fecha). Si es un dibujo, un meme, un papel escrito a mano u otra cosa, false.
+- looks_real: true solo si la imagen parece un comprobante real de Nequi/Daviplata/Transfiya/Bancolombia (pantalla de la app con monto y fecha). Si es un dibujo, un meme, un papel escrito a mano u otra cosa, false.
 - suspicious: true si detectas ALGUNA señal de fraude:
   * texto o números que parecen pegados/editados (fuente distinta, caja desalineada)
   * la transacción dice "Pendiente", "Programada" o "En proceso" (NO cuenta como pagado)
@@ -334,15 +350,19 @@ Criterios:
   * parece foto de la pantalla de OTRO teléfono con reflejos o bordes del celular
   Si la captura se ve normal y directa de la app, false.
 - amount_cop: el valor pagado en pesos (si dice $24.000, devuelve 24000).
-- reference: la referencia, código de confirmación, número de transacción o "Id de operación" visible.
+- reference: la referencia, código de confirmación, número de transacción, "Id de operación" o "CUS" visible.
+- destination_detected: el número de celular o Llave de DESTINO del dinero (a quién le llegó). Ej: "315 894 2112" o "@impulso3158942112". Si no se ve, null.
+- date_detected: la fecha y hora visibles del pago (ej: "15/11/2026 14:32").
+- status_ok: true SOLO si el comprobante dice "Envío realizado", "Exitoso", "Aprobado" o equivalente de pago completado; false si dice "Pendiente", "Rechazado", "En proceso" o no se entiende.
 - note: descripción breve (máx 120 caracteres).`;
 
 /**
- * 🤖 IA Vision anti-fraude: lee la miniatura del comprobante Nequi/Daviplata,
- * extrae el valor pagado y la referencia en ~2 segundos, y marca señales de
- * capturas editadas, recicladas o de pagos no confirmados.
+ * 🤖 IA Vision forense anti-fraude: lee la miniatura del comprobante
+ * Nequi/Daviplata/Llave, extrae valor, referencia, destino, fecha y estado
+ * del pago, y marca señales de capturas editadas o no confirmadas.
+ * El destino se valida contra la cuenta oficial del administrador.
  */
-export async function verifyNequiReceiptWithAI(imageDataUrl: string): Promise<ReceiptVerification> {
+export async function verifyNequiReceiptWithAI(imageDataUrl: string, context?: ReceiptContext): Promise<ReceiptVerification> {
   const mimeType = imageDataUrl.startsWith('data:image/png')
     ? 'image/png'
     : imageDataUrl.startsWith('data:image/jpeg')
@@ -354,7 +374,7 @@ export async function verifyNequiReceiptWithAI(imageDataUrl: string): Promise<Re
   }
 
   const jsonText = await callGemini({
-    prompt: RECEIPT_PROMPT,
+    prompt: RECEIPT_PROMPT + (context ? `\nLa cuenta oficial de destino del dinero es el número ${context.adminPhone} o la Llave ${context.adminKey}. En tus criterios, un comprobante cuyo destination_detected no contenga esos dígitos debe marcar suspicious=true.` : ''),
     image: { mimeType, data: base64 },
     temperature: 0.1,
   });
@@ -364,14 +384,31 @@ export async function verifyNequiReceiptWithAI(imageDataUrl: string): Promise<Re
     suspicious?: boolean;
     amount_cop?: number | null;
     reference?: string | null;
+    destination_detected?: string | null;
+    date_detected?: string | null;
+    status_ok?: boolean;
     note?: string | null;
   }
   const parsed = parseAiJson<ParsedReceipt>(jsonText);
+  const dest = typeof parsed.destination_detected === 'string' ? parsed.destination_detected.trim().slice(0, 40) : null;
+  const destDigits = dest?.replace(/\D/g, '') ?? '';
+  const adminDigits = context?.adminPhone.replace(/\D/g, '') ?? '';
+  const adminKeyClean = (context?.adminKey ?? '').replace(/[^a-zA-Z0-9@]/g, '').toLowerCase();
+  const isValidDestination = Boolean(
+    context &&
+      dest &&
+      ((adminDigits.length >= 7 && (destDigits.endsWith(adminDigits) || adminDigits.endsWith(destDigits))) ||
+        (adminKeyClean && dest.toLowerCase().includes(adminKeyClean))),
+  );
   return {
     looksReal: parsed.looks_real === true,
     suspicious: parsed.suspicious === true,
     amountCop: typeof parsed.amount_cop === 'number' ? Math.round(parsed.amount_cop) : null,
     reference: typeof parsed.reference === 'string' ? parsed.reference.trim().slice(0, 40) : null,
+    destinationDetected: dest,
+    dateDetected: typeof parsed.date_detected === 'string' ? parsed.date_detected.trim().slice(0, 40) : null,
+    isValidDestination,
+    statusOk: parsed.status_ok === true,
     note: typeof parsed.note === 'string' ? parsed.note.trim().slice(0, 160) : 'Comprobante analizado',
   };
 }

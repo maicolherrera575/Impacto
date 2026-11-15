@@ -48,6 +48,8 @@ export function RequestsTab({ requests, municipality, geoPos, onCreated }: Reque
   const [description, setDescription] = useState('');
   const [meetingPoint, setMeetingPoint] = useState('parque_principal');
   const [loading, setLoading] = useState(false);
+  /** ⚠️ V18 · Error visible en el propio formulario de pedido (nunca oculto). */
+  const [errorMsg, setErrorMsg] = useState('');
   /** Evita que el autoguardado pise el borrador con vacíos antes de restaurar. */
   const draftReadyRef = useRef(false);
 
@@ -73,10 +75,11 @@ export function RequestsTab({ requests, municipality, geoPos, onCreated }: Reque
   }, [name, whatsapp, category, description, meetingPoint]);
 
   async function submit() {
-    if (name.trim().length < 2) return toast.error('Escribe tu nombre');
-    if (!/^3\d{9}$/.test(whatsapp)) return toast.error('Tu WhatsApp debe ser un celular de 10 dígitos que empiece por 3 (ej: 3201234567)');
-    if (description.trim().length < FORM_MIN_LEN) return toast.error('Describe qué necesitas (mínimo 5 caracteres)');
-    if (detectFraudSignals(description)) return toast.error(FRAUD_MESSAGE);
+    setErrorMsg('');
+    if (name.trim().length < 2) { setErrorMsg('Escribe tu nombre'); return; }
+    if (!/^3\d{9}$/.test(whatsapp)) { setErrorMsg('Tu WhatsApp debe ser un celular de 10 dígitos que empiece por 3 (ej: 3201234567)'); return; }
+    if (description.trim().length < FORM_MIN_LEN) { setErrorMsg('Describe qué necesitas (mínimo 5 caracteres)'); return; }
+    if (detectFraudSignals(description)) { setErrorMsg(FRAUD_MESSAGE); return; }
 
     setLoading(true);
     try {
@@ -96,7 +99,7 @@ export function RequestsTab({ requests, municipality, geoPos, onCreated }: Reque
       setOpen(false);
       onCreated();
     } catch (err) {
-      toast.error(friendlyError(err));
+      setErrorMsg(friendlyError(err));
     } finally {
       setLoading(false);
     }
@@ -187,13 +190,13 @@ export function RequestsTab({ requests, municipality, geoPos, onCreated }: Reque
               maxLength={15}
               className="w-full rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3.5 text-[15px] font-medium text-white placeholder:text-slate-600 outline-none focus:border-impulso-emerald/60"
             />
-            <div className="flex gap-2 overflow-x-auto no-scrollbar">
+            <div className="flex items-center gap-2 overflow-x-auto touch-pan-x overscroll-x-contain scroll-smooth py-1.5 -mx-1 px-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] sm:flex-wrap">
               {CATEGORIES.map((c) => (
                 <button
                   key={c.id}
                   onClick={() => setCategory(c.id)}
                   className={cx(
-                    'pressable shrink-0 rounded-full border px-3.5 py-2 text-xs font-bold',
+                    'pressable shrink-0 whitespace-nowrap select-none rounded-full border px-3.5 py-2 text-xs font-bold',
                     category === c.id
                       ? 'border-impulso-emerald/50 bg-impulso-emerald/15 text-impulso-mint'
                       : 'border-white/10 bg-slate-950/40 text-slate-400'
@@ -238,6 +241,13 @@ export function RequestsTab({ requests, municipality, geoPos, onCreated }: Reque
             >
               {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : 'Publicar mi pedido 📢'}
             </button>
+            {/* ⚠️ V18 · Error visible en el propio formulario (nunca oculto) */}
+            {errorMsg && (
+              <div className="flex items-start gap-2 rounded-xl border border-red-500/40 bg-red-500/15 p-3 text-red-200" role="alert">
+                <span className="mt-0.5 shrink-0">⚠️</span>
+                <p className="text-xs font-semibold leading-relaxed">{errorMsg}</p>
+              </div>
+            )}
             <p className="flex items-start gap-2 rounded-2xl border border-impulso-emerald/25 bg-impulso-emerald/5 p-3 text-[11px] font-semibold leading-relaxed text-impulso-mint">
               <span className="text-sm leading-none">🔒</span>
               <span>

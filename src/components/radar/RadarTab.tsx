@@ -47,6 +47,24 @@ export function RadarTab({
 }: RadarTabProps) {
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState<Category | 'all'>('all');
+  /** 📍 V18 · GPS VOLUNTARIO: el permiso SOLO se pide con clic explícito.
+   *  El consentimiento queda guardado; "sin GPS" oculta la tarjeta. */
+  const [gpsDeniedLocal, setGpsDeniedLocal] = useState(
+    () => localStorage.getItem('impulso_gps_consent') === 'denied',
+  );
+
+  /** Activa el GPS solo con consentimiento explícito y lo recuerda. */
+  function grantGpsConsent(): void {
+    localStorage.setItem('impulso_gps_consent', 'granted');
+    setGpsDeniedLocal(false);
+    onGeoRequest();
+  }
+
+  /** Explora sin GPS: se respeta y no se vuelve a preguntar. */
+  function skipGps(): void {
+    localStorage.setItem('impulso_gps_consent', 'denied');
+    setGpsDeniedLocal(true);
+  }
 
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -79,6 +97,32 @@ export function RadarTab({
           onSelect={onSelectOffer}
         />
 
+        {/* 📍 V18 · Radar de Cercanía VOLUNTARIO (Ley 1581 de 2012):
+            el permiso de GPS se pide SOLO con consentimiento explícito. */}
+        {!geoPos && !gpsDeniedLocal && geoStatus !== 'active' && (
+          <div className="mt-3 rounded-2xl border border-impulso-emerald/25 bg-impulso-emerald/[0.06] p-3.5">
+            <p className="text-xs font-semibold leading-relaxed text-slate-300">
+              📍 <span className="font-extrabold text-impulso-mint">Radar de Cercanía Voluntario:</span> si deseas ver a
+              cuántos metros estás de cada local y ver tu punto en el mapa, activa tu ubicación aquí. (Uso exclusivo en
+              tu pantalla, conforme a la Ley 1581 de 2012).
+            </p>
+            <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <button
+                onClick={grantGpsConsent}
+                className="pressable rounded-xl bg-impulso-emerald py-2.5 text-xs font-extrabold text-slate-950"
+              >
+                📍 Activar mi ubicación ahora
+              </button>
+              <button
+                onClick={skipGps}
+                className="pressable rounded-xl border border-white/10 bg-slate-950/40 py-2.5 text-xs font-extrabold text-slate-400"
+              >
+                ✕ Explorar sin GPS
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Búsqueda instantánea */}
         <div className="relative mt-3">
           <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-500" />
@@ -91,12 +135,12 @@ export function RadarTab({
           />
         </div>
 
-        {/* Filtros por categoría */}
-        <div className="no-scrollbar -mx-3 mt-3 flex gap-2 overflow-x-auto px-3 pb-1 lg:mx-0 lg:px-0">
+        {/* Filtros por categoría (V18 · swipe táctil fluido en celular, wrap en PC) */}
+        <div className="-mx-3 mt-3 flex items-center gap-2 overflow-x-auto touch-pan-x overscroll-x-contain scroll-smooth py-1.5 px-3 -mb-1.5 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] lg:mx-0 lg:flex-wrap lg:px-0">
           <button
             onClick={() => setCategory('all')}
             className={cx(
-              'pressable shrink-0 rounded-full border px-4 py-2 text-xs font-bold',
+              'pressable shrink-0 whitespace-nowrap select-none rounded-full border px-4 py-2 text-xs font-bold',
               category === 'all'
                 ? 'border-impulso-emerald/50 bg-impulso-emerald/15 text-impulso-mint'
                 : 'border-white/10 bg-impulso-panel text-slate-400'
@@ -109,7 +153,7 @@ export function RadarTab({
               key={c.id}
               onClick={() => setCategory(c.id)}
               className={cx(
-                'pressable shrink-0 rounded-full border px-4 py-2 text-xs font-bold',
+                'pressable shrink-0 whitespace-nowrap select-none rounded-full border px-4 py-2 text-xs font-bold',
                 category === c.id
                   ? 'border-impulso-emerald/50 bg-impulso-emerald/15 text-impulso-mint'
                   : 'border-white/10 bg-impulso-panel text-slate-400'

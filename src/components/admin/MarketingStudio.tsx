@@ -210,9 +210,6 @@ async function loadBankPhotoFresh(text: string, previousUrl: string | null): Pro
 
 // ═══════════════════════════════ Componente ═════════════════════════════════
 
-/** Texto honesto cuando aún no hay campaña generada (NUNCA copy prefabricado). */
-const EMPTY_COPY = '✨ Genera la campaña con IA y este texto aparecerá aquí';
-
 type CopyTab = 'post' | 'grupos' | 'estados' | 'video' | 'cierres';
 
 /** V13 · Destino del Código QR y del enlace del afiche. */
@@ -310,6 +307,8 @@ interface MktDraft {
   externalUrl?: string;
   /** V14: tipografía, red social objetivo y formato de Instagram. */
   fontIdx?: number;
+  /** 🔍 V18: escala del titular guardada en el borrador (0.8–1.5). */
+  headlineScale?: number;
   socialMode?: SocialMode;
   igFormat?: 'feed' | 'historia';
 }
@@ -405,6 +404,8 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
   const [themeIdx, setThemeIdx] = useState(1);
   /** V14: estilo tipográfico elegido (índice en AFFICHE_TYPOS). */
   const [fontIdx, setFontIdx] = useState(0);
+  /** 🔍 V18: escala del titular en el afiche (0.8 a 1.5 — slider en vivo). */
+  const [headlineScale, setHeadlineScale] = useState(1.15);
   const [format, setFormat] = useState<Format>('story');
   const [layout, setLayout] = useState<Layout>('bento');
   const [piece, setPiece] = useState<Piece>(0);
@@ -512,6 +513,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     if (typeof d.photoZoom === 'number' && d.photoZoom >= 1 && d.photoZoom <= 2.2) setPhotoZoom(d.photoZoom);
     if (typeof d.photoPosY === 'number' && d.photoPosY >= 0 && d.photoPosY <= 1) setPhotoPosY(d.photoPosY);
     if (typeof d.fontIdx === 'number' && d.fontIdx >= 0 && d.fontIdx < AFFICHE_TYPOS.length) setFontIdx(d.fontIdx);
+    if (typeof d.headlineScale === 'number' && d.headlineScale >= 0.8 && d.headlineScale <= 1.5) setHeadlineScale(d.headlineScale);
     if (d.socialMode === 'wa' || d.socialMode === 'ig' || d.socialMode === 'fb' || d.socialMode === 'tt') setSocialMode(d.socialMode);
     if (d.igFormat === 'feed' || d.igFormat === 'historia') setIgFormat(d.igFormat);
     draftReadyRef.current = true;
@@ -554,10 +556,11 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       photoZoom,
       photoPosY,
       fontIdx,
+      headlineScale,
       socialMode,
       igFormat,
     });
-  }, [mode, merchantId, offerId, extName, extSlogan, extProduct, extNormalPrice, extPromoPrice, extAddress, extUrl, lines, briefText, priceMode, focus, detectedCategory, texts, themeIdx, format, layout, piece, badgeMode, badgeCustom, showPrice, showBenefits, showQr, qrMode, customWaGreeting, externalUrl, customPhoto, photoZoom, photoPosY, fontIdx, socialMode, igFormat]);
+  }, [mode, merchantId, offerId, extName, extSlogan, extProduct, extNormalPrice, extPromoPrice, extAddress, extUrl, lines, briefText, priceMode, focus, detectedCategory, texts, themeIdx, format, layout, piece, badgeMode, badgeCustom, showPrice, showBenefits, showQr, qrMode, customWaGreeting, externalUrl, customPhoto, photoZoom, photoPosY, fontIdx, headlineScale, socialMode, igFormat]);
 
   /** 🧹 Empieza el estudio desde cero (borra el autoguardado). */
   function clearAllDraft(): void {
@@ -594,6 +597,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     setPhotoZoom(1);
     setPhotoPosY(0.5);
     setFontIdx(0);
+    setHeadlineScale(1.15);
     setSocialMode('wa');
     setIgFormat('feed');
     setCampaign(null);
@@ -786,6 +790,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     format,
     piece: p,
     fontStyle: AFFICHE_TYPOS[fontIdx]?.id,
+    headlineScale,
     brand: {
       name: brand.name,
       slogan: dockSlogan,
@@ -1204,24 +1209,24 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       `🔗 Enlace de la oferta: ${brand.url}`,
       `═══════════════════════════`,
       `✅ SECUENCIA DE ESTADOS (9:00 → 12:00 → 19:00)`,
-      `1️⃣ ${c?.whatsappStatusSequence.status1 || EMPTY_COPY}`,
-      `2️⃣ ${c?.whatsappStatusSequence.status2 || EMPTY_COPY}`,
-      `3️⃣ ${c?.whatsappStatusSequence.status3 || EMPTY_COPY}`,
+      `1️⃣ ${c?.whatsappStatusSequence.status1 || statusTexts.status1}`,
+      `2️⃣ ${c?.whatsappStatusSequence.status2 || statusTexts.status2}`,
+      `3️⃣ ${c?.whatsappStatusSequence.status3 || statusTexts.status3}`,
       `═══════════════════════════`,
       `📣 COPY PAS (Facebook / Instagram)`,
-      c?.socialMediaCopy.pas || EMPTY_COPY,
+      c?.socialMediaCopy.pas || fbPostText,
       `📣 COPY AIDA FLASH (Grupos / Clasificados)`,
-      c?.socialMediaCopy.aida || EMPTY_COPY,
+      c?.socialMediaCopy.aida || waSocialText,
       `═══════════════════════════`,
       `🎬 GUION REEL 15 SEGUNDOS`,
-      `· 0-3 s: ${c?.videoReelScript.t0_3 || EMPTY_COPY}`,
-      `· 3-10 s: ${c?.videoReelScript.t3_10 || EMPTY_COPY}`,
-      `· 10-15 s: ${c?.videoReelScript.t10_15 || EMPTY_COPY}`,
+      `· 0-3 s: ${c?.videoReelScript.t0_3 || videoShots.s1}`,
+      `· 3-10 s: ${c?.videoReelScript.t3_10 || videoShots.s2}`,
+      `· 10-15 s: ${c?.videoReelScript.t10_15 || videoShots.s3}`,
       `═══════════════════════════`,
       `💬 RESPUESTAS DE CIERRE PARA EL COMERCIANTE`,
-      `· ¿Precio? ${c?.salesClosingTemplates.priceReply || EMPTY_COPY}`,
-      `· Indeciso: ${c?.salesClosingTemplates.hesitantReply || EMPTY_COPY}`,
-      `· Despacho: ${c?.salesClosingTemplates.dispatchUpsell || EMPTY_COPY}`,
+      `· ¿Precio? ${c?.salesClosingTemplates.priceReply || closingTexts.priceReply}`,
+      `· Indeciso: ${c?.salesClosingTemplates.hesitantReply || closingTexts.hesitantReply}`,
+      `· Despacho: ${c?.salesClosingTemplates.dispatchUpsell || closingTexts.dispatchUpsell}`,
       `═══════════════════════════`,
       `🧩 4 VERSIONES PARA COMPARTIR (anti-spam)`,
       dispatchMsgs.map((v, i) => `— Versión ${i + 1} —\n${v}`).join('\n\n'),
@@ -1333,6 +1338,47 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     ].join('\n');
   }, [T, brand, primaryLink, mode, merchantId]);
 
+  /** 🟢 V18 · Secuencia de 3 Estados de WhatsApp derivada del titular/marca:
+   *  siempre lista desde el primer segundo (la IA la pisa si ya se generó). */
+  const statusTexts = useMemo(() => {
+    const hook = `${T.plain} ${T.highlight}`.trim();
+    const hookUp = hook ? `${hook.charAt(0).toUpperCase()}${hook.slice(1)}` : 'Promoción de hoy';
+    const price = brand.promoPrice != null ? ` SOLO *${formatCOP(brand.promoPrice)}*` : '';
+    const ben = T.benefits.filter(Boolean);
+    const wa = brand.phoneDisplay || 'nuestro WhatsApp';
+    return {
+      status1: `🚨 ${hookUp}\n${ben[0] || T.sub.trim() || 'Disponible hoy en tu municipio'}\n📍 ${brand.address || brand.municipality || 'Gachetá'}`,
+      status2: `👀 ¿Ya lo viste?\n${brand.product || hookUp}${price}\n${ben.slice(0, 2).map((b) => `✅ ${b}`).join('\n') || '✅ Calidad garantizada'}\n🔗 ${primaryLink}`,
+      status3: `⏳ ¡Últimas unidades!\n${hookUp}\n💬 Escríbeme AHORA y te lo aparto 👉 *${wa}*`,
+    };
+  }, [T, brand, primaryLink]);
+
+  /** 🎬 V18 · Guion de 15 s derivado (toma por toma) — siempre con contenido. */
+  const videoShots = useMemo(() => {
+    const hook = `${T.plain} ${T.highlight}`.trim();
+    const price = brand.promoPrice != null ? ` Hoy por solo ${formatCOP(brand.promoPrice)}` : '';
+    const ben = T.benefits.filter(Boolean);
+    const wa = brand.phoneDisplay || 'el WhatsApp del anuncio';
+    return {
+      s1: `Primer plano del producto con la frase «${hook || 'Promoción de hoy'}»: saluda, muestra el producto y di de qué se trata`,
+      s2: `Demostración de ${brand.product || hook || 'la promoción'}${price} mientras destacas: «${ben[0] || T.sub.trim() || 'Frescura y calidad garantizada'}»`,
+      s3: `Cierre invitando a escribir por WhatsApp (${wa}) y menciona el punto de entrega: ${brand.address || brand.municipality || 'Gachetá'}`,
+    };
+  }, [T, brand]);
+
+  /** 🤝 V18 · Respuestas de cierre derivadas (precio / indeciso / despacho). */
+  const closingTexts = useMemo(() => {
+    const ben = T.benefits.filter(Boolean);
+    const priceLine = brand.promoPrice != null
+      ? `está a ${formatCOP(brand.promoPrice)}${brand.normalPrice != null && brand.normalPrice > brand.promoPrice ? ` (antes ${formatCOP(brand.normalPrice)})` : ''}`
+      : `aprovecha la promoción de hoy`;
+    return {
+      priceReply: `¡Hola! 😊 ${brand.product || 'La promoción'} ${priceLine}. Incluye ${ben[0] || T.sub.trim() || 'todo lo publicado'}. ¿Te la aparto?`,
+      hesitantReply: `Sin compromiso 😄 te lo aparto sin costo y lo confirmas al pasar por el local (${brand.address || brand.municipality || 'Gachetá'}). ¿Te separo ${brand.product || 'la promoción'}?`,
+      dispatchUpsell: `¡Listo! 🛵 Apartado confirmado para ${brand.address || brand.municipality || 'el local'}. ¿Le agregas algo más? Tenemos ${ben[1] || ben[0] || 'más productos a buen precio'}`,
+    };
+  }, [T, brand]);
+
   /** 🎵 Guion de 15 s para TikTok/Reels (teleprompter gigante). */
   const ttScript = useMemo(() => {
     const v = campaign?.videoReelScript;
@@ -1342,9 +1388,13 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
         v?.t3_10 ? `· 3-10 s: ${v.t3_10}` : '',
         v?.t10_15 ? `· 10-15 s: ${v.t10_15}` : '',
       ].filter(Boolean).join('\n') ||
-      '🎬 Genera la campaña con IA (botón ✨) y aquí aparece tu guion de 15 segundos listo para leer a cámara'
+      [
+        `· 0-3 s: ${videoShots.s1}`,
+        `· 3-10 s: ${videoShots.s2}`,
+        `· 10-15 s: ${videoShots.s3}`,
+      ].join('\n')
     );
-  }, [campaign]);
+  }, [campaign, videoShots]);
 
   /** 🚀 LANZADOR EN 1 CLIC: exporta la pieza en el formato exacto de la red,
    *  comparte con la app del teléfono si el navegador lo permite; en PC
@@ -1824,6 +1874,24 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
               </button>
             ))}
           </div>
+          {/* 🔍 V18 · Slider del tamaño del titular (cambia el afiche en vivo) */}
+          <div>
+            <p className="text-[10px] font-bold text-slate-400">
+              🔍 Tamaño del Titular ({Math.round(headlineScale * 100)}%)
+            </p>
+            <input
+              type="range"
+              min={0.8}
+              max={1.5}
+              step={0.05}
+              value={headlineScale}
+              onChange={(e) => setHeadlineScale(Number(e.target.value))}
+              className="w-full accent-impulso-emerald"
+            />
+            <p className="mt-0.5 text-[9px] font-semibold text-slate-500">
+              Agranda el texto principal del afiche en vivo (80% a 150%).
+            </p>
+          </div>
           <p className={labelCls}>📐 Layout · 16 arquitecturas (cambian el afiche en vivo)</p>
           <div className="grid grid-cols-2 gap-1.5">
             {AFFICHE_LAYOUTS.map((l) => (
@@ -2127,7 +2195,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
                 Texto persuasivo listo para pegar debajo de la imagen cuando la publiques en Facebook, Instagram o grupos.
               </p>
               <CopyBlock
-                text={campaign?.socialMediaCopy.pas || EMPTY_COPY}
+                text={campaign?.socialMediaCopy.pas || fbPostText}
                 tag="Anuncio completo para publicar HOY · Facebook / Instagram"
                 onCopy={copyText}
                 copied={copied}
@@ -2142,7 +2210,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
                 Mensaje directo y al grano diseñado para enviar en grupos del municipio sin que la gente se aburra de leer.
               </p>
               <CopyBlock
-                text={campaign?.socialMediaCopy.aida || EMPTY_COPY}
+                text={campaign?.socialMediaCopy.aida || waSocialText}
                 tag="Anuncio corto para grupos de WhatsApp"
                 onCopy={copyText}
                 copied={copied}
@@ -2157,7 +2225,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
                 Sube estos 3 textos en tus Estados de WhatsApp a lo largo del día para antojar y cerrar ventas hoy mismo.
               </p>
               <CopyBlock
-                text={campaign?.whatsappStatusSequence.status1 || EMPTY_COPY}
+                text={campaign?.whatsappStatusSequence.status1 || statusTexts.status1}
                 tag="1 · Gancho de atención inmediata (9:00 - 11:00)"
                 onCopy={copyText}
                 copied={copied}
@@ -2165,7 +2233,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
                 onWa={(t) => window.open(`https://wa.me/?text=${encodeURIComponent(t)}`, '_blank', 'noopener,noreferrer')}
               />
               <CopyBlock
-                text={campaign?.whatsappStatusSequence.status2 || EMPTY_COPY}
+                text={campaign?.whatsappStatusSequence.status2 || statusTexts.status2}
                 tag="2 · Demostración de beneficios (12:00)"
                 onCopy={copyText}
                 copied={copied}
@@ -2173,7 +2241,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
                 onWa={(t) => window.open(`https://wa.me/?text=${encodeURIComponent(t)}`, '_blank', 'noopener,noreferrer')}
               />
               <CopyBlock
-                text={campaign?.whatsappStatusSequence.status3 || EMPTY_COPY}
+                text={campaign?.whatsappStatusSequence.status3 || statusTexts.status3}
                 tag="3 · Llamado urgente a escribir YA (19:00)"
                 onCopy={copyText}
                 copied={copied}
@@ -2187,9 +2255,9 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
               <p className="text-[11px] font-semibold leading-relaxed text-slate-400">
                 Instrucciones sencillas en 3 pasos para que tú o el dueño del negocio graben un video ganador con el celular.
               </p>
-              <CopyBlock text={campaign?.videoReelScript.t0_3 || EMPTY_COPY} tag="🎥 Toma 1 · Primeros 3 seg: qué mostrar y qué decir" onCopy={copyText} copied={copied} inputCls={inputCls} />
-              <CopyBlock text={campaign?.videoReelScript.t3_10 || EMPTY_COPY} tag="🎥 Toma 2 · Segundos 4 al 10: demostración" onCopy={copyText} copied={copied} inputCls={inputCls} />
-              <CopyBlock text={campaign?.videoReelScript.t10_15 || EMPTY_COPY} tag="🎥 Toma 3 · Segundos 11 al 15: cierre e invitación" onCopy={copyText} copied={copied} inputCls={inputCls} />
+              <CopyBlock text={campaign?.videoReelScript.t0_3 || videoShots.s1} tag="🎥 Toma 1 · Primeros 3 seg: qué mostrar y qué decir" onCopy={copyText} copied={copied} inputCls={inputCls} />
+              <CopyBlock text={campaign?.videoReelScript.t3_10 || videoShots.s2} tag="🎥 Toma 2 · Segundos 4 al 10: demostración" onCopy={copyText} copied={copied} inputCls={inputCls} />
+              <CopyBlock text={campaign?.videoReelScript.t10_15 || videoShots.s3} tag="🎥 Toma 3 · Segundos 11 al 15: cierre e invitación" onCopy={copyText} copied={copied} inputCls={inputCls} />
             </>
           )}
           {copyTab === 'cierres' && (
@@ -2197,9 +2265,9 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
               <p className="text-[11px] font-semibold leading-relaxed text-slate-400">
                 Cuando un cliente escriba al WhatsApp preguntando "¿Precio?" o "¿Información?", responde con estos mensajes para asegurar la venta.
               </p>
-              <CopyBlock text={campaign?.salesClosingTemplates.priceReply || EMPTY_COPY} tag="💸 Cuando preguntan ¿precio?" onCopy={copyText} copied={copied} inputCls={inputCls} />
-              <CopyBlock text={campaign?.salesClosingTemplates.hesitantReply || EMPTY_COPY} tag="🤔 Cliente indeciso o que deja de responder" onCopy={copyText} copied={copied} inputCls={inputCls} />
-              <CopyBlock text={campaign?.salesClosingTemplates.dispatchUpsell || EMPTY_COPY} tag="🛵 Confirmación + venta adicional" onCopy={copyText} copied={copied} inputCls={inputCls} />
+              <CopyBlock text={campaign?.salesClosingTemplates.priceReply || closingTexts.priceReply} tag="💸 Cuando preguntan ¿precio?" onCopy={copyText} copied={copied} inputCls={inputCls} />
+              <CopyBlock text={campaign?.salesClosingTemplates.hesitantReply || closingTexts.hesitantReply} tag="🤔 Cliente indeciso o que deja de responder" onCopy={copyText} copied={copied} inputCls={inputCls} />
+              <CopyBlock text={campaign?.salesClosingTemplates.dispatchUpsell || closingTexts.dispatchUpsell} tag="🛵 Confirmación + venta adicional" onCopy={copyText} copied={copied} inputCls={inputCls} />
             </>
           )}
         </div>

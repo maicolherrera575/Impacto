@@ -935,7 +935,12 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
       />
 
       {/* Caja de recarga de créditos (Nequi + IA Vision) */}
-      <CreditsModal open={creditsOpen} onClose={() => setCreditsOpen(false)} profile={profile} />
+      <CreditsModal
+        open={creditsOpen}
+        onClose={() => setCreditsOpen(false)}
+        profile={profile}
+        onCreditsApproved={(newCredits) => onProfileChange({ ...profile, credits: newCredits })}
+      />
 
       {/* Confirmación en 2 pasos de "Liberar" (evita toques accidentales) */}
       <ModalShell open={confirmRelease !== null} onClose={() => !updating && setConfirmRelease(null)}>
