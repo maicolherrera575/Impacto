@@ -1676,7 +1676,16 @@ alter table public.credit_orders enable row level security;
 create unique index if not exists credit_orders_reference_active_idx
   on public.credit_orders (reference_code) where status in ('pending', 'approved');
 
--- 10.3 El comerciante envía su comprobante (tras el análisis de IA Vision)
+-- 10.3 El comerciante envía su comprobante tras pagar (V17 · VALIDACIÓN ULTRA ESTRICTA)
+-- Guardias automáticas y en orden:
+--   1) Anti-fuerza bruta: máx. 5 intentos por 15 min (SOLO lectura: un intento
+--      fallido NO escribe nada → la base de datos jamás se satura).
+--   2) Formato del código: alfanumérico 4-40; un celular Nequi (10 dígitos
+--      que empiezan por 3) NO es un comprobante y se rechaza al instante.
+--   3) YA CANJEADO: la misma referencia no puede existir dos veces en
+--      pendientes/aprobadas de TODA la plataforma (nadie la vuelve a cargar).
+--   4) CÓDIGO QUEMADO: si otra cuenta ya envió esa referencia y fue rechazada,
+--      queda invalidada para todos los demás (anti-reciclaje de códigos).
 create or replace function public.submit_credit_order_rpc(
   p_package_name      text,
   p_credits_requested integer,
@@ -1693,6 +1702,7 @@ set search_path = ''
 as $$
 declare
   v_order public.credit_orders;
+  v_code  text;
 begin
   if auth.uid() is null then
     raise exception 'Debes iniciar sesión';
@@ -1703,9 +1713,6 @@ begin
   if p_amount_cop is null or p_amount_cop < 1000 then
     raise exception 'El valor reportado no es válido';
   end if;
-  if char_length(trim(p_reference_code)) < 3 or char_length(trim(p_reference_code)) > 40 then
-    raise exception 'Escribe la referencia del comprobante (entre 3 y 40 caracteres)';
-  end if;
   if p_payment_method not in ('Nequi', 'Daviplata', 'Bancolombia') then
     raise exception 'Método de pago inválido';
   end if;
@@ -1713,14 +1720,47 @@ begin
     raise exception 'El comprobante es demasiado pesado. Intenta con otra captura';
   end if;
 
-  -- Candado anti-doble cobro (redundante con el índice único, con mensaje amable)
+  -- Normalización: sin espacios, mayúsculas — un código es un código exacto
+  v_code := upper(btrim(coalesce(p_reference_code, '')));
+  if char_length(v_code) < 4 or char_length(v_code) > 40 then
+    raise exception 'Escribe o escanea el código del comprobante (entre 4 y 40 caracteres)';
+  end if;
+  if v_code !~ '^[A-Z0-9\.\-]+$' then
+    raise exception 'CÓDIGO_INVALIDO: el código solo puede tener letras, números, puntos o guiones. Copia la referencia EXACTA de tu app';
+  end if;
+  -- Un celular de Nequi no es un comprobante (error clásico que se caza aquí)
+  if v_code ~ '^3[0-9]{9}$' then
+    raise exception 'Escribiste un NÚMERO de celular, no el código del comprobante. El código aparece en la pantalla de confirmación de tu pago';
+  end if;
+
+  -- 🛡️ Anti-fuerza bruta: lectura pura, cero escrituras en intentos fallidos
+  if (
+    select count(*) from public.credit_orders c
+     where c.merchant_id = auth.uid()
+       and c.created_at > now() - interval '15 minutes'
+  ) >= 5 then
+    raise exception 'ESPERA: ya enviaste 5 comprobantes en los últimos 15 minutos. Espera un momento para evitar errores';
+  end if;
+
+  -- 🛡️ YA CANJEADO: único en toda la plataforma (pendiente o aprobado)
   if exists (
     select 1
       from public.credit_orders c
-     where upper(c.reference_code) = upper(trim(p_reference_code))
+     where upper(c.reference_code) = v_code
        and c.status in ('pending', 'approved')
   ) then
-    raise exception 'REFERENCIA_YA_ENVIADA: esa referencia ya fue reportada antes. Revisa el número exacto del comprobante';
+    raise exception 'YA_CANJEADO: ese código ya fue usado para recargar en Impulso. Cada comprobante solo sirve UNA vez — revisa que sea el pago nuevo';
+  end if;
+
+  -- 🛡️ CÓDIGO QUEMADO: rechazado por otra cuenta → invalidado para los demás
+  if exists (
+    select 1
+      from public.credit_orders c
+     where upper(c.reference_code) = v_code
+       and c.status = 'rejected'
+       and c.merchant_id <> auth.uid()
+  ) then
+    raise exception 'CODIGO_INVALIDADO: ese comprobante ya fue revisado y rechazado por otra cuenta. Envía el pago que acabas de hacer tú';
   end if;
 
   insert into public.credit_orders (
@@ -1728,7 +1768,7 @@ begin
     payment_method, reference_code, receipt_thumb, ai_verification_note, status
   ) values (
     auth.uid(), trim(p_package_name), p_credits_requested, p_amount_cop,
-    p_payment_method, trim(p_reference_code), p_receipt_thumb, p_ai_note, 'pending'
+    p_payment_method, v_code, p_receipt_thumb, p_ai_note, 'pending'
   )
   returning * into v_order;
 
