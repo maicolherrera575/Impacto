@@ -35,10 +35,11 @@ import {
   synthesizeSmartCampaignFromBrief,
 } from '../../services/gemini.service';
 import type { ArtDirection, CampaignFocus, MarketingCampaign, PriceMode } from '../../services/gemini.service';
-import { loadBankPhoto, isPollinationsBlockImage } from '../../utils/commercialPhotoBank';
+import { loadBankPhoto, isPollinationsBlockImage, guessPhotoCategory, PHOTO_BANK, PHOTO_GALLERY_TABS } from '../../utils/commercialPhotoBank';
 import {
   AfficheArtboard,
   AFFICHE_THEMES,
+  AFFICHE_TYPOS,
 } from './AfficheArtboard';
 import type { AfficheFormat, AfficheLayout, AffichePiece, AfficheProps } from './AfficheArtboard';
 import { useToast } from '../ui/Toast';
@@ -113,22 +114,6 @@ const BADGE_PRESETS: Array<{ id: string; label: string }> = [
   { id: 'verificado', label: '✅ NEGOCIO VERIFICADO' },
 ];
 
-/** Presets manuales HD (el banco automático vive en commercialPhotoBank). */
-const PHOTO_PRESETS: Array<{ id: string; label: string }> = [
-  { id: 'photo-1568901346375-23c9450c5869', label: '🍔 Gastronomía' },
-  { id: 'photo-1509440159596-0249088772ff', label: '🥐 Panadería/Café' },
-  { id: 'photo-1544025162-d76694265947', label: '🥩 Asadero/Carnes' },
-  { id: 'photo-1500595046743-cd271d694d30', label: '🐄 Agro/Campo' },
-  { id: 'photo-1606811841689-23dfddce3e95', label: '🦷 Odontología' },
-  { id: 'photo-1560066984-138dadb34c00', label: '💅 Belleza/Spa' },
-  { id: 'photo-1503951914875-452162b0f3f1', label: '💈 Barbería' },
-  { id: 'photo-1552053831-71594a27632d', label: '🐶 Mascotas' },
-  { id: 'photo-1460925895917-afdab627c93f', label: '📈 Marketing' },
-  { id: 'photo-1498050108023-c5249f4df085', label: '💻 Tecnología' },
-  { id: 'photo-1504148455328-c376907d081c', label: '🛠️ Ferretería' },
-  { id: 'photo-1501700493788-fa1a4fc9fe62', label: '🚚 Transporte' },
-];
-
 const FOCUS_OPTIONS: Array<{ id: CampaignFocus; label: string }> = [
   { id: 'remate', label: '🔥 Remate de precios' },
   { id: 'prestigio', label: '👑 Prestigio / premium' },
@@ -143,9 +128,6 @@ const FOCUS_PHOTO_MOODS: Record<CampaignFocus, string> = {
   confianza: 'friendly team at work, natural daylight, trustworthy atmosphere, 8k commercial photography, no text, no logos',
   viral: 'eye-catching viral composition, bold colors, dynamic motion energy, 8k social media photography, no text, no logos',
 };
-
-const PRESET_URL = (id: string): string =>
-  `https://images.unsplash.com/${id}?auto=format&fit=crop&w=1080&q=85`;
 
 // ── Utilidades ───────────────────────────────────────────────────────────────
 
@@ -251,6 +233,31 @@ const QR_META: Record<QrMode, { label: string; hint: string }> = {
   externo: { label: '🌐 ESCANEA: VISITA NUESTRO ENLACE', hint: 'Escanea para visitar nuestra página o Instagram oficial' },
 };
 
+/** V14 · Redes sociales objetivo del lanzador en 1 clic. */
+type SocialMode = 'wa' | 'ig' | 'fb' | 'tt';
+
+const SOCIAL_MODES: Array<{ id: SocialMode; icon: string; label: string; hint: string }> = [
+  { id: 'wa', icon: '🟢', label: 'WhatsApp', hint: 'Estados 9:16 + grupos + difusión' },
+  { id: 'ig', icon: '📸', label: 'Instagram', hint: 'Post 1:1 / Historia + hashtags IA' },
+  { id: 'fb', icon: '📘', label: 'Facebook', hint: 'Muro, grupos y Marketplace' },
+  { id: 'tt', icon: '🎵', label: 'TikTok / Reels', hint: 'Guion 15 s + teleprompter' },
+];
+
+/** Etiqueta del botón lanzador según la red elegida. */
+const SOCIAL_LAUNCH_LABEL: Record<SocialMode, string> = {
+  wa: '📲 Enviar Afiche + Texto a WhatsApp Ahora',
+  ig: '📸 Preparar y Publicar en Instagram',
+  fb: '📘 Publicar en Facebook en 1 Clic',
+  tt: '🎵 Preparar mi Publicación en TikTok',
+};
+
+/** Payload de navigator.share (compatible con navegadores sin canShare). */
+interface SharePayload {
+  files?: File[];
+  text?: string;
+  title?: string;
+}
+
 /** Clave de autoguardado del estudio (V9: llave limpia, sin herencia corrupta). */
 const MARKETING_DRAFT_KEY = 'impulso_studio_v9_clean';
 
@@ -301,6 +308,10 @@ interface MktDraft {
   qrMode?: QrMode;
   customWaGreeting?: string;
   externalUrl?: string;
+  /** V14: tipografía, red social objetivo y formato de Instagram. */
+  fontIdx?: number;
+  socialMode?: SocialMode;
+  igFormat?: 'feed' | 'historia';
 }
 
 const DEFAULT_LINES: WaLine[] = [
@@ -392,6 +403,8 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
 
   // ── Estudio gráfico (V11: artboard HTML en vez de canvas 2D) ──
   const [themeIdx, setThemeIdx] = useState(1);
+  /** V14: estilo tipográfico elegido (índice en AFFICHE_TYPOS). */
+  const [fontIdx, setFontIdx] = useState(0);
   const [format, setFormat] = useState<Format>('story');
   const [layout, setLayout] = useState<Layout>('bento');
   const [piece, setPiece] = useState<Piece>(0);
@@ -405,6 +418,14 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
   const [qrMode, setQrMode] = useState<QrMode>('wa');
   const [customWaGreeting, setCustomWaGreeting] = useState('');
   const [externalUrl, setExternalUrl] = useState('');
+
+  // ── V14 · Lanzador por red social + galería visual + teleprompter ──
+  const [socialMode, setSocialMode] = useState<SocialMode>('wa');
+  const [igFormat, setIgFormat] = useState<'feed' | 'historia'>('feed');
+  const [teleprompterOpen, setTeleprompterOpen] = useState(false);
+  const [galleryTab, setGalleryTab] = useState<string>('sugeridas');
+  /** Refs de los 2 artboards dedicados al lanzador (story 9:16 y square 1:1). */
+  const socialRefs = useRef<{ story: HTMLDivElement | null; square: HTMLDivElement | null }>({ story: null, square: null });
 
   // ── V13 · ROTACIÓN GARANTIZADA: jamás repetir tema, arquitectura o foto ──
   const lastThemeIdxRef = useRef(themeIdx);
@@ -490,6 +511,9 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     if (typeof d.customPhoto === 'string' || d.customPhoto === null) setCustomPhoto(d.customPhoto);
     if (typeof d.photoZoom === 'number' && d.photoZoom >= 1 && d.photoZoom <= 2.2) setPhotoZoom(d.photoZoom);
     if (typeof d.photoPosY === 'number' && d.photoPosY >= 0 && d.photoPosY <= 1) setPhotoPosY(d.photoPosY);
+    if (typeof d.fontIdx === 'number' && d.fontIdx >= 0 && d.fontIdx < AFFICHE_TYPOS.length) setFontIdx(d.fontIdx);
+    if (d.socialMode === 'wa' || d.socialMode === 'ig' || d.socialMode === 'fb' || d.socialMode === 'tt') setSocialMode(d.socialMode);
+    if (d.igFormat === 'feed' || d.igFormat === 'historia') setIgFormat(d.igFormat);
     draftReadyRef.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -529,8 +553,11 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       customPhoto,
       photoZoom,
       photoPosY,
+      fontIdx,
+      socialMode,
+      igFormat,
     });
-  }, [mode, merchantId, offerId, extName, extSlogan, extProduct, extNormalPrice, extPromoPrice, extAddress, extUrl, lines, briefText, priceMode, focus, detectedCategory, texts, themeIdx, format, layout, piece, badgeMode, badgeCustom, showPrice, showBenefits, showQr, qrMode, customWaGreeting, externalUrl, customPhoto, photoZoom, photoPosY]);
+  }, [mode, merchantId, offerId, extName, extSlogan, extProduct, extNormalPrice, extPromoPrice, extAddress, extUrl, lines, briefText, priceMode, focus, detectedCategory, texts, themeIdx, format, layout, piece, badgeMode, badgeCustom, showPrice, showBenefits, showQr, qrMode, customWaGreeting, externalUrl, customPhoto, photoZoom, photoPosY, fontIdx, socialMode, igFormat]);
 
   /** 🧹 Empieza el estudio desde cero (borra el autoguardado). */
   function clearAllDraft(): void {
@@ -566,6 +593,9 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     setCustomPhoto(null);
     setPhotoZoom(1);
     setPhotoPosY(0.5);
+    setFontIdx(0);
+    setSocialMode('wa');
+    setIgFormat('feed');
     setCampaign(null);
     toast.success('🧹 Borrador limpio: estudio en blanco');
   }
@@ -755,6 +785,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     layout,
     format,
     piece: p,
+    fontStyle: AFFICHE_TYPOS[fontIdx]?.id,
     brand: {
       name: brand.name,
       slogan: dockSlogan,
@@ -1022,12 +1053,13 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     }
   }
 
-  /** Preset fotográfico HD por rubro (Unsplash CORS-safe). */
-  async function usePreset(preset: { id: string; label: string }): Promise<void> {
+  /** 🖼️ V14 · Aplica cualquier URL del banco/galería convirtiéndola a dataURL
+   *  (misma ruta CORS-safe de los presets): el PNG exportado nunca se mancha. */
+  async function applyPhotoUrl(url: string, label: string): Promise<void> {
     setPhotoBusy(true);
     const genId = ++photoGenRef.current;
     try {
-      const img = await loadImage(PRESET_URL(preset.id));
+      const img = await loadImage(url);
       const off = document.createElement('canvas');
       off.width = 1080;
       off.height = 1080;
@@ -1036,10 +1068,10 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       octx.drawImage(img, 0, 0, 1080, 1080);
       if (photoGenRef.current === genId) {
         setCustomPhoto(off.toDataURL('image/jpeg', 0.9));
-        toast.success(`${preset.label}: foto HD aplicada`);
+        toast.success(`${label}: foto HD aplicada al afiche`);
       }
     } catch {
-      toast.error('Esa foto no está disponible ahora: elige otra o sube la tuya');
+      toast.error('Esa foto no está disponible ahora: elige otra miniatura');
     } finally {
       setPhotoBusy(false);
     }
@@ -1197,6 +1229,176 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     await copyText(kit, 'kit', '📋 Kit completo');
   }
 
+  // ═══ V14 · GALERÍA VISUAL + LANZADOR POR RED SOCIAL ══════════════════════
+
+  /** Fotos de la pestaña de galería activa ("sugeridas" usa el rubro del brief). */
+  const galleryPhotos = useMemo<string[]>(() => {
+    const tab = PHOTO_GALLERY_TABS.find((x) => x.id === galleryTab) ?? PHOTO_GALLERY_TABS[0];
+    const cats =
+      tab.id === 'sugeridas'
+        ? [guessPhotoCategory(briefText.trim() || `${brand.name} ${brand.slogan} ${brand.product}`)]
+        : tab.cats;
+    return cats.flatMap((c) => PHOTO_BANK[c] ?? []);
+  }, [galleryTab, briefText, brand.name, brand.slogan, brand.product]);
+
+  /** Cambia de red social y auto-adapta el lienzo al formato de esa red. */
+  function selectSocial(m: SocialMode): void {
+    setSocialMode(m);
+    setFormat(m === 'wa' || m === 'tt' || (m === 'ig' && igFormat === 'historia') ? 'story' : 'square');
+  }
+
+  /** Alterna Post Feed 1:1 ↔ Historia 9:16 en Instagram (y el lienzo sigue). */
+  function setIgFormatSync(v: 'feed' | 'historia'): void {
+    setIgFormat(v);
+    setFormat(v === 'historia' ? 'story' : 'square');
+  }
+
+  /** 🟢 Texto WhatsApp con *negritas* y _cursivas_ nativas. */
+  const waSocialText = useMemo(() => {
+    const hook = `${T.plain} ${T.highlight}`.trim();
+    const price = brand.promoPrice != null ? ` a SOLO *${formatCOP(brand.promoPrice)}*` : '';
+    return [
+      `🚨 *${hook.toUpperCase()}*`,
+      `_${T.sub.trim()}_`,
+      `${brand.product || 'Promoción de hoy'}${price} · 📍 ${brand.address || brand.municipality || 'Gachetá'}`,
+      T.benefits.filter(Boolean).map((b) => `✅ ${b}`).join('\n'),
+      `💬 Escribe ya 👉 *${brand.phoneDisplay || 'nuestro WhatsApp'}*`,
+      `🔗 ${primaryLink}`,
+    ].join('\n');
+  }, [T, brand, primaryLink]);
+
+  /** 📸 15 hashtags estratégicos del municipio + rubro + producto. */
+  const igHashtags = useMemo(() => {
+    const words = (src: string): string[] =>
+      src
+        .toLowerCase()
+        .replace(/[^a-záéíóúñü\s]/gi, '')
+        .split(/\s+/)
+        .filter((w) => w.length > 3)
+        .slice(0, 4)
+        .map((w) => `#${w.charAt(0).toUpperCase()}${w.slice(1)}`);
+    const base = [
+      `#${(brand.municipality || 'Gachetá').replace(/\s+/g, '')}`,
+      '#Guavio',
+      '#Cundinamarca',
+      '#Colombia',
+      ...words(detectedCategory),
+      ...words(brand.product),
+      '#ComprasLocales',
+      '#ApoyaLoNuestro',
+      '#EmprendimientoLocal',
+      '#OfertasHoy',
+      '#NegocioLocal',
+      '#PromoDelDia',
+    ];
+    return [...new Set(base)].slice(0, 15).join(' ');
+  }, [detectedCategory, brand.product, brand.municipality]);
+
+  /** 📸 Descripción de Instagram con hashtags. */
+  const igCaption = useMemo(
+    () =>
+      [
+        `${brand.emoji} ${`${T.plain} ${T.highlight}`.trim()}`,
+        T.sub.trim(),
+        T.cta.trim(),
+        `📍 ${brand.address || brand.municipality || 'Gachetá'} · 💬 ${brand.phoneDisplay || 'Escríbenos por DM'}`,
+        '',
+        igHashtags,
+      ].join('\n'),
+    [T, brand, igHashtags],
+  );
+
+  /** 📘 Anuncio de alta conversión para grupos/marketplace con enlace al perfil. */
+  const fbPostText = useMemo(() => {
+    const hook = `${T.plain} ${T.highlight}`.trim();
+    const profileUrl =
+      mode === 'plataforma' && merchantId
+        ? `${window.location.origin}${window.location.pathname}?comercio=${merchantId}`
+        : primaryLink;
+    const priceLine =
+      brand.promoPrice != null
+        ? `💰 HOY por solo ${formatCOP(brand.promoPrice)}${
+            brand.normalPrice != null && brand.normalPrice > brand.promoPrice ? ` (antes ${formatCOP(brand.normalPrice)})` : ''
+          }`
+        : `💬 ${T.priceLabel.trim()}`;
+    return [
+      `🔥 ${hook.toUpperCase()} 🔥`,
+      '',
+      T.sub.trim(),
+      T.benefits.filter(Boolean).map((b) => `✅ ${b}`).join('\n'),
+      priceLine,
+      `📍 ${brand.address || brand.municipality || 'Gachetá'}`,
+      `📲 Escríbenos ya por WhatsApp: ${primaryLink}`,
+      `🏪 Verifica el local en Impulso: ${profileUrl}`,
+    ].join('\n');
+  }, [T, brand, primaryLink, mode, merchantId]);
+
+  /** 🎵 Guion de 15 s para TikTok/Reels (teleprompter gigante). */
+  const ttScript = useMemo(() => {
+    const v = campaign?.videoReelScript;
+    return (
+      [
+        v?.t0_3 ? `· 0-3 s: ${v.t0_3}` : '',
+        v?.t3_10 ? `· 3-10 s: ${v.t3_10}` : '',
+        v?.t10_15 ? `· 10-15 s: ${v.t10_15}` : '',
+      ].filter(Boolean).join('\n') ||
+      '🎬 Genera la campaña con IA (botón ✨) y aquí aparece tu guion de 15 segundos listo para leer a cámara'
+    );
+  }, [campaign]);
+
+  /** 🚀 LANZADOR EN 1 CLIC: exporta la pieza en el formato exacto de la red,
+   *  comparte con la app del teléfono si el navegador lo permite; en PC
+   *  descarga el PNG HD, copia el texto optimizado y abre la red. */
+  async function launchSocial(m: SocialMode): Promise<void> {
+    const f: Format = m === 'wa' || m === 'tt' || (m === 'ig' && igFormat === 'historia') ? 'story' : 'square';
+    const node = f === 'story' ? socialRefs.current.story : socialRefs.current.square;
+    if (!node) return;
+    const text = m === 'wa' ? waSocialText : m === 'ig' ? igCaption : m === 'fb' ? fbPostText : ttScript;
+    const filename = `${slug(brand.name) || 'impulso'}-${m}-${f === 'story' ? '1080x1920' : '1080x1080'}.png`;
+    setExporting(true);
+    try {
+      const dataUrl = await toPng(node, { ...pngOptions(), height: f === 'story' ? 960 : 540 });
+      const nav = navigator as Navigator & {
+        canShare?: (data: SharePayload) => boolean;
+        share?: (data: SharePayload) => Promise<void>;
+      };
+      if (m !== 'tt' && nav.canShare && nav.share) {
+        try {
+          const blob = await (await fetch(dataUrl)).blob();
+          const file = new File([blob], filename, { type: 'image/png' });
+          if (nav.canShare({ files: [file] })) {
+            await nav.share({ files: [file], text, title: brand.name || 'Impulso' });
+            toast.success('📲 ¡Imagen HD + texto enviados a la app de la red social!');
+            return;
+          }
+        } catch {
+          /* Compartir cancelado o no soportado: continuar con el plan B */
+        }
+      }
+      triggerDownload(dataUrl, filename);
+      void copyText(
+        text,
+        `social-${m}`,
+        m === 'wa' ? 'Texto de WhatsApp' : m === 'ig' ? 'Descripción + hashtags' : m === 'fb' ? 'Texto del anuncio' : 'Guion del video',
+      );
+      const openUrl: Record<SocialMode, string> = {
+        wa: 'https://web.whatsapp.com',
+        ig: 'https://www.instagram.com',
+        fb: 'https://www.facebook.com',
+        tt: 'https://www.tiktok.com',
+      };
+      window.open(openUrl[m], '_blank', 'noopener,noreferrer');
+      if (m === 'tt') {
+        setTeleprompterOpen(true);
+      }
+      toast.info('📥 PNG HD descargado + texto copiado: pega la imagen (Ctrl+V) y publica');
+    } catch {
+      toast.error('No se pudo preparar la publicación: prueba de nuevo');
+    } finally {
+      setExporting(false);
+    }
+  }
+
   const hasBrand = mode === 'plataforma' ? merchantId !== '' : extName.trim() !== '';
   const inputCls =
     'w-full rounded-xl border border-white/10 bg-slate-950/60 px-3.5 py-2.5 text-sm font-medium text-white placeholder:text-slate-600 outline-none focus:border-impulso-emerald/60';
@@ -1217,6 +1419,13 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
             <AfficheArtboard {...artboardProps(p)} />
           </div>
         ))}
+        {/* V14: 2 artboards dedicados al lanzador (formato exacto por red) */}
+        <div ref={(el) => { socialRefs.current.story = el; }}>
+          <AfficheArtboard {...artboardProps(piece)} format="story" />
+        </div>
+        <div ref={(el) => { socialRefs.current.square = el; }}>
+          <AfficheArtboard {...artboardProps(piece)} format="square" />
+        </div>
       </div>
 
       {/* Cabecera */}
@@ -1225,9 +1434,10 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
           <Sparkles className="h-5 w-5" /> Agencia IA & Multi-WhatsApp Studio
         </p>
         <p className="mt-1 text-[11px] leading-relaxed text-slate-400">
-          Motor de diseño editorial HTML a 1080p: 12 fondos texturizados de agencia, 8 arquitecturas de afiche con
-          tipografía real, banco fotográfico HD de 120+ fotos que rota en cada clic y IA infalible que SIEMPRE llena la
-          campaña — 0 bytes en la base de datos. Todo se autoguarda mientras trabajas.
+          Motor de diseño editorial HTML a 1080p: 16 fondos de agencia y 8 estilos tipográficos en cascada, 16
+          arquitecturas que cambian el afiche en vivo, letra gigante nivel billboard, galería visual de 160+ fotos HD con
+          miniaturas y lanzador directo a WhatsApp, Instagram, Facebook y TikTok. La IA SIEMPRE llena la campaña — 0 bytes
+          en la base de datos. Todo se autoguarda mientras trabajas.
         </p>
         <button
           onClick={clearAllDraft}
@@ -1409,17 +1619,37 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
               <Dices className="h-3.5 w-3.5" /> Variar Foto IA
             </button>
           </div>
-          <p className={labelCls}>Presets HD por rubro (1 clic)</p>
-          <div className="grid grid-cols-2 gap-1.5">
-            {PHOTO_PRESETS.map((p) => (
+          <p className={labelCls}>Galería visual HD · {galleryPhotos.length} fotos en esta pestaña</p>
+          {/* Pestañas de categoría (cascada, sin scroll oculto) */}
+          <div className="no-scrollbar -mx-1 flex flex-wrap gap-1 px-1">
+            {PHOTO_GALLERY_TABS.map((tab) => (
               <button
-                key={p.id}
-                onClick={() => void usePreset(p)}
-                disabled={photoBusy}
-                className="pressable rounded-lg border border-white/10 bg-slate-950/40 px-2 py-1.5 text-[10px] font-bold text-slate-300 hover:border-impulso-emerald/40 hover:text-impulso-mint disabled:opacity-50"
+                key={tab.id}
+                onClick={() => setGalleryTab(tab.id)}
+                className={cx(
+                  'pressable rounded-full border px-2.5 py-1 text-[10px] font-extrabold transition',
+                  galleryTab === tab.id ? 'border-impulso-emerald/60 bg-impulso-emerald/15 text-impulso-mint' : 'border-white/10 bg-slate-950/40 text-slate-400',
+                )}
               >
-                {p.label}
+                {tab.label}
               </button>
+            ))}
+          </div>
+          {/* Miniaturas reales: un clic coloca la foto en el afiche al instante */}
+          <div className="grid max-h-64 grid-cols-3 gap-2 overflow-y-auto p-1 sm:grid-cols-4">
+            {galleryPhotos.map((u) => (
+              <img
+                key={u}
+                src={u}
+                alt="Foto HD del banco"
+                loading="lazy"
+                onClick={() => void applyPhotoUrl(u, 'Galería')}
+                onError={(e) => {
+                  const el = e.currentTarget;
+                  if (el instanceof HTMLImageElement) el.style.display = 'none';
+                }}
+                className="h-16 w-full cursor-pointer rounded-lg object-cover ring-emerald-400 hover:ring-2"
+              />
             ))}
           </div>
           <label className="pressable flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-white/20 bg-slate-950/40 py-2.5 text-xs font-bold text-slate-300">
@@ -1465,8 +1695,8 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
             </div>
           )}
           <p className="text-[10px] text-slate-500">
-            Banco HD de 120+ fotos reales que rota en cada clic, motor IA con guardia anti-banner y subida propia: todo
-            vive en la memoria del navegador.
+            Banco HD de 160+ fotos reales con miniaturas por pestaña, motor IA con guardia anti-banner y subida propia:
+            todo vive en la memoria del navegador.
           </p>
         </div>
 
@@ -1557,22 +1787,44 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
           >
             <Dices className="h-4 w-4" /> 🎲 Sorpréndeme con Otro Diseño Radical
           </button>
-          <p className={labelCls}>Arquitectura · 16 diseños de agencia</p>
-          <div className="no-scrollbar -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
+          <p className={labelCls}>🎨 Fondos y texturas de agencia · 16 en cascada</p>
+          <div className="grid grid-cols-2 gap-1.5">
             {AFFICHE_THEMES.map((t, i) => (
               <button
                 key={t.id}
                 onClick={() => setThemeIdx(i)}
                 className={cx(
-                  'pressable shrink-0 rounded-full border px-3 py-1.5 text-[10px] font-extrabold transition',
-                  themeIdx === i ? 'border-impulso-gold/60 bg-impulso-gold/15 text-impulso-gold' : 'border-white/10 bg-slate-950/40 text-slate-400',
+                  'pressable flex items-center gap-2 rounded-xl border p-1.5 text-left transition',
+                  themeIdx === i ? 'border-impulso-gold/60 bg-impulso-gold/15' : 'border-white/10 bg-slate-950/40',
                 )}
               >
-                {t.label}
+                <span
+                  className="h-8 w-8 shrink-0 rounded-lg border border-white/20"
+                  style={{ background: t.bg, backgroundSize: t.bgSize ?? '100% 100%, 100% 100%, 100% 100%, 100% 100%' }}
+                />
+                <span className={cx('min-w-0 text-[10px] font-extrabold leading-tight', themeIdx === i ? 'text-impulso-gold' : 'text-slate-400')}>
+                  {t.label}
+                </span>
               </button>
             ))}
           </div>
-          <p className={labelCls}>Layout (arquitectura del afiche)</p>
+          <p className={labelCls}>🔤 Arquitectura de letras · 8 estilos tipográficos en cascada</p>
+          <div className="grid grid-cols-2 gap-1.5">
+            {AFFICHE_TYPOS.map((f, i) => (
+              <button
+                key={f.id}
+                onClick={() => setFontIdx(i)}
+                className={cx(
+                  'pressable rounded-xl border px-2 py-2 text-left text-[10px] font-extrabold transition',
+                  fontIdx === i ? 'border-impulso-gold/60 bg-impulso-gold/15 text-impulso-gold' : 'border-white/10 bg-slate-950/40 text-slate-400',
+                )}
+              >
+                {f.label}
+                <span className="mt-0.5 block font-semibold opacity-70">{f.hint}</span>
+              </button>
+            ))}
+          </div>
+          <p className={labelCls}>📐 Layout · 16 arquitecturas (cambian el afiche en vivo)</p>
           <div className="grid grid-cols-2 gap-1.5">
             {AFFICHE_LAYOUTS.map((l) => (
               <button
@@ -1654,6 +1906,68 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       {/* ═══ COLUMNA CENTRAL: artboard en vivo (HTML escalado) ═══ */}
       <div className="lg:sticky lg:top-4 lg:col-span-4">
         <div className="space-y-3">
+          {/* 📲 V14 · ¿Para qué Red Social es esta publicidad? */}
+          <div className={cardCls}>
+            <p className="text-xs font-extrabold text-white">📲 ¿Para qué Red Social es esta publicidad?</p>
+            <div className="grid grid-cols-2 gap-1.5">
+              {SOCIAL_MODES.map((m) => (
+                <button
+                  key={m.id}
+                  onClick={() => selectSocial(m.id)}
+                  className={cx(
+                    'pressable rounded-xl border px-2 py-2 text-left text-[10px] font-extrabold transition',
+                    socialMode === m.id ? 'border-impulso-emerald/60 bg-impulso-emerald/15 text-impulso-mint' : 'border-white/10 bg-slate-950/40 text-slate-400',
+                  )}
+                >
+                  {m.icon} {m.label}
+                  <span className="mt-0.5 block font-semibold opacity-70">{m.hint}</span>
+                </button>
+              ))}
+            </div>
+            {socialMode === 'ig' && (
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  onClick={() => setIgFormatSync('feed')}
+                  className={cx(
+                    'pressable rounded-xl border px-2 py-1.5 text-[10px] font-extrabold transition',
+                    igFormat === 'feed' ? 'border-impulso-gold/60 bg-impulso-gold/15 text-impulso-gold' : 'border-white/10 bg-slate-950/40 text-slate-400',
+                  )}
+                >
+                  🖼️ Post Feed 1:1
+                </button>
+                <button
+                  onClick={() => setIgFormatSync('historia')}
+                  className={cx(
+                    'pressable rounded-xl border px-2 py-1.5 text-[10px] font-extrabold transition',
+                    igFormat === 'historia' ? 'border-impulso-gold/60 bg-impulso-gold/15 text-impulso-gold' : 'border-white/10 bg-slate-950/40 text-slate-400',
+                  )}
+                >
+                  📱 Historia / Reel 9:16
+                </button>
+              </div>
+            )}
+            {socialMode === 'tt' && (
+              <button
+                onClick={() => setTeleprompterOpen(true)}
+                className="pressable w-full rounded-xl border border-white/15 bg-slate-950/40 py-2 text-[10px] font-extrabold text-slate-200"
+              >
+                🎬 Abrir Teleprompter Grande
+              </button>
+            )}
+            <button
+              onClick={() => void launchSocial(socialMode)}
+              disabled={exporting}
+              className="pressable flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-impulso-emerald to-teal-600 py-3 text-xs font-extrabold text-white shadow-glow disabled:opacity-40 disabled:shadow-none"
+            >
+              {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              {exporting ? 'Preparando la publicación…' : SOCIAL_LAUNCH_LABEL[socialMode]}
+            </button>
+            <p className="text-[10px] leading-relaxed text-slate-500">
+              En celular: comparte la imagen HD + el texto directo a la app. En PC: descarga el PNG en la resolución
+              exacta, copia el texto optimizado y abre {SOCIAL_MODES.find((m) => m.id === socialMode)?.label} para pegar
+              y publicar.
+            </p>
+          </div>
           <div className="flex rounded-2xl bg-slate-950/60 p-1">
             {(
               [
@@ -1963,6 +2277,23 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
           </p>
         )}
       </div>
+
+      {/* 🎬 V14 · Teleprompter gigante para grabar TikTok/Reels leyendo a cámara */}
+      {teleprompterOpen && (
+        <div
+          className="fixed inset-0 z-[100] flex cursor-pointer flex-col items-center justify-center bg-slate-950 p-6 text-center"
+          onClick={() => setTeleprompterOpen(false)}
+          role="button"
+          tabIndex={0}
+          onKeyDown={() => setTeleprompterOpen(false)}
+        >
+          <p className="text-xs font-extrabold uppercase tracking-widest text-slate-500">🎬 Teleprompter · toca la pantalla para cerrar</p>
+          <p className="mt-6 max-w-3xl whitespace-pre-wrap text-2xl font-extrabold leading-snug text-white sm:text-4xl">{ttScript}</p>
+          <p className="mt-6 text-[11px] font-semibold text-slate-400">
+            Lee mirando la cámara frontal del celular: 15 segundos, sin papel y sin memorizar.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

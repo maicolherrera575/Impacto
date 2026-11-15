@@ -147,6 +147,65 @@ export const AFFICHE_THEMES: AfficheTheme[] = [
       'radial-gradient(280px 160px at 88% 10%, rgba(132,204,22,0.14), transparent 62%),' +
       'linear-gradient(160deg, #2a2e35, #181b20)',
   },
+  // V14: 4 temas nuevos → 16 fondos de agencia en cascada.
+  {
+    id: 'arena', label: '🏜️ Arena Dorada & Sable', font: 'Archivo Black', light: true,
+    text: '#292017', sub: '#6d5c44', accent: '#c2410c', accent2: '#d97706',
+    bg:
+      'radial-gradient(300px 170px at 16% 10%, rgba(217,119,6,0.20), transparent 60%),' +
+      'radial-gradient(260px 160px at 88% 88%, rgba(194,65,12,0.15), transparent 60%),' +
+      'repeating-linear-gradient(45deg, rgba(120,90,40,0.05) 0px, rgba(120,90,40,0.05) 2px, transparent 2px, transparent 14px),' +
+      'linear-gradient(155deg, #fbf1de, #ecd9b6)',
+  },
+  {
+    id: 'vino', label: '🍷 Vino Tinto & Oro Viejo', font: 'Anton',
+    text: '#fdf2f4', sub: '#e0bcc4', accent: '#fbbf24', accent2: '#fde68a',
+    bg:
+      'radial-gradient(320px 190px at 84% 8%, rgba(251,191,36,0.22), transparent 62%),' +
+      'radial-gradient(300px 180px at 10% 90%, rgba(127,29,29,0.55), transparent 65%),' +
+      'repeating-linear-gradient(45deg, rgba(255,255,255,0.03) 0px, rgba(255,255,255,0.03) 2px, transparent 2px, transparent 16px),' +
+      'linear-gradient(160deg, #4c0519, #1f0509)',
+  },
+  {
+    id: 'oceano', label: '🌊 Océano Profundo & Aqua', font: 'Space Grotesk',
+    text: '#eafcff', sub: '#9fc8d8', accent: '#22d3ee', accent2: '#38bdf8',
+    bg:
+      'radial-gradient(340px 200px at 82% 6%, rgba(56,189,248,0.32), transparent 62%),' +
+      'radial-gradient(300px 190px at 10% 92%, rgba(45,212,191,0.28), transparent 62%),' +
+      'repeating-linear-gradient(180deg, rgba(255,255,255,0.05) 0px, rgba(255,255,255,0.05) 2px, transparent 2px, transparent 34px),' +
+      'linear-gradient(165deg, #062a3f, #03121c)',
+  },
+  {
+    id: 'carbon', label: '🖤 Carbón Rojo & Titán', font: 'Bebas Neue',
+    text: '#f8fafc', sub: '#c2c8d2', accent: '#ef4444', accent2: '#f87171',
+    bg:
+      'radial-gradient(300px 180px at 18% 8%, rgba(239,68,68,0.30), transparent 62%),' +
+      'radial-gradient(340px 210px at 88% 92%, rgba(239,68,68,0.22), transparent 62%),' +
+      'repeating-linear-gradient(45deg, rgba(255,255,255,0.03) 0px, rgba(255,255,255,0.03) 2px, transparent 2px, transparent 12px),' +
+      'linear-gradient(160deg, #1c1f24, #0b0d10)',
+  },
+];
+
+/** V14 · 8 ESTILOS TIPOGRÁFICOS DE AGENCIA: cambian en vivo la fuente display
+ *  del titular y el tratamiento visual de las palabras clave (cascada en el
+ *  Studio). Todos usan Google Fonts ya cargadas en index.html. */
+export interface AfficheTypo {
+  id: string;
+  label: string;
+  hint: string;
+  font: string;
+  effect: 'gradiente' | 'caja' | 'neon' | 'subrayado' | 'sticker' | 'barra';
+}
+
+export const AFFICHE_TYPOS: AfficheTypo[] = [
+  { id: 'impacto', label: '01 · Impacto Display', hint: 'Gigante condensada', font: 'Anton', effect: 'gradiente' },
+  { id: 'moderna', label: '02 · Agencia Moderna', hint: 'Futurista limpia', font: 'Space Grotesk', effect: 'gradiente' },
+  { id: 'revista', label: '03 · Revista de Lujo', hint: 'Serif editorial', font: 'Playfair Display', effect: 'gradiente' },
+  { id: 'marcador', label: '04 · Marcador Resaltado', hint: 'Cajas de color sólido', font: 'Archivo Black', effect: 'caja' },
+  { id: 'neon', label: '05 · Neón & Contorno 3D', hint: 'Resplandor puro', font: 'Bebas Neue', effect: 'neon' },
+  { id: 'gruesa', label: '06 · Comercial Ultra-Gruesa', hint: 'Subrayado dinámico', font: 'Montserrat', effect: 'subrayado' },
+  { id: 'suiza', label: '07 · Suiza Arquitectónica', hint: 'Barras laterales', font: 'Archivo Black', effect: 'barra' },
+  { id: 'pop', label: '08 · Pop Sticker Urbano', hint: 'Borde negro + sombra 3D', font: 'Archivo Black', effect: 'sticker' },
 ];
 
 /** Estilos de vidrio según el fondo (claro vs oscuro). */
@@ -203,6 +262,8 @@ export interface AfficheProps {
   qrLabel?: string;
   /** V13: indicador del destino para la pieza 4 (frase completa). */
   qrHint?: string;
+  /** V14: id del estilo tipográfico (AFFICHE_TYPOS) para titular y claves. */
+  fontStyle?: string;
 }
 
 const money = (v: number): string => `$${v.toLocaleString('es-CO')}`;
@@ -338,12 +399,13 @@ function Badge({ text, t, s }: { text: string; t: AfficheTheme; s: number }) {
 }
 
 /**
- * 📣 V13 · TITULAR DISPLAY GIGANTE: 42px en el lienzo de 540 (=84px en el PNG
- * 1080p), fuente display de agencia, alto contraste y palabras clave con
- * degradado brillante — el titular ocupa el espacio con autoridad.
+ * 📣 V14 · TITULAR DISPLAY GIGANTE con 8 estilos tipográficos: 46px en el
+ * lienzo de 540 (=92px en el PNG 1080p), fuente display elegida en cascada y
+ * palabras clave con efecto de agencia (gradiente / caja / neón / subrayado /
+ * sticker 3D / barra lateral).
  */
 function Headline({
-  texts, t, s, size = 42, align = 'center', color,
+  texts, t, s, size = 46, align = 'center', color, styleId,
 }: {
   texts: AfficheTexts;
   t: AfficheTheme;
@@ -351,48 +413,106 @@ function Headline({
   size?: number;
   align?: 'center' | 'left';
   color?: string;
+  styleId?: string;
 }) {
+  const typo = AFFICHE_TYPOS.find((x) => x.id === styleId) ?? AFFICHE_TYPOS[0];
+  const eff = typo.effect;
   const base: CSSProperties = {
     margin: 0,
-    fontFamily: `"${t.font}", system-ui, sans-serif`,
+    fontFamily: `"${typo.font || t.font}", system-ui, sans-serif`,
     fontSize: (size * s).toFixed(1),
-    lineHeight: 1.06,
+    lineHeight: 1.05,
     fontWeight: 900,
     letterSpacing: -0.5,
     color: color ?? t.text,
-    textShadow: t.light && !color ? 'none' : '0 3px 18px rgba(0,0,0,0.35)',
+    textShadow: t.light && !color && eff !== 'neon' && eff !== 'sticker' ? 'none' : '0 3px 18px rgba(0,0,0,0.35)',
   };
+
+  /** Palabra(s) clave con el efecto del estilo tipográfico elegido. */
+  const highlight = (): React.ReactElement => {
+    const hl = texts.highlight.trim();
+    switch (eff) {
+      case 'caja':
+        return (
+          <span
+            style={{
+              background: t.accent2, color: t.light ? '#ffffff' : '#0b0f18',
+              padding: `${2 * s}px ${10 * s}px`, borderRadius: 10 * s,
+              display: 'inline-block', boxShadow: `0 6px 16px ${t.accent2}55`,
+            }}
+          >
+            {hl}
+          </span>
+        );
+      case 'neon':
+        return (
+          <span style={{ color: t.accent2, textShadow: `0 0 ${8 * s}px ${t.accent}, 0 0 ${22 * s}px ${t.accent2}99, 0 2px ${6 * s}px rgba(0,0,0,0.6)` }}>
+            {hl}
+          </span>
+        );
+      case 'subrayado':
+        return (
+          <span style={{ display: 'inline-block', color: color ?? t.text, boxShadow: `inset 0 -${11 * s}px 0 0 ${t.accent2}77` }}>
+            {hl}
+          </span>
+        );
+      case 'sticker':
+        return (
+          <span
+            style={{
+              color: '#ffffff',
+              WebkitTextStroke: `${3 * s}px #111827`,
+              textShadow: `${4 * s}px ${4 * s}px 0 ${t.accent2}`,
+              paintOrder: 'stroke fill',
+            }}
+          >
+            {hl}
+          </span>
+        );
+      case 'barra':
+        return (
+          <span style={{ display: 'inline-block', borderLeft: `${6 * s}px solid ${t.accent2}`, paddingLeft: `${10 * s}px`, color: t.accent2 }}>
+            {hl}
+          </span>
+        );
+      default: // gradiente
+        return (
+          <span
+            style={{
+              background: `linear-gradient(100deg, ${t.accent}, ${t.accent2})`,
+              WebkitBackgroundClip: 'text',
+              backgroundClip: 'text',
+              color: 'transparent',
+            }}
+          >
+            {hl}
+          </span>
+        );
+    }
+  };
+
   return (
     <div style={{ textAlign: align }}>
       <p style={base}>
         {texts.plain.trim()}{' '}
-        <span
-          style={{
-            background: `linear-gradient(100deg, ${t.accent}, ${t.accent2})`,
-            WebkitBackgroundClip: 'text',
-            backgroundClip: 'text',
-            color: 'transparent',
-          }}
-        >
-          {texts.highlight.trim()}
-        </span>
+        {highlight()}
       </p>
     </div>
   );
 }
 
-/** Subtítulo editorial: 16px en lienzo (=32px en 1080p), legible y firme. */
+/** Subtítulo editorial: 18.5px en lienzo (=37px en 1080p), legible y firme. */
 function SubHead({ text, t, s, align = 'center', color }: { text: string; t: AfficheTheme; s: number; align?: 'center' | 'left'; color?: string }) {
   if (!text.trim()) return null;
   return (
-    <p style={{ margin: 0, fontSize: 16 * s, fontWeight: 600, lineHeight: 1.35, color: color ?? t.sub, textAlign: align, opacity: 0.96 }}>
+    <p style={{ margin: 0, fontSize: 18.5 * s, fontWeight: 600, lineHeight: 1.35, color: color ?? t.sub, textAlign: align, opacity: 0.96 }}>
       {text.trim()}
     </p>
   );
 }
 
-/** 💎 V12 · Tarjetas de beneficio GRANDES: 16.5px bold (=33px en 1080p),
- *  icono grande a la izquierda, borde luminoso y sombra profunda. */
+/** 💎 V14 · Tarjetas de beneficio GRANDES: 18.5px bold (=37px en 1080p),
+ *  icono 30px a la izquierda, borde luminoso y sombra profunda. */
 function BenefitCards({ items, t, s }: { items: string[]; t: AfficheTheme; s: number }) {
   const g = glass(t);
   return (
@@ -406,14 +526,15 @@ function BenefitCards({ items, t, s }: { items: string[]; t: AfficheTheme; s: nu
               ...g.card,
               borderRadius: 16 * s,
               display: 'flex', alignItems: 'center', gap: 13 * s,
-              padding: `${13 * s}px ${16 * s}px`,
+              padding: `${12 * s}px ${16 * s}px`,
               boxShadow: t.light
                 ? `0 2px 10px rgba(15,23,42,0.10), inset 0 0 0 1px ${t.accent2}22`
                 : `0 6px 18px rgba(0,0,0,0.35), inset 0 0 0 1px ${t.accent2}33`,
             }}
           >
-            <span style={{ fontSize: 26 * s, lineHeight: 1 }}>{icon}</span>
-            <span style={{ fontSize: 16.5 * s, fontWeight: 700, color: t.text, lineHeight: 1.18 }}>{body}</span>
+            <span style={{ fontSize: 30 * s, lineHeight: 1 }}>{icon}</span>
+            <span style={{ flex: 1, fontSize: 18.5 * s, fontWeight: 700, color: t.text, lineHeight: 1.18 }}>{body}</span>
+            <span style={{ fontSize: 18 * s, color: t.accent2, fontWeight: 900, lineHeight: 1 }}>✓</span>
           </div>
         );
       })}
@@ -421,7 +542,7 @@ function BenefitCards({ items, t, s }: { items: string[]; t: AfficheTheme; s: nu
   );
 }
 
-/** Píldoras de beneficios (layouts full-bleed). */
+/** Píldoras de beneficios (layouts full-bleed): 15px bold. */
 function BenefitPills({ items, t, s }: { items: string[]; t: AfficheTheme; s: number }) {
   const g = glass(t);
   return (
@@ -433,7 +554,7 @@ function BenefitPills({ items, t, s }: { items: string[]; t: AfficheTheme; s: nu
             ...g.card,
             borderRadius: 999,
             padding: `${9 * s}px ${15 * s}px`,
-            fontSize: 13.5 * s, fontWeight: 700, color: t.text,
+            fontSize: 15 * s, fontWeight: 700, color: t.text,
             whiteSpace: 'nowrap',
           }}
         >
@@ -460,11 +581,11 @@ function PricePill({ brand, t, s, big = false }: { brand: AfficheBrand; t: Affic
         boxShadow: '0 8px 24px rgba(0,0,0,0.45)',
       }}
     >
-      <span style={{ fontFamily: `"${t.font}", system-ui, sans-serif`, fontSize: (big ? 36 : 28) * s, fontWeight: 900, color: '#fde047', lineHeight: 1 }}>
+      <span style={{ fontFamily: `"${t.font}", system-ui, sans-serif`, fontSize: (big ? 40 : 30) * s, fontWeight: 900, color: '#fde047', lineHeight: 1 }}>
         {money(promo)}
       </span>
       {showNormal && brand.normalPrice != null && (
-        <span style={{ fontSize: 13 * s, color: '#e2e8f0', textDecoration: 'line-through' }}>{money(brand.normalPrice)}</span>
+        <span style={{ fontSize: 14 * s, color: '#e2e8f0', textDecoration: 'line-through' }}>{money(brand.normalPrice)}</span>
       )}
     </div>
   );
@@ -481,8 +602,8 @@ function CtaButton({ label, s, bg = '#16a34a', color = '#ffffff' }: { label: str
           background: bg,
           color,
           borderRadius: 999,
-          padding: `${12 * s}px ${26 * s}px`,
-          fontSize: 17 * s,
+          padding: `${13 * s}px ${28 * s}px`,
+          fontSize: 18 * s,
           fontWeight: 900,
           letterSpacing: 0.3,
           display: 'inline-flex', alignItems: 'center', gap: 8 * s,
@@ -519,7 +640,7 @@ function Dock({ brand, t, s, qrUrl, size, qrLabel }: { brand: AfficheBrand; t: A
         <p style={{ margin: 0, fontSize: 9.5 * s, fontWeight: 800, letterSpacing: 1.6, textTransform: 'uppercase', color: t.light ? 'rgba(15,23,42,0.62)' : 'rgba(255,255,255,0.66)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           {(brand.slogan || 'ATENCIÓN INMEDIATA').toUpperCase()}
         </p>
-        <p style={{ margin: 0, fontFamily: `"${t.font}", system-ui, sans-serif`, fontSize: 26 * s, fontWeight: 900, color: t.text, lineHeight: 1.05, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        <p style={{ margin: 0, fontFamily: `"${t.font}", system-ui, sans-serif`, fontSize: 28 * s, fontWeight: 900, color: t.text, lineHeight: 1.05, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           {brand.name || 'Tu Negocio'}
         </p>
         <p style={{ margin: 0, fontSize: 11 * s, fontWeight: 600, color: t.light ? 'rgba(15,23,42,0.66)' : t.sub, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -530,7 +651,7 @@ function Dock({ brand, t, s, qrUrl, size, qrLabel }: { brand: AfficheBrand; t: A
             background: '#16a34a', color: '#ffffff',
             borderRadius: 999,
             padding: `${8 * s}px ${14 * s}px`,
-            fontSize: 15 * s, fontWeight: 900,
+            fontSize: 16 * s, fontWeight: 900,
             display: 'inline-flex', alignItems: 'center', gap: 6 * s,
             alignSelf: 'flex-start',
             boxShadow: '0 4px 14px rgba(22,163,74,0.45)',
@@ -546,7 +667,7 @@ function Dock({ brand, t, s, qrUrl, size, qrLabel }: { brand: AfficheBrand; t: A
             <img src={qrUrl} alt="QR" style={{ width: qrBox, height: qrBox, display: 'block' }} />
           </div>
           <p style={{ margin: 0, fontSize: 10.5 * s, fontWeight: 800, letterSpacing: 0.8, color: t.light ? 'rgba(15,23,42,0.75)' : 'rgba(255,255,255,0.88)', whiteSpace: 'nowrap' }}>
-            {qrLabel || '📱 ESCANEA EL QR'}
+            {qrLabel || '📱 ESCANEA AQUÍ'}
           </p>
         </div>
       )}
@@ -590,7 +711,8 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
   const W = 540;
   const H = format === 'square' ? 540 : 960;
   const g = glass(t);
-  const pad = 18 * s;
+  // V14: contenido desde 16px del borde — CERO hueco muerto arriba.
+  const pad = 16 * s;
   const benefits = texts.benefits.filter(Boolean);
   const priceOverlay = showPrice && brand.promoPrice != null && piece === 0;
   const priceLabel = texts.cta.trim();
@@ -601,15 +723,15 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
   const PHOTO_MAX = 400 * s;
 
   // Tamaños del dock según la pieza (piezas 2/3 tienen QR dedicado).
-  const dockQrSize = 132 * s;
-  const dockHeight = 180 * s;
+  // V14: CÓDIGO QR PROTAGONISTA — 180px en lienzo (=360px en el PNG 1080p).
+  const dockQrSize = 180 * s;
+  const dockHeight = 216 * s;
 
-  const photoBlock = (extra?: CSSProperties, clip?: string): React.ReactElement => (
+  const photoBlock = (extra?: CSSProperties): React.ReactElement => (
     <div
       style={{
         flex: 1, minHeight: 0, maxHeight: PHOTO_MAX, position: 'relative',
         borderRadius: 26 * s,
-        ...(clip ? { clipPath: clip, borderRadius: 0 } : {}),
         ...extra,
       }}
     >
@@ -642,130 +764,165 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
     </div>
   ) : null;
 
-  // ═══ PIEZA 2 · 🔥 PORTADA DE REVISTA FULL-BLEED (cabecera editorial + ═══
-  // ═══ titular gigante 42px + insignia de oferta + barra WhatsApp + QR) ═══
+  // ═══ PIEZA 2 · 🔥 AFICHE GANCHO VIRAL V14 (scroll-stopper de alto impacto: ═══
+  // ═══ cinta de alerta + gancho colosal + foto spotlight con burbujas + ═══
+  // ═══ comparativa ❌/✅ + barra de acción con QR grande) ═══
   if (piece === 1) {
-    const barH = 128 * s;
+    const qr2 = 96 * s; // 192×192px en el PNG 1080p
+    const bA = splitBenefit(benefits[0] ?? '🥇 Calidad garantizada');
+    const bB = splitBenefit(benefits[1] ?? '⚡ Atención inmediata');
+    const bC = splitBenefit(benefits[2] ?? '📍 Cerca de ti');
+    const bubbleCls = (tilt: number): CSSProperties => ({
+      flex: 1, minWidth: 0,
+      background: 'rgba(255,255,255,0.95)', color: '#0f172a',
+      borderRadius: 999,
+      padding: `${7 * s}px ${12 * s}px`,
+      display: 'flex', alignItems: 'center', gap: 7 * s,
+      boxShadow: '0 10px 26px rgba(0,0,0,0.42)',
+      transform: `rotate(${tilt}deg)`,
+    });
     return (
       <div
         style={{
           width: W, height: H, flexShrink: 0, position: 'relative',
-          background: '#0a0a0a', color: '#ffffff',
+          background: 'linear-gradient(165deg, #160a10, #2b0510 52%, #0b0d10)',
+          color: '#ffffff',
           fontFamily: 'system-ui, -apple-system, sans-serif',
           borderRadius: 22 * s, overflow: 'hidden',
         }}
       >
-        <div style={{ position: 'absolute', inset: 0 }}>
-          <Photo url={photoUrl} zoom={photoZoom * 1.05} posY={photoPosY} />
-        </div>
-        {/* Viñeta cinematográfica dramática */}
+        {/* Halo del acento del tema para mantener la identidad de la campaña */}
         <div
           style={{
             position: 'absolute', inset: 0,
-            background: 'radial-gradient(ellipse 120% 90% at 50% 42%, transparent 32%, rgba(0,0,0,0.5) 74%, rgba(0,0,0,0.9) 100%), linear-gradient(180deg, rgba(6,8,14,0.62) 0%, rgba(6,8,14,0.18) 24%, rgba(6,8,14,0.26) 52%, rgba(4,5,9,0.94) 100%)',
+            background:
+              `radial-gradient(340px 220px at 82% 10%, ${t.accent}33, transparent 62%),` +
+              `radial-gradient(300px 200px at 10% 90%, ${t.accent2}2a, transparent 62%)`,
           }}
         />
-        {/* Marco editorial de revista doble */}
-        <div style={{ position: 'absolute', inset: 12 * s, border: '1px solid rgba(255,255,255,0.34)', borderRadius: 14 * s, pointerEvents: 'none' }} />
-        <div style={{ position: 'absolute', inset: 18 * s, border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10 * s, pointerEvents: 'none' }} />
-
-        {/* Cabecera tipo portada de revista: rubro + ciudad */}
-        <div style={{ position: 'absolute', top: 30 * s, left: 36 * s, right: 36 * s, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 * s }}>
-          <p style={{ margin: 0, fontSize: 12.5 * s, fontWeight: 900, letterSpacing: 2.2, textTransform: 'uppercase', color: '#ffffff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textShadow: '0 2px 10px rgba(0,0,0,0.6)' }}>
-            {(brand.slogan || 'ESPECIAL COMERCIAL').toUpperCase()}
-          </p>
-          <span style={{ border: '1px solid rgba(255,255,255,0.4)', borderRadius: 999, padding: `${4 * s}px ${12 * s}px`, fontSize: 11 * s, fontWeight: 900, letterSpacing: 1.6, textTransform: 'uppercase', color: '#ffffff', whiteSpace: 'nowrap' }}>
-            {brand.municipality || 'Gachetá'}
-          </span>
-        </div>
-        <div style={{ position: 'absolute', top: 62 * s, left: 36 * s, right: 36 * s, height: 1, background: 'linear-gradient(90deg, rgba(255,255,255,0.5), rgba(255,255,255,0.12))' }} />
-
-        {/* Insignia grande de oferta / cotización + titular gigante 42px (=84px @1080) */}
-        <div
-          style={{
-            position: 'absolute', left: 30 * s, right: 30 * s,
-            bottom: (showQr ? barH : 0) + pad + 18 * s,
-            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 * s, textAlign: 'center',
-          }}
-        >
-          {brand.promoPrice != null ? (
-            <div style={{ transform: 'rotate(-2deg)' }}>
-              <PricePill brand={brand} t={t} s={s} big />
-            </div>
-          ) : (
-            badge.trim() || texts.cta.trim() ? (
-              <Sticker text={badge.trim() || texts.cta.trim()} s={s} bg={t.accent2} color={t.light ? '#ffffff' : '#0b0f18'} rotate={-2} />
-            ) : null
-          )}
+        <div style={{ position: 'relative', width: '100%', height: '100%', padding: pad, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: 9 * s }}>
+          {/* Cinta superior de alerta viral */}
+          <div
+            style={{
+              flexShrink: 0,
+              background: 'linear-gradient(90deg, #dc2626, #f97316 55%, #facc15)',
+              color: '#160b04',
+              borderRadius: 10 * s,
+              padding: `${7 * s}px ${9 * s}px`,
+              textAlign: 'center',
+              boxShadow: '0 8px 22px rgba(220,38,38,0.45)',
+            }}
+          >
+            <p style={{ margin: 0, fontSize: 11.5 * s, fontWeight: 900, letterSpacing: 0.6, textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              🚨 Atención {(brand.municipality || 'Gachetá').toUpperCase()} · Lo más buscado hoy
+            </p>
+          </div>
+          {/* Pregunta / gancho polémico colosal */}
           <p
             style={{
-              margin: 0,
+              margin: 0, flexShrink: 0,
               fontFamily: `"${t.font}", system-ui, sans-serif`,
-              fontSize: 42 * s,
-              lineHeight: 1.04,
-              fontWeight: 900,
-              textTransform: 'uppercase',
-              color: '#ffffff',
-              textShadow: '0 4px 26px rgba(0,0,0,0.72)',
+              fontSize: 27 * s, lineHeight: 1.06, fontWeight: 900,
+              textTransform: 'uppercase', textAlign: 'center',
+              color: '#ffffff', textShadow: '0 4px 22px rgba(0,0,0,0.6)',
             }}
           >
             {texts.hook.trim() || `${texts.plain.trim()} ${texts.highlight.trim()}`.toUpperCase()}
           </p>
-          <p style={{ margin: 0, fontSize: 16 * s, fontWeight: 700, color: 'rgba(255,255,255,0.92)', textShadow: '0 2px 12px rgba(0,0,0,0.55)' }}>
-            {texts.sub.trim()}
-          </p>
-        </div>
-
-        {/* Barra inferior: WhatsApp + QR con la leyenda del destino elegido */}
-        {showQr && (
-          <div
-            style={{
-              position: 'absolute', left: pad, right: pad, bottom: pad,
-              display: 'flex', alignItems: 'center', gap: 12 * s,
-              background: 'rgba(6,8,14,0.74)',
-              border: '1px solid rgba(255,255,255,0.22)',
-              borderRadius: 18 * s,
-              padding: `${10 * s}px ${12 * s}px`,
-            }}
-          >
-            <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 6 * s }}>
-              <p style={{ margin: 0, fontSize: 12 * s, fontWeight: 800, color: 'rgba(255,255,255,0.88)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {brand.name || 'Tu Negocio'} · {brand.municipality || 'Gachetá'}
-              </p>
-              <div
-                style={{
-                  background: '#16a34a', color: '#ffffff',
-                  borderRadius: 999,
-                  padding: `${9 * s}px ${16 * s}px`,
-                  fontSize: 15 * s, fontWeight: 900,
-                  display: 'inline-flex', alignItems: 'center', gap: 6 * s,
-                  alignSelf: 'flex-start',
-                  boxShadow: '0 6px 18px rgba(22,163,74,0.5)',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                💬 {brand.phoneDisplay || 'Escríbenos al WhatsApp'}
-              </div>
-            </div>
-            {qrUrl && (
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 * s, flexShrink: 0 }}>
-                <div style={{ background: '#ffffff', borderRadius: 10 * s, padding: 5 * s, boxShadow: '0 4px 14px rgba(0,0,0,0.4)' }}>
-                  <img src={qrUrl} alt="QR" style={{ width: 82 * s, height: 82 * s, display: 'block' }} />
-                </div>
-                <p style={{ margin: 0, fontSize: 9.5 * s, fontWeight: 800, letterSpacing: 0.5, color: 'rgba(255,255,255,0.92)', textAlign: 'center' }}>
-                  {qrLabel || '📱 ESCANEA EL QR'}
-                </p>
+          {/* Fotografía en spotlight con precio flotante */}
+          <div style={{ position: 'relative', flex: 1, minHeight: 0, borderRadius: 18 * s, overflow: 'hidden', boxShadow: '0 16px 40px rgba(0,0,0,0.5)' }}>
+            <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
+            <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(6,8,14,0.25) 0%, transparent 30%, transparent 70%, rgba(6,8,14,0.45) 100%)' }} />
+            {showPrice && brand.promoPrice != null && (
+              <div style={{ position: 'absolute', bottom: 10 * s, left: 10 * s }}>
+                <PricePill brand={brand} t={t} s={s} />
               </div>
             )}
           </div>
-        )}
+          {/* 2 burbujas flotantes tipo notificación de redes sociales */}
+          <div style={{ display: 'flex', gap: 8 * s, flexShrink: 0 }}>
+            <div style={bubbleCls(-2)}>
+              <span style={{ fontSize: 14 * s, lineHeight: 1 }}>💬</span>
+              <span style={{ fontSize: 10.5 * s, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>+100 clientes satisfechos</span>
+            </div>
+            <div style={bubbleCls(2)}>
+              <span style={{ fontSize: 14 * s, lineHeight: 1 }}>⭐</span>
+              <span style={{ fontSize: 10.5 * s, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Calificación 5.0 en atención</span>
+            </div>
+          </div>
+          {/* Cuadro comparativo: ❌ Antes/Otros vs ✅ Con el negocio */}
+          <div style={{ display: 'flex', gap: 8 * s, flexShrink: 0 }}>
+            <div style={{ flex: 1, minWidth: 0, borderRadius: 14 * s, padding: `${10 * s}px ${11 * s}px`, background: 'rgba(127,29,29,0.38)', border: '1px solid rgba(248,113,113,0.45)' }}>
+              <p style={{ margin: 0, fontSize: 11.5 * s, fontWeight: 900, color: '#fca5a5', marginBottom: 5 * s }}>❌ ANTES / OTROS</p>
+              <p style={{ margin: 0, fontSize: 11 * s, fontWeight: 700, lineHeight: 1.35, color: 'rgba(255,255,255,0.88)' }}>
+                Búsqueda eterna, precios que suben y servicio que no responde.
+              </p>
+            </div>
+            <div style={{ flex: 1, minWidth: 0, borderRadius: 14 * s, padding: `${10 * s}px ${11 * s}px`, background: 'rgba(6,78,59,0.52)', border: `1.5px solid ${t.accent2}` }}>
+              <p style={{ margin: 0, fontSize: 11.5 * s, fontWeight: 900, color: '#6ee7b7', marginBottom: 5 * s }}>✅ CON {(brand.name || 'NOSOTROS').slice(0, 22).toUpperCase()}</p>
+              <p style={{ margin: 0, fontSize: 11 * s, fontWeight: 700, lineHeight: 1.35, color: '#ffffff' }}>
+                {bA.body} · {bB.body} · {bC.body}
+              </p>
+            </div>
+          </div>
+          {/* Barra inferior de acción + QR grande */}
+          {showQr && (
+            <div
+              style={{
+                flexShrink: 0,
+                display: 'flex', alignItems: 'center', gap: 10 * s,
+                background: 'rgba(6,8,14,0.80)',
+                border: '1px solid rgba(255,255,255,0.25)',
+                borderRadius: 16 * s,
+                padding: `${9 * s}px ${11 * s}px`,
+              }}
+            >
+              <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 5 * s }}>
+                <p style={{ margin: 0, fontSize: 11.5 * s, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {brand.name || 'Tu Negocio'} · 📍 {brand.address || brand.municipality || 'Gachetá'}
+                </p>
+                <div
+                  style={{
+                    background: '#16a34a', color: '#ffffff',
+                    borderRadius: 999,
+                    padding: `${8 * s}px ${14 * s}px`,
+                    fontSize: 14 * s, fontWeight: 900,
+                    alignSelf: 'flex-start',
+                    boxShadow: '0 8px 20px rgba(22,163,74,0.5)',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  💬 {brand.phoneDisplay || 'Escríbenos ya'}
+                </div>
+              </div>
+              {qrUrl && (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 * s, flexShrink: 0 }}>
+                  <div style={{ background: '#ffffff', borderRadius: 9 * s, padding: 5 * s, boxShadow: '0 4px 14px rgba(0,0,0,0.4)' }}>
+                    <img src={qrUrl} alt="QR" style={{ width: qr2, height: qr2, display: 'block' }} />
+                  </div>
+                  <p style={{ margin: 0, fontSize: 9 * s, fontWeight: 800, letterSpacing: 0.5, color: 'rgba(255,255,255,0.92)' }}>
+                    {qrLabel || '📱 ESCANEA AQUÍ'}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     );
   }
 
-  // ═══ PIEZA 3 · 💎 INFOGRAFÍA VISUAL (banner panorámico 520px@1080 + ═══
-  // ═══ "3 RAZONES PARA ELEGIRNOS HOY" + tarjetas Bento 01/02/03 gigantes) ═══
+  // ═══ PIEZA 3 · 📊 INFOGRAFÍA VIP DE VALOR V14 (bento denso: banner con ═══
+  // ═══ medidor circular 100% + 3 tarjetas 01/02/03 con número gradiente e ═══
+  // ═══ icono 3D + cinta de garantía + proceso 3 pasos + dock WA + QR) ═══
   if (piece === 2) {
+    const qr3 = 88 * s; // 176×176px en el PNG 1080p
+    const explainer = [
+      `En ${brand.name || 'nuestro negocio'} esto se cumple HOY, sin promesas vacías`,
+      'Atención inmediata por WhatsApp: cero vueltas y cero esperas',
+      `📍 ${brand.address || brand.municipality || 'Gachetá'} — pide hoy y recibe hoy`,
+    ];
+    const steps = ['1️⃣ Escríbenos', '2️⃣ Aparta / Cotiza', '3️⃣ Recibe y disfruta'];
     return (
       <div
         style={{
@@ -777,28 +934,49 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
         }}
       >
         <ScenicBg url={photoUrl} t={t} frame />
-        <div style={{ position: 'relative', width: '100%', height: '100%', padding: pad, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: 10 * s }}>
-          {/* Banner fotográfico panorámico (height 520px en el PNG 1080p) */}
-          <div style={{ position: 'relative', height: 260 * s, borderRadius: 20 * s, overflow: 'hidden', flexShrink: 0, boxShadow: '0 14px 34px rgba(0,0,0,0.45)' }}>
+        <div style={{ position: 'relative', width: '100%', height: '100%', padding: pad, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: 9 * s }}>
+          {/* Banner fotográfico + medidor estadístico circular */}
+          <div style={{ position: 'relative', height: 200 * s, borderRadius: 18 * s, overflow: 'hidden', flexShrink: 0, boxShadow: '0 14px 34px rgba(0,0,0,0.45)' }}>
             <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
-            <div style={{ position: 'absolute', inset: 0, background: t.light ? 'linear-gradient(180deg, transparent 42%, rgba(15,23,42,0.45) 100%)' : 'linear-gradient(180deg, transparent 42%, rgba(8,10,18,0.62) 100%)' }} />
-            <div style={{ position: 'absolute', bottom: 12 * s, left: 14 * s, right: 14 * s, display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 10 * s }}>
-              <div style={{ minWidth: 0 }}>
-                <p style={{ margin: 0, fontSize: 10.5 * s, fontWeight: 800, letterSpacing: 1.8, textTransform: 'uppercase', color: 'rgba(255,255,255,0.88)' }}>
-                  {(brand.slogan || 'NUESTRAS RAZONES').toUpperCase()}
-                </p>
-                <p style={{ margin: 0, fontFamily: `"${t.font}", system-ui, sans-serif`, fontSize: 26 * s, fontWeight: 900, color: '#ffffff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {brand.name || 'Tu Negocio'}
-                </p>
+            <div style={{ position: 'absolute', inset: 0, background: t.light ? 'linear-gradient(180deg, transparent 40%, rgba(15,23,42,0.5) 100%)' : 'linear-gradient(180deg, transparent 40%, rgba(8,10,18,0.66) 100%)' }} />
+            <div style={{ position: 'absolute', bottom: 11 * s, left: 13 * s, right: 110 * s }}>
+              <p style={{ margin: 0, fontSize: 10.5 * s, fontWeight: 800, letterSpacing: 1.8, textTransform: 'uppercase', color: 'rgba(255,255,255,0.9)' }}>
+                {(brand.slogan || 'NUESTRO VALOR EN DATOS').toUpperCase()}
+              </p>
+              <p style={{ margin: 0, fontFamily: `"${t.font}", system-ui, sans-serif`, fontSize: 26 * s, fontWeight: 900, color: '#ffffff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {brand.name || 'Tu Negocio'}
+              </p>
+            </div>
+            {/* Medidor circular: 100% CALIDAD Y CUMPLIMIENTO */}
+            <div
+              style={{
+                position: 'absolute', top: 10 * s, right: 10 * s,
+                width: 92 * s, height: 92 * s, borderRadius: '50%',
+                background: `conic-gradient(${t.accent2} 0deg 300deg, ${t.accent} 300deg 360deg)`,
+                boxShadow: '0 10px 26px rgba(0,0,0,0.5)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                flexShrink: 0,
+              }}
+            >
+              <div
+                style={{
+                  width: 74 * s, height: 74 * s, borderRadius: '50%',
+                  background: 'rgba(6,8,14,0.86)',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2 * s,
+                  border: '1px solid rgba(255,255,255,0.25)',
+                }}
+              >
+                <span style={{ margin: 0, fontFamily: `"${t.font}", system-ui, sans-serif`, fontSize: 19 * s, fontWeight: 900, color: t.accent2, lineHeight: 1 }}>100%</span>
+                <span style={{ margin: 0, fontSize: 7.5 * s, fontWeight: 800, letterSpacing: 0.4, textTransform: 'uppercase', color: '#ffffff', textAlign: 'center', lineHeight: 1.2 }}>
+                  Calidad y<br />cumplimiento
+                </span>
               </div>
-              <span style={{ background: 'rgba(6,8,14,0.72)', border: '1px solid rgba(255,255,255,0.32)', borderRadius: 999, padding: `${6 * s}px ${12 * s}px`, fontSize: 11 * s, fontWeight: 800, color: '#ffffff', whiteSpace: 'nowrap' }}>
-                📍 {brand.municipality || 'Gachetá'}
-              </span>
             </div>
           </div>
-          <Headline texts={ht('3 RAZONES', 'PARA ELEGIRNOS HOY')} t={t} s={s} size={42} />
-          {/* 3 tarjetas Bento gigantes (240px @1080) con números 01/02/03 a 72px */}
-          <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 10 * s }}>
+          {/* Cinta de garantía de satisfacción */}
+          <Sticker text="🛡️ GARANTÍA DE SATISFACCIÓN O TE DEVOLVEMOS TU PLATA" s={s} bg={t.accent2} color={t.light ? '#ffffff' : '#0b0f18'} rotate={-1.5} />
+          {/* 3 ventajas en tarjetas infográficas con número gradiente + icono 3D */}
+          <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 9 * s }}>
             {[0, 1, 2].map((i) => {
               const b = benefits[i] ?? ['🥇 Calidad garantizada', '⚡ Atención inmediata', '📍 Cerca de ti'][i] ?? '';
               const { icon, body } = splitBenefit(b);
@@ -808,38 +986,95 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
                   style={{
                     ...g.card,
                     flex: 1, minHeight: 0,
-                    borderRadius: 18 * s,
-                    display: 'flex', alignItems: 'center', gap: 14 * s,
-                    padding: `${12 * s}px ${16 * s}px`,
+                    borderRadius: 16 * s,
+                    display: 'flex', alignItems: 'center', gap: 12 * s,
+                    padding: `${9 * s}px ${13 * s}px`,
                     boxShadow: t.light ? '0 2px 10px rgba(15,23,42,0.10)' : '0 6px 18px rgba(0,0,0,0.35)',
                   }}
                 >
-                  <span style={{ fontFamily: `"${t.font}", system-ui, sans-serif`, fontSize: 36 * s, fontWeight: 900, color: t.accent2, lineHeight: 1 }}>
+                  <span
+                    style={{
+                      fontFamily: `"${t.font}", system-ui, sans-serif`,
+                      fontSize: 34 * s, fontWeight: 900, lineHeight: 1,
+                      background: `linear-gradient(180deg, ${t.accent}, ${t.accent2})`,
+                      WebkitBackgroundClip: 'text',
+                      backgroundClip: 'text',
+                      color: 'transparent',
+                    }}
+                  >
                     {`0${i + 1}`}
                   </span>
-                  <div style={{ width: 1, alignSelf: 'stretch', background: t.light ? 'rgba(15,23,42,0.14)' : 'rgba(255,255,255,0.20)' }} />
-                  <span style={{ fontSize: 28 * s, lineHeight: 1 }}>{icon}</span>
-                  <span style={{ flex: 1, fontSize: 16.5 * s, fontWeight: 700, color: t.text, lineHeight: 1.2 }}>{body}</span>
+                  <div
+                    style={{
+                      width: 44 * s, height: 44 * s, flexShrink: 0,
+                      borderRadius: 12 * s,
+                      background: `linear-gradient(160deg, ${t.accent}33, ${t.accent2}22)`,
+                      border: '1px solid rgba(255,255,255,0.35)',
+                      boxShadow: 'inset 0 2px 6px rgba(255,255,255,0.35), 0 6px 14px rgba(0,0,0,0.35)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}
+                  >
+                    <span style={{ fontSize: 22 * s, lineHeight: 1 }}>{icon}</span>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ margin: 0, fontSize: 14.5 * s, fontWeight: 900, color: t.text, lineHeight: 1.15 }}>{body}</p>
+                    <p style={{ margin: 0, fontSize: 10.5 * s, fontWeight: 600, color: t.light ? 'rgba(15,23,42,0.62)' : t.sub, lineHeight: 1.25 }}>
+                      {explainer[i]}
+                    </p>
+                  </div>
                 </div>
               );
             })}
           </div>
-          {/* Barra inferior: QR + contacto */}
+          {/* Proceso en 3 pasos iconográficos */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 * s, flexShrink: 0 }}>
+            {steps.map((st, i) => (
+              <span
+                key={st}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6 * s,
+                  fontSize: 11 * s, fontWeight: 800, color: t.text, whiteSpace: 'nowrap',
+                }}
+              >
+                {st}
+                {i < steps.length - 1 && <span style={{ color: t.accent2, fontWeight: 900 }}>→</span>}
+              </span>
+            ))}
+          </div>
+          {/* Dock inferior: WhatsApp grande + QR del destino elegido */}
           {showQr && (
-            <div style={{ ...g.card, borderRadius: 16 * s, display: 'flex', alignItems: 'center', gap: 12 * s, padding: `${8 * s}px ${12 * s}px`, flexShrink: 0 }}>
+            <div style={{ ...g.card, borderRadius: 16 * s, display: 'flex', alignItems: 'center', gap: 10 * s, padding: `${8 * s}px ${11 * s}px`, flexShrink: 0 }}>
+              <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 * s }}>
+                <p style={{ margin: 0, fontSize: 12 * s, fontWeight: 900, color: t.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  💬 {brand.phoneDisplay || 'Escríbenos hoy'}
+                </p>
+                <p style={{ margin: 0, fontSize: 10.5 * s, fontWeight: 700, color: t.light ? 'rgba(15,23,42,0.65)' : t.sub, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  📍 {brand.address || brand.municipality || 'Gachetá'} · {brand.name || 'Tu Negocio'}
+                </p>
+                <div
+                  style={{
+                    background: '#16a34a', color: '#ffffff',
+                    borderRadius: 999,
+                    padding: `${7 * s}px ${13 * s}px`,
+                    fontSize: 12.5 * s, fontWeight: 900,
+                    alignSelf: 'flex-start',
+                    boxShadow: '0 6px 16px rgba(22,163,74,0.45)',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  ESCRÍBENOS POR WHATSAPP
+                </div>
+              </div>
               {qrUrl && (
-                <div style={{ background: '#ffffff', borderRadius: 8 * s, padding: 4 * s, boxShadow: '0 4px 12px rgba(0,0,0,0.3)', flexShrink: 0 }}>
-                  <img src={qrUrl} alt="QR" style={{ width: 58 * s, height: 58 * s, display: 'block' }} />
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 * s, flexShrink: 0 }}>
+                  <div style={{ background: '#ffffff', borderRadius: 8 * s, padding: 4 * s, boxShadow: '0 4px 12px rgba(0,0,0,0.35)' }}>
+                    <img src={qrUrl} alt="QR" style={{ width: qr3, height: qr3, display: 'block' }} />
+                  </div>
+                  <p style={{ margin: 0, fontSize: 8.5 * s, fontWeight: 800, letterSpacing: 0.4, color: t.light ? 'rgba(15,23,42,0.75)' : 'rgba(255,255,255,0.9)', whiteSpace: 'nowrap' }}>
+                    {qrLabel || '📱 ESCANEA AQUÍ'}
+                  </p>
                 </div>
               )}
-              <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 * s }}>
-                <p style={{ margin: 0, fontSize: 13 * s, fontWeight: 900, color: t.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {brand.name || 'Tu Negocio'}
-                </p>
-                <p style={{ margin: 0, fontSize: 11.5 * s, fontWeight: 700, color: t.light ? 'rgba(15,23,42,0.65)' : t.sub, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  💬 {brand.phoneDisplay || 'Escríbenos'} · 📍 {brand.municipality || 'Gachetá'}
-                </p>
-              </div>
             </div>
           )}
         </div>
@@ -888,7 +1123,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
             >
               <img src={qrUrl} alt="QR" style={{ width: qrBig, height: qrBig, display: 'block' }} />
               <p style={{ margin: 0, fontSize: 12.5 * s, fontWeight: 900, letterSpacing: 0.6, color: '#0f172a', textAlign: 'center' }}>
-                {qrLabel || '📱 ESCANEA EL QR'}
+                {qrLabel || '📱 ESCANEA AQUÍ'}
               </p>
             </div>
           )}
@@ -941,7 +1176,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
             <Badge text={badge} t={t} s={s} />
           </div>
           <div style={{ position: 'absolute', left: pad, right: pad, bottom: pad, display: 'flex', flexDirection: 'column', gap: 12 * s }}>
-            <Headline texts={texts} t={{ ...t, text: '#ffffff' }} s={s} size={42} align="center" />
+            <Headline texts={texts} t={{ ...t, text: '#ffffff' }} s={s} size={46} align="center" />
             <div style={{ color: '#ffffff' }}>
               <SubHead text={texts.sub} t={t} s={s} color="rgba(255,255,255,0.92)" />
               {showBenefits && benefits.length > 0 && <div style={{ marginTop: 10 * s }}><BenefitPills items={benefits} t={t} s={s} /></div>}
@@ -954,15 +1189,54 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
       break;
     }
     case 'diagonal': {
-      // ⚡ Corte diagonal dinámico (ángulo de 14°) con insignia flotante.
+      // ⚡ V14 · CORTE DIAGONAL FULL-BLEED: la foto nace del borde superior
+      // (cero hueco negro), ocupa el 48% del lienzo cortada con ángulo dinámico
+      // `polygon(0 0, 100% 0, 100% 80%, 0 100%)`, franja luminosa diagonal y
+      // sello flotando sobre el corte.
       body = (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 * s, height: '100%' }}>
-          <Badge text={badge} t={t} s={s} />
-          {photoBlock(undefined, 'polygon(0 0, 100% 0, 100% 86%, 0 100%)')}
-          <div style={{ height: 4 * s, background: `linear-gradient(90deg, ${t.accent}, ${t.accent2})`, borderRadius: 999, marginTop: -26 * s, transform: 'rotate(-1.5deg)' }} />
-          <Headline texts={texts} t={t} s={s} size={42} align="center" />
-          {contentBlocks('center')}
-          {masterDock}
+        <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+          {/* Foto full-bleed superior cortada en diagonal (desde el borde real) */}
+          <div
+            style={{
+              position: 'absolute', top: -pad, left: -pad, right: -pad,
+              height: '48%',
+              clipPath: 'polygon(0 0, 100% 0, 100% 80%, 0 100%)',
+              overflow: 'hidden',
+            }}
+          >
+            <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
+            <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(6,8,14,0.30) 0%, transparent 28%, transparent 58%, rgba(6,8,14,0.44) 100%)' }} />
+          </div>
+          {/* Insignia flotando sobre la foto (a 16px del borde superior) */}
+          <div style={{ position: 'absolute', top: pad, left: 0, right: 0 }}>
+            <Badge text={badge} t={t} s={s} />
+          </div>
+          {/* Franja luminosa diagonal sobre el corte */}
+          <div
+            style={{
+              position: 'absolute', top: `calc(48% - ${10 * s}px)`, left: -pad, right: -pad,
+              height: 7 * s,
+              background: `linear-gradient(90deg, ${t.accent}, ${t.accent2})`,
+              transform: 'rotate(-1.6deg)',
+              borderRadius: 999,
+              boxShadow: `0 8px 26px ${t.accent}77`,
+              zIndex: 3,
+            }}
+          />
+          {/* Sello de precio flotando sobre el corte */}
+          {priceOverlay && (
+            <div style={{ position: 'absolute', top: `calc(48% - ${68 * s}px)`, right: 2 * s, transform: 'rotate(3deg)', zIndex: 4 }}>
+              <PricePill brand={brand} t={t} s={s} big />
+            </div>
+          )}
+          {/* Contenido inferior */}
+          <div style={{ position: 'absolute', top: '48%', left: 0, right: 0, bottom: 0, display: 'flex', flexDirection: 'column', gap: 8 * s, overflow: 'hidden' }}>
+            <Headline texts={texts} t={t} s={s} size={44} align="center" />
+            {format === 'story' && <SubHead text={texts.sub} t={t} s={s} align="center" />}
+            {showBenefits && benefits.length > 0 && <BenefitPills items={benefits} t={t} s={s} />}
+            {isService && priceLabel && <CtaButton label={priceLabel} s={s} bg={t.accent2} color={t.light ? '#ffffff' : '#0b0f18'} />}
+            {masterDock}
+          </div>
         </div>
       );
       break;
@@ -998,7 +1272,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
               </div>
             )}
           </div>
-          <Headline texts={texts} t={t} s={s} size={42} align="center" />
+          <Headline texts={texts} t={t} s={s} size={46} align="center" />
           {contentBlocks('center')}
           {masterDock}
         </div>
@@ -1026,7 +1300,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
               </div>
             )}
           </div>
-          <Headline texts={texts} t={t} s={s} size={42} align="center" />
+          <Headline texts={texts} t={t} s={s} size={46} align="center" />
           {contentBlocks('center')}
           {masterDock}
         </div>
@@ -1054,7 +1328,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
               )}
             </div>
           </div>
-          <Headline texts={texts} t={t} s={s} size={42} align="center" />
+          <Headline texts={texts} t={t} s={s} size={46} align="center" />
           {contentBlocks('center', true)}
           {masterDock}
         </div>
@@ -1080,7 +1354,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
           </div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 * s }}>
             <span style={{ fontFamily: `"${t.font}", system-ui, sans-serif`, fontSize: 34 * s, fontWeight: 900, color: t.accent }}>01</span>
-            <div style={{ flex: 1 }}><Headline texts={texts} t={t} s={s} size={40} align="left" /></div>
+            <div style={{ flex: 1 }}><Headline texts={texts} t={t} s={s} size={44} align="left" /></div>
           </div>
           {contentBlocks('left')}
           {masterDock}
@@ -1134,7 +1408,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
             <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
           </div>
           <div style={{ ...hard, background: '#ffffff', padding: `${12 * s}px ${16 * s}px` }}>
-            <Headline texts={texts} t={{ ...t, text: '#111827', accent: '#111827', accent2: t.accent2 }} s={s} size={42} align="center" />
+            <Headline texts={texts} t={{ ...t, text: '#111827', accent: '#111827', accent2: t.accent2 }} s={s} size={46} align="center" />
           </div>
           <div style={{ ...hard, background: t.light ? 'rgba(255,255,255,0.85)' : '#ffffff', padding: `${12 * s}px ${16 * s}px`, display: 'flex', flexDirection: 'column', gap: 8 * s }}>
             <SubHead text={texts.sub} t={{ ...t, text: '#111827', sub: '#3f3f46' }} s={s} align="center" />
@@ -1168,7 +1442,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
             <div style={{ textAlign: 'center' }}>
               <p style={{ margin: 0, fontSize: 11 * s, fontWeight: 800, letterSpacing: 4, textTransform: 'uppercase', color: t.accent2 }}>✦ ✦ ✦</p>
             </div>
-            <Headline texts={texts} t={t} s={s} size={42} align="center" />
+            <Headline texts={texts} t={t} s={s} size={46} align="center" />
             {contentBlocks('center', true)}
             {masterDock}
           </div>
@@ -1237,7 +1511,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
             )}
           </div>
           <div style={{ borderTop: `2px dashed ${t.accent}77`, paddingTop: 10 * s }}>
-            <Headline texts={texts} t={t} s={s} size={42} align="center" />
+            <Headline texts={texts} t={t} s={s} size={46} align="center" />
           </div>
           {contentBlocks('center')}
           {masterDock}
@@ -1260,7 +1534,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
               </div>
             )}
           </div>
-          <Headline texts={texts} t={t} s={s} size={42} align="center" />
+          <Headline texts={texts} t={t} s={s} size={46} align="center" />
           {contentBlocks('center')}
           {masterDock}
         </div>
@@ -1282,7 +1556,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
               </div>
             )}
           </div>
-          <Headline texts={texts} t={t} s={s} size={42} align="center" />
+          <Headline texts={texts} t={t} s={s} size={46} align="center" />
           {contentBlocks('center')}
           {masterDock}
         </div>
@@ -1308,7 +1582,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
               </div>
             )}
           </div>
-          <Headline texts={texts} t={t} s={s} size={42} align="center" />
+          <Headline texts={texts} t={t} s={s} size={46} align="center" />
           {contentBlocks('center')}
           {masterDock}
         </div>
@@ -1346,7 +1620,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 * s, height: '100%' }}>
           <Badge text={badge} t={t} s={s} />
           {photoBlock()}
-          <Headline texts={texts} t={t} s={s} size={42} align="center" />
+          <Headline texts={texts} t={t} s={s} size={46} align="center" />
           {contentBlocks('center')}
           {masterDock}
         </div>

@@ -137,7 +137,7 @@ export function ReservationsTab({ tickets, onRate, onRemove, onCancel }: Reserva
                   <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Código</p>
                   <p className="font-mono text-2xl font-extrabold tracking-[0.25em] text-impulso-mint">{t.code}</p>
                 </div>
-                {t.status === 'pending' && !t.isRated && (
+                {t.status === 'completed' && !t.isRated ? (
                   <button
                     onClick={() => {
                       setRatingFor(t);
@@ -147,7 +147,11 @@ export function ReservationsTab({ tickets, onRate, onRemove, onCancel }: Reserva
                   >
                     ⭐ Calificar
                   </button>
-                )}
+                ) : t.status === 'pending' ? (
+                  <p className="max-w-[10rem] text-right text-[10px] font-semibold leading-snug text-slate-500">
+                    ⭐ Podrás calificar cuando el comercio te entregue el producto o servicio
+                  </p>
+                ) : null}
               </div>
 
               <div className="mt-3 flex items-center gap-2">

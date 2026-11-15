@@ -75,6 +75,8 @@ export const PHOTO_BANK: Record<PhotoCategory, string[]> = {
     unsplash('photo-1519389950473-47ba0277781c'),
     unsplash('photo-1553877522-43269d52ea94'),
     unsplash('photo-1504639725590-34d2148a1888'),
+    unsplash('photo-1557804506-669a67965ba0'),
+    unsplash('photo-1563986768609-322da13575f3'),
   ],
   software_tech: [
     unsplash('photo-1498050108023-c5249f4df085'),
@@ -84,6 +86,8 @@ export const PHOTO_BANK: Record<PhotoCategory, string[]> = {
     unsplash('photo-1517077304055-6e89abbf09b0'),
     unsplash('photo-1512499617640-c74ae3a79d37'),
     unsplash('photo-1511707171634-5f897ff02aa9'),
+    unsplash('photo-1519345182560-3f2917c472ef'),
+    unsplash('photo-1581091226825-a6a2a5aee158'),
   ],
   restaurante_almuerzo: [
     unsplash('photo-1568901346375-23c9450c5869'),
@@ -93,6 +97,8 @@ export const PHOTO_BANK: Record<PhotoCategory, string[]> = {
     unsplash('photo-1414235077428-338989a2e8c0'),
     unsplash('photo-1559339352-11d035aa65de'),
     unsplash('photo-1552566626-52f8b828add9'),
+    unsplash('photo-1555396273-367ea4eb4db5'),
+    unsplash('photo-1540189549336-e6e99c3679fe'),
   ],
   asadero_parrilla: [
     unsplash('photo-1544025162-d76694265947'),
@@ -101,6 +107,8 @@ export const PHOTO_BANK: Record<PhotoCategory, string[]> = {
     unsplash('photo-1529193591184-b1d58069ecdd'),
     unsplash('photo-1603360946369-dc9bb6258143'),
     unsplash('photo-1594041680534-e8c8cdebd659'),
+    unsplash('photo-1432139555190-58524dae6a55'),
+    unsplash('photo-1529692236671-f1f6cf9683ba'),
   ],
   hamburguesa_rapida: [
     unsplash('photo-1565299624946-b28f40a0ae38'),
@@ -109,6 +117,8 @@ export const PHOTO_BANK: Record<PhotoCategory, string[]> = {
     unsplash('photo-1551782450-a2132b4ba21d'),
     unsplash('photo-1586190848861-99aa4a171e90'),
     unsplash('photo-1568901346375-23c9450c5869'),
+    unsplash('photo-1546069901-ba9599a7e63c'),
+    unsplash('photo-1603133872878-684f208fb84b'),
   ],
   panaderia_cafe: [
     unsplash('photo-1509440159596-0249088772ff'),
@@ -118,6 +128,8 @@ export const PHOTO_BANK: Record<PhotoCategory, string[]> = {
     unsplash('photo-1495474472287-4d71bcdd2085'),
     unsplash('photo-1447933601403-0c6688de566e'),
     unsplash('photo-1511920170033-f8396924c348'),
+    unsplash('photo-1555507036-ab1f4038808a'),
+    unsplash('photo-1445116572660-236099ec97a0'),
   ],
   odontologia_salud: [
     unsplash('photo-1606811841689-23dfddce3e95'),
@@ -126,6 +138,8 @@ export const PHOTO_BANK: Record<PhotoCategory, string[]> = {
     unsplash('photo-1631217868264-e5b90bb88267'),
     unsplash('photo-1629909613654-28e377c37b09'),
     unsplash('photo-1588771930296-88c2cb06df7e'),
+    unsplash('photo-1598256989800-fe5f95da9787'),
+    unsplash('photo-1579684385127-1ef15d508118'),
   ],
   drogueria_medicina: [
     unsplash('photo-1587854692152-cbe660dbde88'),
@@ -135,6 +149,8 @@ export const PHOTO_BANK: Record<PhotoCategory, string[]> = {
     unsplash('photo-1559839734-2b71ea197ec2'),
     unsplash('photo-1583912267550-d6c2ac3196c0'),
     unsplash('photo-1512069772995-ec65ed45afd6'),
+    unsplash('photo-1526256262350-7da7584cf5eb'),
+    unsplash('photo-1532187863486-abf9dbad1b69'),
   ],
   belleza_spa: [
     unsplash('photo-1560066984-138dadb34c00'),
@@ -143,6 +159,8 @@ export const PHOTO_BANK: Record<PhotoCategory, string[]> = {
     unsplash('photo-1570172619644-dfd03ed5d881'),
     unsplash('photo-1487412947147-5cebf100ffc2'),
     unsplash('photo-1512290923902-8a9f81dc236c'),
+    unsplash('photo-1544161515-4ab6ce6db874'),
+    unsplash('photo-1607779097040-26e80aa78e66'),
   ],
   barberia: [
     unsplash('photo-1503951914875-452162b0f3f1'),
@@ -151,6 +169,8 @@ export const PHOTO_BANK: Record<PhotoCategory, string[]> = {
     unsplash('photo-1567861911437-538298d94e63'),
     unsplash('photo-1519500856806-d7c49f31e03a'),
     unsplash('photo-1599351431202-1e0f0137899a'),
+    unsplash('photo-1521590832167-7bcbfaa6381f'),
+    unsplash('photo-1580618672591-eb180b1a973f'),
   ],
   turismo_cabanas_piscinas: [
     unsplash('photo-1520250497591-112f2f40a3f4'),
@@ -160,6 +180,8 @@ export const PHOTO_BANK: Record<PhotoCategory, string[]> = {
     unsplash('photo-1476514525535-07fb3b4ae5f1'),
     unsplash('photo-1470770841072-f978cf4d019e'),
     unsplash('photo-1506929562872-bb421503ef21'),
+    unsplash('photo-1571896349842-33c89424de2d'),
+    unsplash('photo-1584132967334-10e028bd69f7'),
   ],
   agro_ganaderia: [
     unsplash('photo-1500595046743-cd271d694d30'),
@@ -169,6 +191,9 @@ export const PHOTO_BANK: Record<PhotoCategory, string[]> = {
     unsplash('photo-1574943320219-553eb213f72d'),
     unsplash('photo-1500076656116-558758c991c1'),
     unsplash('photo-1523348847154-909a4216f814'),
+    unsplash('photo-1516467508483-a7212febe31a'),
+    unsplash('photo-1533460004989-cef01064af7e'),
+    unsplash('photo-1516253593875-bd7ba052fbc5'),
   ],
   veterinaria_mascotas: [
     unsplash('photo-1552053831-71594a27632d'),
@@ -177,6 +202,8 @@ export const PHOTO_BANK: Record<PhotoCategory, string[]> = {
     unsplash('photo-1601758228041-f3b2795255f1'),
     unsplash('photo-1543466835-00a7907e9de1'),
     unsplash('photo-1535268647677-f30019e2b21f'),
+    unsplash('photo-1514888286974-6c03e2ca1dba'),
+    unsplash('photo-1549366021-9f761d450615'),
   ],
   ferreteria_construccion: [
     unsplash('photo-1504148455328-c376907d081c'),
@@ -186,6 +213,8 @@ export const PHOTO_BANK: Record<PhotoCategory, string[]> = {
     unsplash('photo-1416331108676-a22ccb276e35'),
     unsplash('photo-1486406146926-c627a92ad1ab'),
     unsplash('photo-1503387762-592deb58ef4e'),
+    unsplash('photo-1416879595882-3373a0480b5b'),
+    unsplash('photo-1581094288338-31cf4c45ad19'),
   ],
   transporte_camioneta: [
     unsplash('photo-1501700493788-fa1a4fc9fe62'),
@@ -195,6 +224,8 @@ export const PHOTO_BANK: Record<PhotoCategory, string[]> = {
     unsplash('photo-1558618666-fcd25c85cd64'),
     unsplash('photo-1519125323398-675f0ddb6304'),
     unsplash('photo-1558981403-c5f9899a28bc'),
+    unsplash('photo-1566576912321-d58ddd7a6088'),
+    unsplash('photo-1578575437130-527eed3abb8c'),
   ],
   moda_ropa: [
     unsplash('photo-1521572163474-6864f9cf17ab'),
@@ -204,6 +235,8 @@ export const PHOTO_BANK: Record<PhotoCategory, string[]> = {
     unsplash('photo-1472851294608-062f824d29cc'),
     unsplash('photo-1489987707025-afc232f7ea0f'),
     unsplash('photo-1467086322280-714415ca9be9'),
+    unsplash('photo-1567401893414-76b7b1e23a7a'),
+    unsplash('photo-1542291026-7eec264c27ff'),
   ],
   gimnasio_fitness: [
     unsplash('photo-1534438327276-14e5300c3a48'),
@@ -212,6 +245,8 @@ export const PHOTO_BANK: Record<PhotoCategory, string[]> = {
     unsplash('photo-1583454110551-21f2fa2afa61'),
     unsplash('photo-1517836357463-d25dfeac3438'),
     unsplash('photo-1540497077202-7c8a3999166f'),
+    unsplash('photo-1571902943202-507ec2618e8f'),
+    unsplash('photo-1574680096145-d05b474e2155'),
   ],
   educacion_cursos: [
     unsplash('photo-1522202176988-66273c2fd55f'),
@@ -220,6 +255,8 @@ export const PHOTO_BANK: Record<PhotoCategory, string[]> = {
     unsplash('photo-1456513080510-7bf3a84b82f8'),
     unsplash('photo-1434030216411-0b793f4b4173'),
     unsplash('photo-1524995997946-a1c2e315a42f'),
+    unsplash('photo-1503676262388-30692ca84783'),
+    unsplash('photo-1523050854058-8df90110c9f1'),
   ],
   inmobiliaria_hogar: [
     unsplash('photo-1564013799919-ab600027ffc6'),
@@ -228,6 +265,8 @@ export const PHOTO_BANK: Record<PhotoCategory, string[]> = {
     unsplash('photo-1512917774080-9991f1c4c750'),
     unsplash('photo-1600607687939-ce8a6c25118c'),
     unsplash('photo-1600585154526-990dced4db0d'),
+    unsplash('photo-1568605114967-8130f3a36994'),
+    unsplash('photo-1560448204-e02f11c3d0e2'),
   ],
   eventos_fiestas: [
     unsplash('photo-1530103862671-de83c484dad3'),
@@ -236,6 +275,8 @@ export const PHOTO_BANK: Record<PhotoCategory, string[]> = {
     unsplash('photo-1470229722913-7c0e2dbbafd3'),
     unsplash('photo-1519225421980-715cb0215aed'),
     unsplash('photo-1517457373958-b7bdd4587205'),
+    unsplash('photo-1519167758481-83f550bb49b3'),
+    unsplash('photo-1429962714451-bb934ec244d2'),
   ],
   servicios_profesionales: [
     unsplash('photo-1589829545856-d10d557cf95f'),
@@ -245,8 +286,30 @@ export const PHOTO_BANK: Record<PhotoCategory, string[]> = {
     unsplash('photo-1521791136064-7986c2920216'),
     unsplash('photo-1507003211169-0a1dd7228f2d'),
     unsplash('photo-1573496359142-b8d87734a5a2'),
+    unsplash('photo-1507679799987-c73779587ccf'),
+    unsplash('photo-1552664730-d307ca884978'),
   ],
 };
+
+/** ═══ V14 · GALERÍA VISUAL EXPORTABLE PARA EL STUDIO ═══
+ *  Pestañas de categoría (con emoji y agrupaciones naturales del pueblo)
+ *  sobre el banco HD. La pestaña "sugeridas" la resuelve el Studio con
+ *  guessPhotoCategory(brief). */
+export const PHOTO_GALLERY_TABS: Array<{ id: string; label: string; cats: PhotoCategory[] }> = [
+  { id: 'sugeridas', label: '⭐ Sugeridas para tu brief', cats: [] },
+  { id: 'comida', label: '🍔 Comida y Restaurantes', cats: ['restaurante_almuerzo', 'hamburguesa_rapida'] },
+  { id: 'asaderos', label: '🥩 Asaderos y Carnes', cats: ['asadero_parrilla'] },
+  { id: 'panaderia', label: '🥐 Panadería y Café', cats: ['panaderia_cafe'] },
+  { id: 'turismo', label: '🏊 Cabañas, Piscinas y Turismo', cats: ['turismo_cabanas_piscinas'] },
+  { id: 'agro', label: '🚜 Agro, Ganado y Veterinaria', cats: ['agro_ganaderia', 'veterinaria_mascotas'] },
+  { id: 'salud', label: '🩺 Salud y Odontología', cats: ['odontologia_salud', 'drogueria_medicina'] },
+  { id: 'belleza', label: '💇 Belleza y Barbería', cats: ['belleza_spa', 'barberia'] },
+  { id: 'marketing', label: '🚀 Marketing y Tecnología', cats: ['marketing_digital', 'software_tech'] },
+  { id: 'ferreteria', label: '🛠 Ferretería y Hogar', cats: ['ferreteria_construccion', 'inmobiliaria_hogar'] },
+  { id: 'transporte', label: '🛻 Transporte y Fletes', cats: ['transporte_camioneta'] },
+  { id: 'ropa', label: '🛍️ Ropa y Comercio', cats: ['moda_ropa'] },
+  { id: 'varias', label: '🎁 Otras Categorías', cats: ['gimnasio_fitness', 'educacion_cursos', 'eventos_fiestas', 'servicios_profesionales'] },
+];
 
 /** Detecta la categoría exacta del banco a partir del brief (20 giros). */
 export function guessPhotoCategory(text: string): PhotoCategory {

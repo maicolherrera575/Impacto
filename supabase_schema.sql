@@ -587,6 +587,11 @@ begin
   if not found then
     raise exception 'Reserva no encontrada';
   end if;
+  -- V14: la calificación SOLO es posible tras la entrega del producto o
+  -- servicio (el comercio marca la reserva como 'completed').
+  if v_res.status <> 'completed' then
+    raise exception 'Podrás calificar cuando el comercio te entregue el producto o servicio';
+  end if;
   if v_res.is_rated then
     raise exception 'Ya calificaste esta reserva';
   end if;
