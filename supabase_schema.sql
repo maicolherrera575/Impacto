@@ -1911,4 +1911,164 @@ grant execute on function public.get_payment_contact_rpc()            to authent
 grant execute on function public.admin_set_payment_contact_rpc(text)  to authenticated;
 
 
+-- ============================================================================
+-- 9. MÉTODOS DE PAGO DEL COMERCIO (Nequi, Daviplata, Bancolombia, Efectivo)
+--    Cada comercio registra sus canales de cobro en su perfil de negocio.
+--    Validación AUTOMÁTICA y SEGURA en el servidor:
+--     · Formato: Nequi/Daviplata = celular colombiano (10 dígitos, inicia 3).
+--     · UNICIDAD GLOBAL: un mismo número no puede estar registrado por dos
+--       comercios (índice único + guardia en el RPC). Nadie puede "cargar"
+--       el número ajeno de otro negocio.
+--     · Escritura SOLO vía RPC SECURITY DEFINER (RLS bloquea INSERT/UPDATE
+--       directos: el cliente jamás puede manipular la tabla).
+--     · Lectura pública de los métodos ACTIVOS: es la info que el cliente
+--       necesita para pagar (copiar número o escanear el QR del perfil).
+-- ============================================================================
+
+create table if not exists public.payment_methods (
+  id             uuid primary key default gen_random_uuid(),
+  merchant_id    uuid not null references public.profiles (id) on delete cascade,
+  -- nequi | daviplata | bancolombia | efectivo
+  method_type    text not null,
+  -- Dígitos normalizados ('' para efectivo). Índice único global abajo.
+  account_number text not null default '',
+  holder_name    text not null default '',
+  is_active      boolean not null default true,
+  created_at     timestamptz not null default now(),
+  updated_at     timestamptz not null default now()
+);
+
+alter table public.payment_methods enable row level security;
+
+-- Unicidad GLOBAL (tipo + número): el corazón del sistema. Partial: solo
+-- aplica a métodos con número real (efectivo usa '' y puede repetirse).
+drop index if exists payment_methods_global_unique;
+create unique index payment_methods_global_unique
+  on public.payment_methods (method_type, account_number)
+  where char_length(btrim(account_number)) >= 6;
+
+drop index if exists payment_methods_merchant_idx;
+create index payment_methods_merchant_idx on public.payment_methods (merchant_id);
+
+-- Lectura: cualquiera puede VER los métodos activos (público en el perfil).
+drop policy if exists "Metodos de pago activos visibles" on public.payment_methods;
+create policy "Metodos de pago activos visibles"
+  on public.payment_methods for select
+  using (is_active = true);
+-- El dueño además ve los suyos incluso si estuvieran inactivos.
+drop policy if exists "Comercio ve sus metodos" on public.payment_methods;
+create policy "Comercio ve sus metodos"
+  on public.payment_methods for select
+  using (auth.uid() = merchant_id);
+-- (SIN políticas INSERT/UPDATE/DELETE: escritura SOLO por RPC security definer.)
+
+-- 9.1 Guardar / actualizar un método de pago con validación automática --------
+-- Normaliza (solo dígitos, quita prefijo 57), valida el formato según el tipo,
+-- rechaza números ya registrados por OTRO comercio y hace upsert por tipo
+-- (un comercio tiene máx. 1 canal por tipo). Todo transaccional.
+create or replace function public.save_payment_method_rpc(
+  p_method_type    text,
+  p_account_number text,
+  p_holder_name    text default null
+)
+returns public.payment_methods
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_digits text;
+  v_row    public.payment_methods;
+begin
+  if auth.uid() is null then
+    raise exception 'Debes iniciar sesión';
+  end if;
+
+  if p_method_type not in ('nequi', 'daviplata', 'bancolombia', 'efectivo') then
+    raise exception 'Tipo de método de pago inválido';
+  end if;
+
+  v_digits := coalesce(regexp_replace(coalesce(p_account_number, ''), '\D', '', 'g'), '');
+  -- Quita el prefijo internacional 57 (573201234567 → 3201234567)
+  if char_length(v_digits) = 12 and left(v_digits, 2) = '57' then
+    v_digits := right(v_digits, 10);
+  end if;
+
+  if p_method_type in ('nequi', 'daviplata') then
+    -- Nequi y Daviplata usan el celular: 10 dígitos que inician en 3
+    if char_length(v_digits) <> 10 or left(v_digits, 1) <> '3' then
+      raise exception 'El número de % debe ser un celular de 10 dígitos que empiece por 3 (ej: 3201234567)', p_method_type;
+    end if;
+  elsif p_method_type = 'bancolombia' then
+    if char_length(v_digits) < 9 or char_length(v_digits) > 17 then
+      raise exception 'La cuenta Bancolombia debe tener entre 9 y 17 dígitos (ahorros o corriente)';
+    end if;
+  else
+    -- Efectivo no lleva número
+    v_digits := '';
+  end if;
+
+  -- 🛡️ UNICIDAD GLOBAL: otro comercio ya registró este mismo número → rechazo.
+  -- (El índice único es la última defensa; esta guardia da un mensaje claro.)
+  if char_length(v_digits) >= 6 then
+    if exists (
+      select 1 from public.payment_methods pm
+       where pm.method_type = p_method_type
+         and pm.account_number = v_digits
+         and pm.merchant_id <> auth.uid()
+    ) then
+      raise exception 'DUPLICADO: ese número ya está registrado por otro comercio en Impulso. Usa un canal de cobro propio.';
+    end if;
+  end if;
+
+  -- Upsert por (comercio, tipo): reemplaza el canal anterior de ese tipo.
+  insert into public.payment_methods (merchant_id, method_type, account_number, holder_name, is_active)
+  values (
+    auth.uid(),
+    p_method_type,
+    v_digits,
+    coalesce(nullif(btrim(coalesce(p_holder_name, '')), ''), (select business_name from public.profiles where id = auth.uid()), ''),
+    true
+  )
+  on conflict (merchant_id, method_type) do update
+    set account_number = excluded.account_number,
+        holder_name    = excluded.holder_name,
+        is_active      = true,
+        updated_at     = now()
+  returning * into v_row;
+
+  return v_row;
+end;
+$$;
+
+-- El upsert necesita una restricción única por (comercio, tipo) además de la
+-- global: la creamos como índice único también parcial sobre el número real.
+drop index if exists payment_methods_owner_type_unique;
+create unique index payment_methods_owner_type_unique
+  on public.payment_methods (merchant_id, method_type);
+
+-- 9.2 Eliminar (desactivar) un método propio ----------------------------------
+create or replace function public.delete_payment_method_rpc(p_method_type text)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if auth.uid() is null then
+    raise exception 'Debes iniciar sesión';
+  end if;
+  if p_method_type not in ('nequi', 'daviplata', 'bancolombia', 'efectivo') then
+    raise exception 'Tipo de método de pago inválido';
+  end if;
+  delete from public.payment_methods
+   where merchant_id = auth.uid()
+     and method_type = p_method_type;
+end;
+$$;
+
+grant execute on function public.save_payment_method_rpc(text, text, text)   to authenticated;
+grant execute on function public.delete_payment_method_rpc(text)             to authenticated;
+
+
 

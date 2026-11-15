@@ -16,8 +16,8 @@ import {
   Trash2,
   Undo2,
 } from 'lucide-react';
-import type { MerchantReservation, Offer, OfferForm, OfferStatus, Profile } from '../../types';
-import { categoryMeta } from '../../types';
+import type { MerchantReservation, Offer, OfferForm, OfferStatus, PaymentMethod, PaymentType, Profile } from '../../types';
+import { categoryMeta, PAYMENT_TYPES, paymentTypeMeta } from '../../types';
 import { Stars } from '../ui/Stars';
 import { ModalShell } from '../ui/ModalShell';
 import { useToast } from '../ui/Toast';
@@ -30,6 +30,13 @@ import {
 import { friendlyError, supabase } from '../../services/supabase';
 import { compressImageToMicroWebP, compressionSummary } from '../../services/imageCompressor';
 import { updateMyProfile } from '../../services/profile.service';
+import {
+  deleteMyPaymentMethod,
+  fetchMerchantPaymentMethods,
+  normalizePaymentNumber,
+  saveMyPaymentMethod,
+  validatePaymentNumber,
+} from '../../services/payment-methods.service';
 import { OfferCreator } from './OfferCreator';
 import { LocationPicker } from './LocationPicker';
 import { CreditsModal } from './CreditsModal';
@@ -70,6 +77,13 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
   const [nitInput, setNitInput] = useState(profile.nit_or_cedula ?? '');
   const [socialInput, setSocialInput] = useState(profile.social_or_maps_link ?? '');
   const [trustBusy, setTrustBusy] = useState(false);
+  /** 💳 V16 · Métodos de pago del comercio (Nequi/Daviplata/Bancolombia/efectivo). */
+  const [payMethods, setPayMethods] = useState<PaymentMethod[]>([]);
+  const [payType, setPayType] = useState<PaymentType>('nequi');
+  const [payNumber, setPayNumber] = useState('');
+  const [payHolder, setPayHolder] = useState('');
+  const [payBusy, setPayBusy] = useState(false);
+  const [payDeleting, setPayDeleting] = useState<PaymentType | null>(null);
   /** 📱 Número oficial de recargas/soporte (BD del admin, fallback al .env). */
   const [paymentContact, setPaymentContact] = useState(ADMIN_WHATSAPP);
 
@@ -84,6 +98,58 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
       cancelled = true;
     };
   }, []);
+
+  /** 💳 V16 · Carga los métodos de pago registrados al abrir el panel. */
+  const refreshPayMethods = useCallback(async () => {
+    try {
+      setPayMethods(await fetchMerchantPaymentMethods(profile.id));
+    } catch (err) {
+      console.warn('[Impulso] métodos de pago:', friendlyError(err));
+    }
+  }, [profile.id]);
+
+  useEffect(() => {
+    void refreshPayMethods();
+  }, [refreshPayMethods]);
+
+  /** Guarda un método de pago: el servidor valida formato + unicidad global. */
+  async function savePayMethod() {
+    const liveError = validatePaymentNumber(payType, payNumber);
+    if (payType !== 'efectivo' && liveError) {
+      toast.error(liveError);
+      return;
+    }
+    setPayBusy(true);
+    try {
+      const saved = await saveMyPaymentMethod(payType, payNumber, payHolder.trim() || undefined);
+      setPayMethods((prev) => {
+        const others = prev.filter((m) => m.method_type !== saved.method_type);
+        return [...others, saved];
+      });
+      setPayNumber('');
+      setPayHolder('');
+      toast.success(`${paymentTypeMeta(saved.method_type).emoji} ${paymentTypeMeta(saved.method_type).label} guardado y verificado: ya aparece en tu perfil público`);
+    } catch (err) {
+      // El servidor trae el mensaje exacto (formato o DUPLICADO global)
+      toast.error(friendlyError(err));
+    } finally {
+      setPayBusy(false);
+    }
+  }
+
+  /** Elimina un método de pago propio. */
+  async function removePayMethod(type: PaymentType) {
+    setPayDeleting(type);
+    try {
+      await deleteMyPaymentMethod(type);
+      setPayMethods((prev) => prev.filter((m) => m.method_type !== type));
+      toast.info('Método de pago eliminado de tu perfil');
+    } catch (err) {
+      toast.error(friendlyError(err));
+    } finally {
+      setPayDeleting(null);
+    }
+  }
 
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
@@ -715,6 +781,104 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
               {trustBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : '💾'} Guardar datos de confianza
             </button>
           </div>
+        </section>
+
+        {/* 💳 V16 · Métodos de pago: Nequi/Daviplata validados y únicos en la plataforma */}
+        <section className="rounded-3xl border border-white/10 bg-impulso-panel p-4">
+          <p className="text-sm font-bold text-white">💳 Métodos de pago (para que te paguen al instante)</p>
+          <p className="mt-1 text-xs leading-relaxed text-slate-400">
+            Registra tu Nequi, Daviplata, cuenta Bancolombia o pago en efectivo. Impulso valida cada número
+            automáticamente: si el formato es inválido o <span className="font-bold text-slate-300">otro comercio ya lo
+            registró</span>, el sistema lo rechaza. Tus canales aparecen con QR y botón de copia en tu perfil público.
+          </p>
+
+          {/* Métodos ya registrados */}
+          {payMethods.length > 0 && (
+            <div className="mt-3 space-y-2">
+              {payMethods.map((m) => {
+                const meta = paymentTypeMeta(m.method_type);
+                return (
+                  <div key={m.id} className="flex items-center justify-between gap-2 rounded-2xl border border-impulso-emerald/25 bg-impulso-emerald/10 p-3">
+                    <div className="min-w-0">
+                      <p className="text-xs font-extrabold text-impulso-mint">
+                        {meta.emoji} {meta.label} · ✅ Verificado
+                      </p>
+                      <p className="truncate text-sm font-bold tabular-nums text-white">
+                        {m.method_type === 'efectivo' ? 'Al momento de la entrega' : m.account_number}
+                      </p>
+                      {m.holder_name && <p className="truncate text-[10px] font-semibold text-slate-400">Titular: {m.holder_name}</p>}
+                    </div>
+                    <button
+                      onClick={() => void removePayMethod(m.method_type)}
+                      disabled={payDeleting === m.method_type}
+                      title="Eliminar método"
+                      aria-label={`Eliminar ${meta.label}`}
+                      className="pressable grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-white/10 bg-slate-950/40 text-slate-400 hover:text-impulso-rose disabled:opacity-50"
+                    >
+                      {payDeleting === m.method_type ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Selector de tipo en cascada */}
+          <div className="mt-3 grid grid-cols-2 gap-1.5">
+            {PAYMENT_TYPES.map((t) => (
+              <button
+                key={t.id}
+                onClick={() => {
+                  setPayType(t.id);
+                  setPayNumber('');
+                }}
+                className={cx(
+                  'pressable rounded-xl border px-2 py-2 text-left text-[11px] font-extrabold transition',
+                  payType === t.id ? 'border-impulso-gold/60 bg-impulso-gold/15 text-impulso-gold' : 'border-white/10 bg-slate-950/40 text-slate-400',
+                )}
+              >
+                {t.emoji} {t.label}
+                <span className="mt-0.5 block font-semibold opacity-70">{t.hint}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* Formulario del número (oculto para efectivo) */}
+          {payType !== 'efectivo' && (
+            <div className="mt-3 space-y-2">
+              <input
+                value={payNumber}
+                onChange={(e) => setPayNumber(e.target.value.replace(/\D/g, '').slice(0, 12))}
+                inputMode="numeric"
+                autoComplete="off"
+                placeholder={payType === 'bancolombia' ? 'Número de cuenta (ej: 34512345678)' : 'Número de celular (ej: 3201234567)'}
+                className="w-full rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3 text-sm font-bold tabular-nums text-white placeholder:font-medium placeholder:text-slate-600 outline-none focus:border-impulso-emerald/60"
+              />
+              {/* Validación en vivo: formato correcto o el error exacto */}
+              {payNumber.length > 0 && (
+                <p className={cx('text-[11px] font-bold', validatePaymentNumber(payType, payNumber) ? 'text-impulso-rose' : 'text-impulso-mint')}>
+                  {validatePaymentNumber(payType, payNumber) ? `⚠️ ${validatePaymentNumber(payType, payNumber)}` : `✅ Formato válido: ${normalizePaymentNumber(payNumber)}`}
+                </p>
+              )}
+              <input
+                value={payHolder}
+                onChange={(e) => setPayHolder(e.target.value.slice(0, 60))}
+                placeholder={`Titular de la cuenta (opcional: ${profile.business_name})`}
+                className="w-full rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3 text-sm font-medium text-white placeholder:text-slate-600 outline-none focus:border-impulso-emerald/60"
+              />
+            </div>
+          )}
+          <button
+            onClick={() => void savePayMethod()}
+            disabled={payBusy}
+            className="pressable mt-2 flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-impulso-emerald to-teal-600 py-3 text-sm font-extrabold text-white disabled:opacity-60"
+          >
+            {payBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : '💾'} {payType === 'efectivo' ? 'Activar pago en efectivo' : 'Guardar y verificar método de pago'}
+          </button>
+          <p className="mt-2 text-[10px] leading-relaxed text-slate-500">
+            🛡️ Verificación automática y segura: formato colombiano, unicidad global en toda la plataforma y bloqueo
+            anti-trampa a nivel de base de datos. Nadie puede registrar un canal de cobro ajeno.
+          </p>
         </section>
 
         {/* Panel de Administrador: solo visible con el rol admin (asignado en la BD) */}

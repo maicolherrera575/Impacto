@@ -110,6 +110,32 @@ export interface Profile {
   created_at: string;
 }
 
+/** 💳 Canales de cobro que el comercio registra en su perfil de negocio. */
+export type PaymentType = 'nequi' | 'daviplata' | 'bancolombia' | 'efectivo';
+
+export const PAYMENT_TYPES: readonly { id: PaymentType; label: string; emoji: string; hint: string }[] = [
+  { id: 'nequi', label: 'Nequi', emoji: '💜', hint: 'Celular de 10 dígitos que empieza por 3' },
+  { id: 'daviplata', label: 'Daviplata', emoji: '❤️', hint: 'Celular de 10 dígitos que empieza por 3' },
+  { id: 'bancolombia', label: 'Cuenta Bancolombia', emoji: '🟡', hint: 'Ahorros o corriente (9 a 17 dígitos)' },
+  { id: 'efectivo', label: 'Pago en efectivo', emoji: '💵', hint: 'Cobras al momento de la entrega' },
+] as const;
+
+export function paymentTypeMeta(id: string): { id: PaymentType; label: string; emoji: string; hint: string } {
+  return PAYMENT_TYPES.find((p) => p.id === id) ?? PAYMENT_TYPES[0];
+}
+
+/** Método de pago registrado (fila de `payment_methods` en Supabase). */
+export interface PaymentMethod {
+  id: string;
+  merchant_id: string;
+  method_type: PaymentType;
+  account_number: string;
+  holder_name: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Offer {
   id: string;
   merchant_id: string;

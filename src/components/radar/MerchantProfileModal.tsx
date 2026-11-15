@@ -5,12 +5,14 @@
  * por WhatsApp, compartir perfil y el catálogo de ofertas activas del local.
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import * as QRCode from 'qrcode';
 import { Navigation, Share2, ShieldCheck, Star } from 'lucide-react';
-import type { Offer, Profile } from '../../types';
-import { categoryMeta } from '../../types';
+import type { Offer, PaymentMethod, Profile } from '../../types';
+import { categoryMeta, paymentTypeMeta } from '../../types';
 import { ModalShell } from '../ui/ModalShell';
 import { useToast } from '../ui/Toast';
+import { fetchMerchantPaymentMethods } from '../../services/payment-methods.service';
 import { distanceText, haversineMeters } from '../../utils/geo';
 import type { LatLng } from '../../utils/geo';
 import { cx, formatCOP, ratingAvg } from '../../utils/format';
@@ -37,6 +39,43 @@ interface MerchantProfileModalProps {
 export function MerchantProfileModal({ merchant, offers, geoPos, onClose, onFocusMap, onOpenOffer }: MerchantProfileModalProps) {
   const toast = useToast();
   const [copied, setCopied] = useState(false);
+  /** 💳 V16 · Métodos de pago verificados del comercio (cargados por id). */
+  const [payMethods, setPayMethods] = useState<PaymentMethod[]>([]);
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!merchant) {
+      setPayMethods([]);
+      setQrDataUrl(null);
+      return;
+    }
+    fetchMerchantPaymentMethods(merchant.id)
+      .then((list) => {
+        if (!cancelled) setPayMethods(list);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [merchant?.id]);
+
+  /** Genera el QR de pago al vuelo: contiene el canal y el número verificado. */
+  async function showPayQr(m: PaymentMethod): Promise<void> {
+    const meta = paymentTypeMeta(m.method_type);
+    const payload = [
+      `PAGO A ${merchant?.business_name ?? 'comercio'} vía ${meta.label}`,
+      m.holder_name ? `Titular: ${m.holder_name}` : '',
+      m.method_type === 'efectivo' ? 'Paga en efectivo al recibir' : `Número: ${m.account_number}`,
+      'Canal verificado en Impulso',
+    ].filter(Boolean).join(' | ');
+    try {
+      const url = await QRCode.toDataURL(payload, { width: 512, margin: 1, errorCorrectionLevel: 'M' });
+      setQrDataUrl(url);
+    } catch {
+      toast.error('No se pudo generar el QR de pago');
+    }
+  }
 
   const profileUrl = merchant
     ? `${window.location.origin}${window.location.pathname}?comercio=${merchant.id}`
@@ -153,6 +192,75 @@ export function MerchantProfileModal({ merchant, offers, geoPos, onClose, onFocu
                 )}
               </div>
             </div>
+
+            {/* ── 💳 V16 · Paga fácil y seguro: canales verificados del comercio ── */}
+            {payMethods.length > 0 && (
+              <div className="mt-3 rounded-2xl border border-impulso-emerald/25 bg-impulso-emerald/[0.06] p-3.5">
+                <p className="text-xs font-extrabold uppercase tracking-wider text-impulso-mint">💳 Paga fácil y seguro</p>
+                <p className="mt-1 text-[11px] font-semibold leading-relaxed text-slate-400">
+                  Canales de cobro verificados por Impulso: únicos en la plataforma y registrados por este comercio.
+                  Copia el número o escanea el QR para pagar desde tu app.
+                </p>
+                <div className="mt-2.5 space-y-2">
+                  {payMethods.map((m) => {
+                    const meta = paymentTypeMeta(m.method_type);
+                    return (
+                      <div key={m.id} className="rounded-xl border border-white/10 bg-slate-950/40 p-2.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="flex items-center gap-1.5 text-[11px] font-extrabold text-impulso-mint">
+                              {meta.emoji} {meta.label}
+                              <ShieldCheck className="h-3 w-3" />
+                              Verificado
+                            </p>
+                            <p className="truncate text-sm font-bold tabular-nums text-white">
+                              {m.method_type === 'efectivo' ? '💵 Paga al momento de la entrega' : m.account_number}
+                            </p>
+                            {m.holder_name && <p className="truncate text-[10px] font-semibold text-slate-500">Titular: {m.holder_name}</p>}
+                          </div>
+                          <div className="flex shrink-0 items-center gap-1.5">
+                            {m.method_type !== 'efectivo' && (
+                              <>
+                                <button
+                                  onClick={async () => {
+                                    try {
+                                      await navigator.clipboard.writeText(m.account_number);
+                                      toast.success(`📋 Número ${meta.label} copiado: pégalo en tu app de pago`);
+                                    } catch {
+                                      toast.error('No se pudo copiar el número');
+                                    }
+                                  }}
+                                  className="pressable rounded-xl border border-white/10 bg-slate-950/60 px-2.5 py-2 text-[10px] font-extrabold text-slate-200"
+                                >
+                                  📋 Copiar
+                                </button>
+                                <button
+                                  onClick={() => void showPayQr(m)}
+                                  className={cx(
+                                    'pressable rounded-xl border px-2.5 py-2 text-[10px] font-extrabold transition',
+                                    qrDataUrl ? 'border-impulso-gold/50 bg-impulso-gold/15 text-impulso-gold' : 'border-white/10 bg-slate-950/60 text-slate-200',
+                                  )}
+                                >
+                                  📱 QR de pago
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                {qrDataUrl && (
+                  <div className="mt-2.5 flex flex-col items-center rounded-xl bg-white p-3">
+                    <img src={qrDataUrl} alt="QR de pago verificado" className="h-44 w-44" />
+                    <p className="mt-1.5 text-center text-[10px] font-extrabold text-slate-800">
+                      📱 Escanea con la cámara: contiene el canal de pago verificado
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* ── Contacto directo: WhatsApp + compartir perfil ── */}
             <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
