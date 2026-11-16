@@ -158,6 +158,39 @@ create trigger impulso_auto_confirm_user
   before insert on auth.users
   for each row execute function public.auto_confirm_new_user();
 
+-- 2.4 V19 · Candado por RPC: confirma manualmente una cuenta recién creada
+-- (por si Supabase aún esperaba confirmación de correo) y garantiza que su
+-- fila en profiles exista. Ejecutable por anon (registro sin sesión) y
+-- authenticated. Solo actúa sobre cuentas SIN confirmar — jamás toca las demás.
+create or replace function public.auto_confirm_merchant_account_rpc(p_email text)
+returns boolean
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_user_id uuid;
+begin
+  select id into v_user_id
+    from auth.users
+   where lower(email) = lower(btrim(coalesce(p_email, '')))
+     and email_confirmed_at is null
+   limit 1;
+  if v_user_id is null then
+    return false;
+  end if;
+  update auth.users
+     set email_confirmed_at = coalesce(email_confirmed_at, now()),
+         confirmation_token = null
+   where id = v_user_id;
+  insert into public.profiles (id, business_name, category, whatsapp, municipality)
+  values (v_user_id, 'Mi Negocio', 'comida', '3000000000', 'Gachetá')
+  on conflict (id) do nothing;
+  return true;
+end;
+$$;
+grant execute on function public.auto_confirm_merchant_account_rpc(text) to anon, authenticated;
+
 -- Parche único para cuentas creadas antes de este trigger
 update auth.users set email_confirmed_at = now() where email_confirmed_at is null;
 
@@ -2371,6 +2404,11 @@ $$;
 
 grant execute on function public.save_payment_method_rpc(text, text, text)   to authenticated;
 grant execute on function public.delete_payment_method_rpc(text)             to authenticated;
+
+-- 🔄 V19 · Refresca el caché de PostgREST automáticamente al correr el script:
+-- sin esto, funciones nuevas (como admin_reports_list_rpc) pueden seguir
+-- "no encontradas" hasta 1-2 minutos por caché del esquema.
+NOTIFY pgrst, 'reload schema';
 
 
 

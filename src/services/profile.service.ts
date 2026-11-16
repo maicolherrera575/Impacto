@@ -82,8 +82,8 @@ export async function signUpMerchant(input: SignUpMerchantInput): Promise<boolea
     email: input.email,
     password: input.password,
     options: {
-      // V18: la redirección SIEMPRE al dominio real (jamás localhost:3000)
-      emailRedirectTo: window.location.origin,
+      // V19: la redirección SIEMPRE al dominio real en producción (jamás localhost:3000)
+      emailRedirectTo: 'https://impacto-tawny.vercel.app/',
       data: {
         business_name: input.businessName,
         category: input.category,
@@ -99,12 +99,19 @@ export async function signUpMerchant(input: SignUpMerchantInput): Promise<boolea
 }
 
 /**
- * V18 · Auto-entrada inmediata: si el registro no dejó sesión (flujo de
- * confirmación de correo), entra directo con las mismas credenciales.
- * Con el trigger de auto-confirmación esto casi nunca hará falta, pero
- * garantiza que el comerciante llegue a su panel en 1 segundo.
+ * V19 · Auto-entrada inmediata con doble candado: si el registro no dejó
+ * sesión (flujo de confirmación de correo), primero confirma la cuenta por
+ * RPC en el servidor (auto_confirm_merchant_account_rpc) y un instante
+ * después entra directo con las mismas credenciales. El comerciante llega
+ * a su panel en 1 segundo, sin abrir correos y sin ver jamás localhost:3000.
  */
 export async function ensureSignedInAfterSignUp(email: string, password: string): Promise<boolean> {
+  try {
+    await supabase.rpc('auto_confirm_merchant_account_rpc', { p_email: email });
+  } catch {
+    // La RPC es una red de seguridad: si no existe aún, el trigger
+    // auto_confirm_user ya dejó la cuenta confirmada de todas formas.
+  }
   try {
     await signIn(email, password);
     return true;

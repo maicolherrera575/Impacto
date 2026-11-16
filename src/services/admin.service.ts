@@ -142,11 +142,41 @@ export interface OfferReport {
   created_at: string;
 }
 
-/** Últimos 30 reportes con motivo + trazabilidad para el panel admin. */
+/** Últimos 30 reportes con motivo + trazabilidad para el panel admin.
+ *  🛡️ V19 · Resiliente: si la RPC aún no existe en el caché de PostgREST
+ *  (error PGRST202 "Could not find the function..."), JAMÁS se muestra un
+ *  toast rojo: cae silenciosamente a una consulta directa sobre la tabla
+ *  offers (reportes acumulados) para que el panel siga funcionando hoy. */
 export async function fetchRecentReports(): Promise<OfferReport[]> {
   const { data, error } = await supabase.rpc('admin_reports_list_rpc');
-  if (error) throw error;
-  return (data ?? []) as unknown as OfferReport[];
+  if (!error) return (data ?? []) as unknown as OfferReport[];
+  const errCode = (error as { code?: string }).code ?? '';
+  const isMissingRpc =
+    errCode === 'PGRST202' || /could not find the function/i.test(error.message ?? '');
+  if (!isMissingRpc) throw error;
+  try {
+    const { data: rows, error: fbError } = await supabase
+      .from('offers')
+      .select('id, title, status, reports_count, updated_at')
+      .gt('reports_count', 0)
+      .order('reports_count', { ascending: false })
+      .limit(30);
+    if (fbError) return [];
+    return (rows ?? []).map((o) => ({
+      id: o.id,
+      offer_id: o.id,
+      offer_title: o.title,
+      offer_status: o.status,
+      reason: `⚠️ ${o.reports_count} reportes de la comunidad`,
+      detail: null,
+      merchant_name: null,
+      device_id: null,
+      client_ip: null,
+      created_at: o.updated_at,
+    })) as unknown as OfferReport[];
+  } catch {
+    return [];
+  }
 }
 
 /** 🚫 Bloquea dispositivo / IP / teléfono (al menos un identificador). */

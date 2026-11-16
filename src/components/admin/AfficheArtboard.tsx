@@ -21,7 +21,9 @@ import type { CSSProperties } from 'react';
 export type AfficheFormat = 'story' | 'square';
 export type AfficheLayout =
   | 'bento' | 'magazine' | 'diagonal' | 'polaroid' | 'arc' | 'portal' | 'swiss'
-  | 'split' | 'brutal' | 'vip' | 'cyber' | 'rustic' | 'retail' | 'eco' | 'cinema' | 'float';
+  | 'split' | 'brutal' | 'vip' | 'cyber' | 'rustic' | 'retail' | 'eco' | 'cinema' | 'float'
+  // 🚀 V19 · 8 arquitecturas futuristas nuevas (17–24)
+  | 'hud' | 'resort' | 'menu' | 'clinic' | 'agro' | 'diamond' | 'flash' | 'bento3d';
 export type AffichePiece = 0 | 1 | 2 | 3;
 
 export interface AfficheTheme {
@@ -266,6 +268,10 @@ export interface AfficheProps {
   fontStyle?: string;
   /** 🔍 V18: escala del titular (0.8 a 1.5) — slider "Tamaño del Titular". */
   headlineScale?: number;
+  /** 🖼️ V19 · Fotos DIFERENTES para las piezas 2, 3 y 4 (campaña multi-diseño). */
+  photoUrl2?: string | null;
+  photoUrl3?: string | null;
+  photoUrl4?: string | null;
 }
 
 const money = (v: number): string => `$${v.toLocaleString('es-CO')}`;
@@ -425,11 +431,16 @@ function Headline({
     margin: 0,
     fontFamily: `"${typo.font || t.font}", system-ui, sans-serif`,
     fontSize: (size * scale * s).toFixed(1),
-    lineHeight: 1.05,
+    lineHeight: 1.06,
     fontWeight: 900,
     letterSpacing: -0.5,
-    color: color ?? t.text,
-    textShadow: t.light && !color && eff !== 'neon' && eff !== 'sticker' ? 'none' : '0 3px 18px rgba(0,0,0,0.35)',
+    color: color ?? (t.light ? t.text : '#ffffff'),
+    // 💡 V19 · Reluciente de alto contraste: sombra triple de profundidad para
+    // que el titular se lea perfecto sobre cualquier fondo claro u oscuro.
+    textShadow:
+      t.light && !color && eff !== 'neon' && eff !== 'sticker'
+        ? '0 2px 6px rgba(255,255,255,0.5)'
+        : '0 4px 16px rgba(0,0,0,0.95), 0 2px 6px rgba(0,0,0,0.6), 0 1px 2px rgba(0,0,0,0.8)',
   };
 
   /** Palabra(s) clave con el efecto del estilo tipográfico elegido. */
@@ -440,9 +451,11 @@ function Headline({
         return (
           <span
             style={{
-              background: t.accent2, color: t.light ? '#ffffff' : '#0b0f18',
+              background: `linear-gradient(100deg, ${t.accent}, ${t.accent2})`,
+              color: '#0b0f18',
               padding: `${2 * s}px ${10 * s}px`, borderRadius: 10 * s,
-              display: 'inline-block', boxShadow: `0 6px 16px ${t.accent2}55`,
+              display: 'inline-block', boxShadow: `0 6px 16px ${t.accent2}55, 0 0 ${24 * s}px ${t.accent}55`,
+              fontWeight: 900,
             }}
           >
             {hl}
@@ -536,9 +549,22 @@ function BenefitCards({ items, t, s }: { items: string[]; t: AfficheTheme; s: nu
                 : `0 6px 18px rgba(0,0,0,0.35), inset 0 0 0 1px ${t.accent2}33`,
             }}
           >
-            <span style={{ fontSize: 30 * s, lineHeight: 1 }}>{icon}</span>
-            <span style={{ flex: 1, fontSize: 18.5 * s, fontWeight: 700, color: t.text, lineHeight: 1.18 }}>{body}</span>
-            <span style={{ fontSize: 18 * s, color: t.accent2, fontWeight: 900, lineHeight: 1 }}>✓</span>
+            {/* 💡 V19 · Icono brillante en caja con gradiente luminoso */}
+            <span
+              style={{
+                width: 40 * s, height: 40 * s, flexShrink: 0,
+                borderRadius: 11 * s,
+                background: `linear-gradient(160deg, ${t.accent}40, ${t.accent2}28)`,
+                border: '1px solid rgba(255,255,255,0.35)',
+                boxShadow: 'inset 0 2px 5px rgba(255,255,255,0.35), 0 4px 12px rgba(0,0,0,0.30)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 24 * s, lineHeight: 1,
+              }}
+            >
+              {icon}
+            </span>
+            <span style={{ flex: 1, fontSize: 19.5 * s, fontWeight: 800, color: t.text, lineHeight: 1.18 }}>{body}</span>
+            <span style={{ fontSize: 19 * s, color: t.accent2, fontWeight: 900, lineHeight: 1, textShadow: t.light ? 'none' : `0 0 ${10 * s}px ${t.accent2}` }}>✓</span>
           </div>
         );
       })}
@@ -622,9 +648,11 @@ function CtaButton({ label, s, bg = '#16a34a', color = '#ffffff' }: { label: str
 }
 
 /**
- * 📲 Dock de Conversión V12: categoría detectada del brief en MAYÚSCULAS +
- * ubicación (jamás una categoría fija), negocio en grande, botón de WhatsApp
- * y CÓDIGO QR GIGANTE sobre blanco con UNA sola etiqueta: "📱 ESCANEA EL QR".
+ * 📲 Dock de Conversión V19 (rediseño total): la columna izquierda al lado
+ * del QR se llena al 100% de arriba a abajo — píldora luminosa del rubro,
+ * negocio GIGANTE con sombra profunda, ubicación acentuada y botón de
+ * WhatsApp de ancho completo con resplandor. QR blanco a la derecha en
+ * bloque cuadrado limpio con marco brillante y leyenda en negrita.
  */
 function Dock({ brand, t, s, qrUrl, size, qrLabel }: { brand: AfficheBrand; t: AfficheTheme; s: number; qrUrl: string | null; size: number; qrLabel?: string }) {
   const g = glass(t);
@@ -635,43 +663,76 @@ function Dock({ brand, t, s, qrUrl, size, qrLabel }: { brand: AfficheBrand; t: A
       style={{
         ...g.card,
         borderRadius: 18 * s,
-        display: 'flex', alignItems: 'center', gap: 12 * s,
+        display: 'flex', alignItems: 'stretch', justifyContent: 'space-between', gap: 12 * s,
         padding: `${12 * s}px ${14 * s}px`,
         boxShadow: t.light ? '0 2px 10px rgba(15,23,42,0.10)' : '0 8px 26px rgba(0,0,0,0.38)',
       }}
     >
-      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 * s }}>
-        <p style={{ margin: 0, fontSize: 9.5 * s, fontWeight: 800, letterSpacing: 1.6, textTransform: 'uppercase', color: t.light ? 'rgba(15,23,42,0.62)' : 'rgba(255,255,255,0.66)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+      {/* Columna izquierda: rubro · negocio gigante · ubicación · botón WA */}
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 6 * s, padding: `${2 * s}px 0` }}>
+        <p
+          style={{
+            margin: 0, alignSelf: 'flex-start',
+            background: `${t.accent2}26`, border: `1px solid ${t.accent2}55`,
+            color: t.light ? '#92400e' : '#fde68a',
+            borderRadius: 8 * s,
+            padding: `${4 * s}px ${10 * s}px`,
+            fontSize: 11 * s, fontWeight: 900, letterSpacing: 1.6, textTransform: 'uppercase',
+            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%',
+            boxShadow: `0 0 ${12 * s}px ${t.accent2}33`,
+          }}
+        >
           {(brand.slogan || 'ATENCIÓN INMEDIATA').toUpperCase()}
         </p>
-        <p style={{ margin: 0, fontFamily: `"${t.font}", system-ui, sans-serif`, fontSize: 28 * s, fontWeight: 900, color: t.text, lineHeight: 1.05, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          {brand.name || 'Tu Negocio'}
-        </p>
-        <p style={{ margin: 0, fontSize: 11 * s, fontWeight: 600, color: t.light ? 'rgba(15,23,42,0.66)' : t.sub, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          📍 {brand.address || brand.municipality || 'Gachetá'}
-        </p>
+        <div style={{ minWidth: 0 }}>
+          <p
+            style={{
+              margin: 0,
+              fontFamily: `"${t.font}", system-ui, sans-serif`,
+              fontSize: 30 * s, fontWeight: 900, color: t.text, lineHeight: 1,
+              letterSpacing: -0.4,
+              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+              textShadow: t.light ? 'none' : '0 2px 10px rgba(0,0,0,0.8)',
+            }}
+          >
+            {brand.name || 'Tu Negocio'}
+          </p>
+          <p style={{ margin: 0, marginTop: 4 * s, fontSize: 13.5 * s, fontWeight: 700, color: t.light ? 'rgba(15,23,42,0.7)' : t.accent2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            📍 {brand.address || brand.municipality || 'Gachetá'}
+          </p>
+        </div>
         <div
           style={{
-            background: '#16a34a', color: '#ffffff',
-            borderRadius: 999,
-            padding: `${8 * s}px ${14 * s}px`,
-            fontSize: 16 * s, fontWeight: 900,
-            display: 'inline-flex', alignItems: 'center', gap: 6 * s,
-            alignSelf: 'flex-start',
-            boxShadow: '0 4px 14px rgba(22,163,74,0.45)',
+            width: '100%', boxSizing: 'border-box',
+            background: 'linear-gradient(90deg, #059669, #34d399)',
+            color: '#022c22',
+            borderRadius: 12 * s,
+            padding: `${9 * s}px ${12 * s}px`,
+            fontSize: 17 * s, fontWeight: 900,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7 * s,
+            boxShadow: `0 0 ${25 * s}px rgba(16,185,129,0.5)`,
             whiteSpace: 'nowrap',
           }}
         >
           💬 {phone}
         </div>
       </div>
+      {/* QR: bloque cuadrado nítido con marco brillante + leyenda en negrita */}
       {qrUrl && (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 * s, flexShrink: 0 }}>
-          <div style={{ background: '#ffffff', borderRadius: 10 * s, padding: 6 * s, boxShadow: '0 4px 14px rgba(0,0,0,0.30)' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 5 * s, flexShrink: 0 }}>
+          <div
+            style={{
+              background: '#ffffff',
+              borderRadius: 12 * s,
+              padding: 7 * s,
+              border: `2.5px solid ${t.accent2}`,
+              boxShadow: `0 0 ${18 * s}px ${t.accent2}66, 0 6px 18px rgba(0,0,0,0.35)`,
+            }}
+          >
             <img src={qrUrl} alt="QR" style={{ width: qrBox, height: qrBox, display: 'block' }} />
           </div>
-          <p style={{ margin: 0, fontSize: 10.5 * s, fontWeight: 800, letterSpacing: 0.8, color: t.light ? 'rgba(15,23,42,0.75)' : 'rgba(255,255,255,0.88)', whiteSpace: 'nowrap' }}>
-            {qrLabel || '📱 ESCANEA AQUÍ'}
+          <p style={{ margin: 0, fontSize: 11.5 * s, fontWeight: 900, letterSpacing: 0.8, color: t.light ? 'rgba(15,23,42,0.8)' : '#ffffff', whiteSpace: 'nowrap', textShadow: t.light ? 'none' : '0 2px 6px rgba(0,0,0,0.7)' }}>
+            {qrLabel || '📲 ESCANEA AQUÍ'}
           </p>
         </div>
       )}
@@ -709,9 +770,13 @@ function Sticker({ text, s, bg = '#fde047', color = '#111827', rotate = -3 }: { 
  *  · Pieza 4 → tarjeta ejecutiva de cierre con QR GIGANTE central de 220px.
  */
 export function AfficheArtboard(props: AfficheProps): React.ReactElement {
-  const { themeId, layout, format, piece, brand, texts, badge, showPrice, showBenefits, showQr, photoUrl, qrUrl, photoZoom, photoPosY, qrLabel, qrHint, fontStyle, headlineScale } = props;
+  const { themeId, layout, format, piece, brand, texts, badge, showPrice, showBenefits, showQr, photoUrl, qrUrl, photoZoom, photoPosY, qrLabel, qrHint, fontStyle, headlineScale, photoUrl2, photoUrl3, photoUrl4 } = props;
   /** 🔍 V18: escala del titular leída del slider (default 1 = tamaño base). */
   const hs = headlineScale ?? 1;
+  /** 🖼️ V19: cada pieza recibe su PROPIA fotografía (si no hay, cae a la maestra). */
+  const photo2 = photoUrl2 ?? photoUrl;
+  const photo3 = photoUrl3 ?? photoUrl;
+  const photo4 = photoUrl4 ?? photoUrl;
   const t = AFFICHE_THEMES.find((x) => x.id === themeId) ?? AFFICHE_THEMES[1];
   const s = format === 'square' ? 0.58 : 1;
   const W = 540;
@@ -729,9 +794,9 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
   const PHOTO_MAX = 400 * s;
 
   // Tamaños del dock según la pieza (piezas 2/3 tienen QR dedicado).
-  // V14: CÓDIGO QR PROTAGONISTA — 180px en lienzo (=360px en el PNG 1080p).
-  const dockQrSize = 180 * s;
-  const dockHeight = 216 * s;
+  // V19: CÓDIGO QR PROTAGONISTA — 190px en lienzo (=380px en el PNG 1080p).
+  const dockQrSize = 190 * s;
+  const dockHeight = 222 * s;
 
   const photoBlock = (extra?: CSSProperties): React.ReactElement => (
     <div
@@ -835,9 +900,9 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
           >
             {texts.hook.trim() || `${texts.plain.trim()} ${texts.highlight.trim()}`.toUpperCase()}
           </p>
-          {/* Fotografía en spotlight con precio flotante */}
+          {/* Fotografía en spotlight con precio flotante (🖼️ V19 · foto #2 propia de esta pieza) */}
           <div style={{ position: 'relative', flex: 1, minHeight: 0, borderRadius: 18 * s, overflow: 'hidden', boxShadow: '0 16px 40px rgba(0,0,0,0.5)' }}>
-            <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
+            <Photo url={photo2} zoom={photoZoom} posY={photoPosY} />
             <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(6,8,14,0.25) 0%, transparent 30%, transparent 70%, rgba(6,8,14,0.45) 100%)' }} />
             {showPrice && brand.promoPrice != null && (
               <div style={{ position: 'absolute', bottom: 10 * s, left: 10 * s }}>
@@ -859,7 +924,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
           {/* Cuadro comparativo: ❌ Antes/Otros vs ✅ Con el negocio */}
           <div style={{ display: 'flex', gap: 8 * s, flexShrink: 0 }}>
             <div style={{ flex: 1, minWidth: 0, borderRadius: 14 * s, padding: `${10 * s}px ${11 * s}px`, background: 'rgba(127,29,29,0.38)', border: '1px solid rgba(248,113,113,0.45)' }}>
-              <p style={{ margin: 0, fontSize: 11.5 * s, fontWeight: 900, color: '#fca5a5', marginBottom: 5 * s }}>❌ ANTES / OTROS</p>
+              <p style={{ margin: 0, fontSize: 11.5 * s, fontWeight: 900, color: '#fca5a5', marginBottom: 5 * s }}>❌ SIN ESTRATEGIA</p>
               <p style={{ margin: 0, fontSize: 11 * s, fontWeight: 700, lineHeight: 1.35, color: 'rgba(255,255,255,0.88)' }}>
                 Búsqueda eterna, precios que suben y servicio que no responde.
               </p>
@@ -923,11 +988,6 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
   // ═══ icono 3D + cinta de garantía + proceso 3 pasos + dock WA + QR) ═══
   if (piece === 2) {
     const qr3 = 88 * s; // 176×176px en el PNG 1080p
-    const explainer = [
-      `En ${brand.name || 'nuestro negocio'} esto se cumple HOY, sin promesas vacías`,
-      'Atención inmediata por WhatsApp: cero vueltas y cero esperas',
-      `📍 ${brand.address || brand.municipality || 'Gachetá'} — pide hoy y recibe hoy`,
-    ];
     const steps = ['1️⃣ Escríbenos', '2️⃣ Aparta / Cotiza', '3️⃣ Recibe y disfruta'];
     return (
       <div
@@ -939,17 +999,18 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
           borderRadius: 22 * s, overflow: 'hidden',
         }}
       >
-        <ScenicBg url={photoUrl} t={t} frame />
+        {/* 🖼️ V19 · fondo escénico con la FOTO #3 propia de esta pieza */}
+        <ScenicBg url={photo3} t={t} frame />
         <div style={{ position: 'relative', width: '100%', height: '100%', padding: pad, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: 9 * s }}>
           {/* Banner fotográfico + medidor estadístico circular */}
           <div style={{ position: 'relative', height: 200 * s, borderRadius: 18 * s, overflow: 'hidden', flexShrink: 0, boxShadow: '0 14px 34px rgba(0,0,0,0.45)' }}>
-            <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
+            <Photo url={photo3} zoom={photoZoom} posY={photoPosY} />
             <div style={{ position: 'absolute', inset: 0, background: t.light ? 'linear-gradient(180deg, transparent 40%, rgba(15,23,42,0.5) 100%)' : 'linear-gradient(180deg, transparent 40%, rgba(8,10,18,0.66) 100%)' }} />
             <div style={{ position: 'absolute', bottom: 11 * s, left: 13 * s, right: 110 * s }}>
-              <p style={{ margin: 0, fontSize: 10.5 * s, fontWeight: 800, letterSpacing: 1.8, textTransform: 'uppercase', color: 'rgba(255,255,255,0.9)' }}>
-                {(brand.slogan || 'NUESTRO VALOR EN DATOS').toUpperCase()}
+              <p style={{ margin: 0, fontSize: 10.5 * s, fontWeight: 900, letterSpacing: 1.4, textTransform: 'uppercase', color: '#fde68a', textShadow: '0 2px 6px rgba(0,0,0,0.8)' }}>
+                {`LO QUE HACEMOS POR TI EN ${(brand.address || brand.municipality || 'Gachetá').toUpperCase()}`}
               </p>
-              <p style={{ margin: 0, fontFamily: `"${t.font}", system-ui, sans-serif`, fontSize: 26 * s, fontWeight: 900, color: '#ffffff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              <p style={{ margin: 0, fontFamily: `"${t.font}", system-ui, sans-serif`, fontSize: 26 * s, fontWeight: 900, color: '#ffffff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textShadow: '0 3px 12px rgba(0,0,0,0.85)' }}>
                 {brand.name || 'Tu Negocio'}
               </p>
             </div>
@@ -981,53 +1042,56 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
           </div>
           {/* Cinta de garantía de satisfacción */}
           <Sticker text="🛡️ GARANTÍA DE SATISFACCIÓN O TE DEVOLVEMOS TU PLATA" s={s} bg={t.accent2} color={t.light ? '#ffffff' : '#0b0f18'} rotate={-1.5} />
-          {/* 3 ventajas en tarjetas infográficas con número gradiente + icono 3D */}
-          <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 9 * s }}>
-            {[0, 1, 2].map((i) => {
-              const b = benefits[i] ?? ['🥇 Calidad garantizada', '⚡ Atención inmediata', '📍 Cerca de ti'][i] ?? '';
+          {/* 💎 V19 · GRILLA MODULAR 2×2: 4 cajas de cristal iluminadas con
+              numeración 01–04, iconos gigantes y métricas de confianza */}
+          <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr 1fr', gap: 9 * s }}>
+            {[0, 1, 2, 3].map((i) => {
+              const b = benefits[i] ?? ['🥇 Calidad garantizada', '⚡ Atención inmediata', '📍 Cerca de ti', '🤝 Trato personalizado'][i] ?? '';
               const { icon, body } = splitBenefit(b);
+              const metric = ['⚡ Atención Inmediata', '⭐ 100% Garantizado', '🛡️ Servicio Verificado', '📍 AQUÍ MISMO'][i];
               return (
                 <div
                   key={i}
                   style={{
                     ...g.card,
-                    flex: 1, minHeight: 0,
-                    borderRadius: 16 * s,
-                    display: 'flex', alignItems: 'center', gap: 12 * s,
-                    padding: `${9 * s}px ${13 * s}px`,
+                    borderRadius: 15 * s,
+                    padding: `${10 * s}px ${11 * s}px`,
+                    display: 'flex', flexDirection: 'column', gap: 4 * s,
+                    position: 'relative', overflow: 'hidden', minHeight: 0,
                     boxShadow: t.light ? '0 2px 10px rgba(15,23,42,0.10)' : '0 6px 18px rgba(0,0,0,0.35)',
                   }}
                 >
+                  {/* Resplandor de acento por tarjeta */}
+                  <div style={{ position: 'absolute', inset: 0, background: `radial-gradient(120px 70px at 88% 6%, ${t.accent2}2e, transparent 70%)`, pointerEvents: 'none' }} />
                   <span
                     style={{
                       fontFamily: `"${t.font}", system-ui, sans-serif`,
-                      fontSize: 34 * s, fontWeight: 900, lineHeight: 1,
+                      fontSize: 21 * s, fontWeight: 900, lineHeight: 1,
                       background: `linear-gradient(180deg, ${t.accent}, ${t.accent2})`,
-                      WebkitBackgroundClip: 'text',
-                      backgroundClip: 'text',
-                      color: 'transparent',
+                      WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent',
                     }}
                   >
                     {`0${i + 1}`}
                   </span>
-                  <div
+                  <span
                     style={{
-                      width: 44 * s, height: 44 * s, flexShrink: 0,
-                      borderRadius: 12 * s,
-                      background: `linear-gradient(160deg, ${t.accent}33, ${t.accent2}22)`,
+                      width: 34 * s, height: 34 * s, flexShrink: 0,
+                      borderRadius: 9 * s,
+                      background: `linear-gradient(160deg, ${t.accent}3d, ${t.accent2}26)`,
                       border: '1px solid rgba(255,255,255,0.35)',
-                      boxShadow: 'inset 0 2px 6px rgba(255,255,255,0.35), 0 6px 14px rgba(0,0,0,0.35)',
+                      boxShadow: 'inset 0 2px 5px rgba(255,255,255,0.35), 0 4px 10px rgba(0,0,0,0.30)',
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 19 * s, lineHeight: 1,
                     }}
                   >
-                    <span style={{ fontSize: 22 * s, lineHeight: 1 }}>{icon}</span>
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ margin: 0, fontSize: 14.5 * s, fontWeight: 900, color: t.text, lineHeight: 1.15 }}>{body}</p>
-                    <p style={{ margin: 0, fontSize: 10.5 * s, fontWeight: 600, color: t.light ? 'rgba(15,23,42,0.62)' : t.sub, lineHeight: 1.25 }}>
-                      {explainer[i]}
-                    </p>
-                  </div>
+                    {icon}
+                  </span>
+                  <p style={{ margin: 0, fontSize: 13.5 * s, fontWeight: 900, color: t.text, lineHeight: 1.15, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                    {body}
+                  </p>
+                  <p style={{ margin: 0, marginTop: 'auto', fontSize: 9.5 * s, fontWeight: 900, letterSpacing: 0.4, textTransform: 'uppercase', color: t.light ? 'rgba(15,23,42,0.6)' : t.accent2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {metric}
+                  </p>
                 </div>
               );
             })}
@@ -1088,10 +1152,12 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
     );
   }
 
-  // ═══ PIEZA 4 · 📲 CIERRE & UBICACIÓN QR (foto en ventana superior + ═══
-  // ═══ badge de ubicación + QR CENTRAL GIGANTE 420px + destino elegido) ═══
+  // ═══ PIEZA 4 · 📲 CIERRE VIP & CONTACTO DIRECTO (🖼️ V19: foto en ═══
+  // ═══ MEDALLÓN CIRCULAR con doble anillo de luz neón + badge de ubicación ═══
+  // ═══ + MEGA-QR CENTRAL 310px = 620px en el PNG 1080p + destino elegido) ═══
   if (piece === 3) {
-    const qrBig = 210 * s; // 420×420px en el PNG 1080p
+    const qrBig = 310 * s; // 620×620px en el PNG 1080p
+    const medallion = 170 * s;
     return (
       <div
         style={{
@@ -1102,12 +1168,23 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
           borderRadius: 22 * s, overflow: 'hidden',
         }}
       >
-        <ScenicBg url={photoUrl} t={t} frame />
-        <div style={{ position: 'relative', width: '100%', height: '100%', padding: pad, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 * s }}>
-          {/* Foto en ventana superior */}
-          <div style={{ position: 'relative', width: '100%', height: 180 * s, borderRadius: 18 * s, overflow: 'hidden', flexShrink: 0, boxShadow: '0 14px 34px rgba(0,0,0,0.48)' }}>
-            <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
-            <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, transparent 55%, rgba(6,8,14,0.45) 100%)' }} />
+        <ScenicBg url={photo4} t={t} frame />
+        <div style={{ position: 'relative', width: '100%', height: '100%', padding: pad, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10 * s }}>
+          {/* 🖼️ V19 · FOTO en MEDALLÓN circular con doble anillo de luz neón */}
+          <div
+            style={{
+              position: 'relative', width: medallion, height: medallion, flexShrink: 0,
+              borderRadius: '50%',
+              background: `conic-gradient(from 30deg, ${t.accent2}, ${t.accent}, ${t.accent2}, ${t.accent})`,
+              padding: 6 * s,
+              boxShadow: `0 0 ${30 * s}px ${t.accent2}88, 0 14px 34px rgba(0,0,0,0.5)`,
+            }}
+          >
+            <div style={{ width: '100%', height: '100%', borderRadius: '50%', padding: 5 * s, background: 'rgba(255,255,255,0.92)', boxShadow: 'inset 0 0 12px rgba(0,0,0,0.25)' }}>
+              <div style={{ width: '100%', height: '100%', borderRadius: '50%', overflow: 'hidden' }}>
+                <Photo url={photo4} zoom={photoZoom} posY={photoPosY} />
+              </div>
+            </div>
           </div>
           {/* Badge de ubicación */}
           <div style={{ ...g.chip, borderRadius: 999, padding: `${7 * s}px ${16 * s}px`, fontSize: 12 * s, fontWeight: 900, letterSpacing: 0.8, textTransform: 'uppercase', whiteSpace: 'nowrap', flexShrink: 0 }}>
@@ -1614,6 +1691,189 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
               </div>
             )}
           </div>
+          {contentBlocks('center', true)}
+          {masterDock}
+        </div>
+      );
+      break;
+    }
+    // ═══ 🚀 V19 · 8 ARQUITECTURAS FUTURISTAS NUEVAS (17–24) ═══
+    case 'hud': {
+      // 17 · Holographic Cyber Frame: esquinas HUD tecnológicas + scanlines.
+      const corner = (pos: CSSProperties): React.ReactElement => (
+        <div style={{ position: 'absolute', width: 46 * s, height: 46 * s, borderColor: t.accent2, borderStyle: 'solid', borderWidth: 0, boxShadow: `0 0 ${10 * s}px ${t.accent2}66`, ...pos }} />
+      );
+      body = (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 11 * s, height: '100%', position: 'relative' }}>
+          <div style={{ position: 'absolute', inset: 0, background: `repeating-linear-gradient(180deg, ${t.accent}08 0 ${2 * s}px, transparent ${2 * s}px ${7 * s}px)`, pointerEvents: 'none', borderRadius: 20 * s }} />
+          {corner({ top: 8 * s, left: 8 * s, borderTopWidth: 3 * s, borderLeftWidth: 3 * s })}
+          {corner({ top: 8 * s, right: 8 * s, borderTopWidth: 3 * s, borderRightWidth: 3 * s })}
+          {corner({ bottom: 8 * s, left: 8 * s, borderBottomWidth: 3 * s, borderLeftWidth: 3 * s })}
+          {corner({ bottom: 8 * s, right: 8 * s, borderBottomWidth: 3 * s, borderRightWidth: 3 * s })}
+          <Badge text={badge} t={t} s={s} />
+          {photoBlock({ margin: `0 ${14 * s}px` })}
+          <Headline texts={texts} t={t} s={s} size={46} align="center" styleId={fontStyle} scale={hs} />
+          {contentBlocks('center', true)}
+          {masterDock}
+        </div>
+      );
+      break;
+    }
+    case 'resort': {
+      // 18 · Resort & Pool Paradise: ventana panorámica + ondas luminosas.
+      body = (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 11 * s, height: '100%' }}>
+          <Badge text={badge} t={t} s={s} />
+          <div style={{ flex: 1, minHeight: 0, maxHeight: 330 * s, position: 'relative', borderRadius: 26 * s, overflow: 'hidden', boxShadow: '0 16px 40px rgba(0,0,0,0.45)' }}>
+            <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
+            <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, transparent 62%, rgba(14,116,144,0.30) 100%)' }} />
+            {/* Ondas acuáticas luminosas */}
+            <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 46 * s, background: `repeating-radial-gradient(ellipse 120px 34px at 50% 120%, transparent 0 ${16 * s}px, rgba(125,211,252,0.35) ${16 * s}px ${19 * s}px, transparent ${19 * s}px ${30 * s}px)` }} />
+            {priceOverlay && (
+              <div style={{ position: 'absolute', top: 12 * s, right: 12 * s }}>
+                <PricePill brand={brand} t={t} s={s} />
+              </div>
+            )}
+          </div>
+          <Headline texts={texts} t={t} s={s} size={46} align="center" styleId={fontStyle} scale={hs} />
+          {contentBlocks('center', true)}
+          {masterDock}
+        </div>
+      );
+      break;
+    }
+    case 'menu': {
+      // 19 · Gourmet Menu Spotlight: foto circular gigante + sello 3D de precio.
+      body = (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 11 * s, height: '100%', alignItems: 'center', position: 'relative' }}>
+          <Badge text={badge} t={t} s={s} />
+          <div style={{ position: 'relative', width: 300 * s, height: 300 * s, flexShrink: 0, borderRadius: '50%', padding: 7 * s, background: `linear-gradient(160deg, ${t.accent}, ${t.accent2})`, boxShadow: `0 0 ${26 * s}px ${t.accent2}66, 0 16px 40px rgba(0,0,0,0.5)` }}>
+            <div style={{ width: '100%', height: '100%', borderRadius: '50%', overflow: 'hidden' }}>
+              <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
+            </div>
+          </div>
+          {showPrice && brand.promoPrice != null && (
+            <div style={{ position: 'absolute', top: 118 * s, right: 6 * s, transform: 'rotate(7deg)' }}>
+              <PricePill brand={brand} t={t} s={s} />
+            </div>
+          )}
+          <Headline texts={texts} t={t} s={s} size={44} align="center" styleId={fontStyle} scale={hs} />
+          {contentBlocks('center', true)}
+          {masterDock}
+        </div>
+      );
+      break;
+    }
+    case 'clinic': {
+      // 20 · Medical & Clinic Trust: cápsulas blancas/zafiro de alta precisión.
+      body = (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 11 * s, height: '100%' }}>
+          <Badge text={badge} t={t} s={s} />
+          <div style={{ flex: 1, minHeight: 0, maxHeight: 330 * s, position: 'relative', borderRadius: 24 * s, overflow: 'hidden', boxShadow: '0 14px 36px rgba(15,23,42,0.28)', border: '3px solid rgba(255,255,255,0.9)' }}>
+            <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
+            {priceOverlay && (
+              <div style={{ position: 'absolute', bottom: 12 * s, right: 12 * s }}>
+                <PricePill brand={brand} t={t} s={s} />
+              </div>
+            )}
+          </div>
+          <Headline texts={texts} t={t} s={s} size={44} align="center" styleId={fontStyle} scale={hs} />
+          {showBenefits && benefits.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 7 * s }}>
+              {benefits.slice(0, 3).map((b, i) => {
+                const { icon, body: txt } = splitBenefit(b);
+                return (
+                  <div key={i} style={{ background: 'rgba(255,255,255,0.96)', color: '#0f172a', borderRadius: 999, padding: `${8 * s}px ${14 * s}px`, display: 'flex', alignItems: 'center', gap: 10 * s, boxShadow: '0 4px 14px rgba(15,23,42,0.22)' }}>
+                    <span style={{ fontSize: 17 * s, lineHeight: 1 }}>{icon}</span>
+                    <span style={{ flex: 1, fontSize: 13.5 * s, fontWeight: 800, lineHeight: 1.2 }}>{txt}</span>
+                    <span style={{ width: 20 * s, height: 20 * s, borderRadius: '50%', background: 'linear-gradient(160deg, #38bdf8, #0369a1)', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11 * s, fontWeight: 900 }}>✓</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {masterDock}
+        </div>
+      );
+      break;
+    }
+    case 'agro': {
+      // 21 · Agro & Heavy Duty Pro: franjas industriales amarillo/esmeralda.
+      body = (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 11 * s, height: '100%' }}>
+          <div style={{ background: `repeating-linear-gradient(45deg, #facc15 0 ${18 * s}px, #0f172a ${18 * s}px ${36 * s}px)`, color: '#ffffff', borderRadius: 12 * s, padding: `${10 * s}px ${14 * s}px`, display: 'flex', alignItems: 'center', gap: 10 * s, boxShadow: '0 10px 26px rgba(0,0,0,0.45)' }}>
+            <span style={{ background: '#059669', borderRadius: 8 * s, padding: `${5 * s}px ${10 * s}px`, fontSize: 13 * s, fontWeight: 900, whiteSpace: 'nowrap' }}>💪 PRO</span>
+            <span style={{ fontSize: 14 * s, fontWeight: 900, letterSpacing: 1, textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{badge || 'TRABAJO PESADO HECHO BIEN'}</span>
+          </div>
+          {photoBlock()}
+          <Headline texts={texts} t={t} s={s} size={46} align="center" styleId={fontStyle} scale={hs} />
+          {contentBlocks('center')}
+          {masterDock}
+        </div>
+      );
+      break;
+    }
+    case 'diamond': {
+      // 22 · Luxury Diamond Showcase: foto en recorte diamante + destellos oro.
+      body = (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 11 * s, height: '100%', alignItems: 'center', position: 'relative' }}>
+          <div style={{ position: 'absolute', top: 40 * s, left: 14 * s, fontSize: 22 * s, opacity: 0.85 }}>✨</div>
+          <div style={{ position: 'absolute', top: 150 * s, right: 18 * s, fontSize: 15 * s, opacity: 0.75 }}>✨</div>
+          <Badge text={badge} t={t} s={s} />
+          <div style={{ width: 310 * s, height: 310 * s, flexShrink: 0, clipPath: 'polygon(50% 0%, 100% 26%, 100% 74%, 50% 100%, 0% 74%, 0% 26%)', background: `linear-gradient(160deg, ${t.accent}, ${t.accent2})`, padding: 5 * s, boxShadow: `0 0 ${28 * s}px ${t.accent2}77` }}>
+            <div style={{ width: '100%', height: '100%', clipPath: 'polygon(50% 0%, 100% 26%, 100% 74%, 50% 100%, 0% 74%, 0% 26%)', overflow: 'hidden', background: '#111827' }}>
+              <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
+            </div>
+          </div>
+          <Headline texts={texts} t={t} s={s} size={44} align="center" styleId={fontStyle} scale={hs} />
+          {contentBlocks('center', true)}
+          {masterDock}
+        </div>
+      );
+      break;
+    }
+    case 'flash': {
+      // 23 · Flash Promo Explosion: bandas diagonales de oferta relámpago.
+      body = (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 11 * s, height: '100%', position: 'relative' }}>
+          <div style={{ position: 'absolute', top: -40 * s, right: -70 * s, width: 260 * s, height: 260 * s, transform: 'rotate(24deg)', background: `linear-gradient(90deg, ${t.accent}, ${t.accent2})`, opacity: 0.22, borderRadius: 24 * s, pointerEvents: 'none' }} />
+          <div style={{ transform: 'rotate(-2.5deg)', background: `linear-gradient(90deg, ${t.accent}, ${t.accent2})`, color: '#0b0f18', borderRadius: 12 * s, padding: `${10 * s}px ${18 * s}px`, alignSelf: 'center', fontSize: 19 * s, fontWeight: 900, letterSpacing: 1.4, textTransform: 'uppercase', boxShadow: `0 12px 30px ${t.accent}77`, whiteSpace: 'nowrap' }}>
+            ⚡ ¡{badge || 'OFERTA RELÁMPAGO DE HOY'}! ⚡
+          </div>
+          {photoBlock()}
+          <Headline texts={texts} t={t} s={s} size={46} align="center" styleId={fontStyle} scale={hs} />
+          {contentBlocks('center', true)}
+          {masterDock}
+        </div>
+      );
+      break;
+    }
+    case 'bento3d': {
+      // 24 · Futuristic Bento 3D: mosaico asimétrico de cristal con borde neón.
+      body = (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 * s, height: '100%' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 10 * s, height: 330 * s, flexShrink: 0 }}>
+            <div style={{ position: 'relative', borderRadius: 20 * s, overflow: 'hidden', boxShadow: `0 0 0 ${2 * s}px ${t.accent2}88, 0 14px 34px rgba(0,0,0,0.5)` }}>
+              <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
+              {priceOverlay && (
+                <div style={{ position: 'absolute', bottom: 10 * s, left: 10 * s }}>
+                  <PricePill brand={brand} t={t} s={s} />
+                </div>
+              )}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 * s }}>
+              <div style={{ flex: 1, ...g.card, borderRadius: 16 * s, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6 * s, padding: 10 * s }}>
+                <span style={{ fontSize: 30 * s, lineHeight: 1 }}>{splitBenefit(benefits[0] ?? '🥇 Calidad garantizada').icon}</span>
+                <span style={{ fontSize: 12.5 * s, fontWeight: 900, color: t.text, textAlign: 'center', lineHeight: 1.2, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{splitBenefit(benefits[0] ?? '🥇 Calidad garantizada').body}</span>
+              </div>
+              <div style={{ flex: 1, ...g.card, borderRadius: 16 * s, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6 * s, padding: 10 * s }}>
+                <span style={{ fontSize: 30 * s, lineHeight: 1 }}>{splitBenefit(benefits[1] ?? '⚡ Atención inmediata').icon}</span>
+                <span style={{ fontSize: 12.5 * s, fontWeight: 900, color: t.text, textAlign: 'center', lineHeight: 1.2, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{splitBenefit(benefits[1] ?? '⚡ Atención inmediata').body}</span>
+              </div>
+            </div>
+          </div>
+          <Badge text={badge} t={t} s={s} />
+          <Headline texts={texts} t={t} s={s} size={44} align="center" styleId={fontStyle} scale={hs} />
           {contentBlocks('center', true)}
           {masterDock}
         </div>

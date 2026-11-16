@@ -105,6 +105,15 @@ const AFFICHE_LAYOUTS: Array<{ id: Layout; label: string; hint: string }> = [
   { id: 'eco', label: '🌿 Eco-Editorial Orgánico', hint: 'Formas suaves tono tierra' },
   { id: 'cinema', label: '🎬 Cinema Widescreen', hint: 'Bandas de cine y luces' },
   { id: 'float', label: '💎 Cristales Flotantes 3D', hint: 'Tarjetas superpuestas 3D' },
+  // 🚀 V19 · 8 arquitecturas futuristas nuevas (17–24)
+  { id: 'hud', label: '🚀 Holographic Cyber Frame', hint: 'Esquinas HUD luminosas' },
+  { id: 'resort', label: '🏖️ Resort & Pool Paradise', hint: 'Ondas y tarjetas solares' },
+  { id: 'menu', label: '🍔 Gourmet Menu Spotlight', hint: 'Foto circular + sello 3D' },
+  { id: 'clinic', label: '🩺 Medical & Clinic Trust', hint: 'Cápsulas blancas/zafiro' },
+  { id: 'agro', label: '🚜 Agro & Heavy Duty Pro', hint: 'Franjas industriales pro' },
+  { id: 'diamond', label: '💎 Luxury Diamond Showcase', hint: 'Recorte diamante + oro' },
+  { id: 'flash', label: '⚡ Flash Promo Explosion', hint: 'Bandas de oferta relámpago' },
+  { id: 'bento3d', label: '🌐 Futuristic Bento 3D', hint: 'Mosaico de cristal neón' },
 ];
 
 const BADGE_PRESETS: Array<{ id: string; label: string }> = [
@@ -722,9 +731,21 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
   /** V12: pregunta gancho gigante para la Pieza 2 (portada de impacto viral),
    *  construida con el titular real de la campaña. */
   const hookText = useMemo(() => {
+    // 🔥 V19 · Pregunta PROBLEMA/SOLUCIÓN propia de la pieza 2 (jamás repite
+    // el titular 1): se deriva del enfoque de campaña y del municipio.
+    const mun = (brand.municipality || 'Gachetá').toUpperCase();
+    const nombre = brand.name.trim().toUpperCase();
+    const byFocus: Record<CampaignFocus, string> = {
+      remate: `¿BUSCAS EL MEJOR PRECIO EN ${mun}?`,
+      prestigio: nombre ? `¿POR QUÉ TODOS RECOMIENDAN A ${nombre}?` : `¿QUIERES UN SERVICIO DE PRIMER NIVEL EN ${mun}?`,
+      confianza: `¿QUIERES ATENCIÓN RÁPIDA Y DE CONFIANZA HOY MISMO?`,
+      viral: `¿SIGUES PAGANDO DE MÁS EN ${mun}?`,
+    };
+    const focusHook = byFocus[focus];
+    if (focusHook) return focusHook;
     const h = `${T.plain} ${T.highlight}`.trim().replace(/[?!.¡¿]+$/g, '').trim();
     return h ? `¿${h.toUpperCase()}?` : '';
-  }, [T.plain, T.highlight]);
+  }, [T.plain, T.highlight, focus, brand.municipality, brand.name]);
 
   /** Enlaces wa.me codificados de las 3 líneas. */
   const lineLinks = useMemo(
@@ -751,6 +772,22 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
 
   // Foto efectiva (subida/IA/banco) con fallback a la del comercio.
   const effectivePhoto = customPhoto ?? brand.photo;
+
+  /** 🖼️ V19 · CUATRO FOTOGRAFÍAS DIFERENTES del rubro (una por pieza):
+   *  la maestra (subida/IA/banco) + 3 tomas distintas del banco fotográfico.
+   *  Así la campaña multi-diseño jamás repite la misma imagen. */
+  const piecePhotos = useMemo<string[]>(() => {
+    const cat = guessPhotoCategory(briefText.trim() || `${brand.name} ${brand.slogan} ${brand.product}`);
+    const bank = PHOTO_BANK[cat] ?? [];
+    const out: string[] = [effectivePhoto ?? ''];
+    for (const u of bank) {
+      if (out.length >= 4) break;
+      if (u && !out.includes(u)) out.push(u);
+    }
+    // Si el banco no alcanza para 4, completamos repitiendo la maestra
+    while (out.length < 4) out.push(effectivePhoto ?? '');
+    return out;
+  }, [effectivePhoto, briefText, brand.name, brand.slogan, brand.product]);
 
   // QR codificado localmente (0 bytes en la base de datos) — se muestra como
   // <img> dataURL en el artboard: captura limpia, sin tainting del canvas.
@@ -806,7 +843,10 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     showPrice,
     showBenefits,
     showQr,
-    photoUrl: effectivePhoto,
+    photoUrl: piecePhotos[0],
+    photoUrl2: piecePhotos[1],
+    photoUrl3: piecePhotos[2],
+    photoUrl4: piecePhotos[3],
     qrUrl,
     photoZoom,
     photoPosY,
