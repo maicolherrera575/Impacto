@@ -62,34 +62,16 @@ export function RadarTab({
 }: RadarTabProps) {
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState<Category | 'all'>('all');
-  const [gpsDeniedLocal, setGpsDeniedLocal] = useState(
-    () => {
-      try {
-        return localStorage.getItem('impulso_gps_consent') === 'denied';
-      } catch {
-        return false;
-      }
-    },
-  );
+  const [gpsDeniedLocal, setGpsDeniedLocal] = useState(false);
 
   /** Activa el GPS exacto directamente dentro del gesto de clic del usuario. */
   function grantGpsConsent(): void {
-    try {
-      localStorage.setItem('impulso_gps_consent', 'granted');
-    } catch {
-      /* almacenamiento no disponible */
-    }
     setGpsDeniedLocal(false);
     onGeoRequest();
   }
 
   /** Explora sin GPS: se respeta y limpia cualquier coordenada en memoria. */
   function skipGps(): void {
-    try {
-      localStorage.setItem('impulso_gps_consent', 'denied');
-    } catch {
-      /* almacenamiento no disponible */
-    }
     setGpsDeniedLocal(true);
     onGeoRevoke?.();
   }

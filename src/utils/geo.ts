@@ -42,11 +42,11 @@ export type GeoStatus = 'idle' | 'active' | 'inexact' | 'denied';
 export const ACCURACY_LIMIT_M = 1500;
 
 export const EXACT_GPS_WARNING =
-  'Para calcular distancias reales, tu dispositivo debe permitir la ubicación exacta, no aproximada.';
+  'Por favor, activa la ubicación exacta para medir distancias reales.';
 
 export const EXACT_GPS_OPTIONS: PositionOptions = {
   enableHighAccuracy: true,
-  timeout: 8000,
+  timeout: 10000,
   maximumAge: 0,
 };
 
@@ -131,7 +131,7 @@ export function useGeolocation() {
         setPos(null);
         setStatus('denied');
         setErrorMessage(
-          'Permiso de ubicación denegado. Toca el candado 🔒 en la barra del navegador, activa "Ubicación" y selecciona "Ubicación exacta".',
+          'Para calcular distancias, requerimos tu ubicación. Si la bloqueaste antes, toca el candado en la barra de direcciones para habilitarla.',
         );
         stop();
       } else if (err.code === 2) {
@@ -151,6 +151,7 @@ export function useGeolocation() {
   /**
    * Invoca directamente `navigator.geolocation.getCurrentPosition` dentro del
    * gesto del usuario para disparar la alerta nativa del navegador sin fricción.
+   * Carga inicial 100% pasiva (cero auto-invocación al entrar · Ley 1581).
    */
   const request = useCallback(() => {
     if (typeof navigator === 'undefined' || !('geolocation' in navigator)) {
@@ -176,17 +177,12 @@ export function useGeolocation() {
         }
       },
       onError,
-      { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 },
+      EXACT_GPS_OPTIONS,
     );
 
     setLocating(true);
     setErrorMessage(null);
     setErrorCode(null);
-    try {
-      localStorage.setItem('impulso_gps_consent', 'granted');
-    } catch {
-      /* sin almacenamiento */
-    }
   }, [adoptFix, onError, startWatch]);
 
   /** Revoca el uso efímero del GPS (Ley 1581 de 2012). */
@@ -198,23 +194,9 @@ export function useGeolocation() {
     setLocating(false);
     setErrorMessage(null);
     setErrorCode(null);
-    try {
-      localStorage.setItem('impulso_gps_consent', 'denied');
-    } catch {
-      /* sin almacenamiento */
-    }
   }, [stop]);
 
-  useEffect(() => {
-    try {
-      if (localStorage.getItem('impulso_gps_consent') === 'granted') {
-        request();
-      }
-    } catch {
-      /* sin almacenamiento */
-    }
-    return stop;
-  }, [request, stop]);
+  useEffect(() => stop, [stop]);
 
   return {
     pos,

@@ -52,6 +52,7 @@ import type { ForensicData } from './ForensicInspector';
 import { MarketingStudio } from './MarketingStudio';
 import { reportReasonMeta } from '../offers/ReportModal';
 import { ImpulsoLogo } from '../ui/ImpulsoLogo';
+import { useModalHistory } from '../../hooks/useModalHistory';
 
 interface AdminPanelProps {
   open: boolean;
@@ -77,6 +78,7 @@ type Stats = AdminStats & { verifiedMerchants: number; reservationsToday: number
  * el rol de admin solo se asigna desde la base de datos, nunca desde el cliente.
  */
 export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPanelProps) {
+  useModalHistory(open, onClose);
   const toast = useToast();
   const [tab, setTab] = useState<Tab>('merchants');
   const [merchants, setMerchants] = useState<Profile[]>([]);
@@ -1494,8 +1496,7 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
               )}
             </button>
             <p className="text-center text-[11px] leading-relaxed text-slate-500">
-              Borra todas las ofertas vencidas de la base de datos (incluidas sus fotos), manteniendo la capa gratuita
-              de Supabase liviana para siempre.
+              Borra todas las ofertas vencidas (incluidas sus fotos) para mantener la plataforma rápida y ligera siempre.
             </p>
           </div>
         )}

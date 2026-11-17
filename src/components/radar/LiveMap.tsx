@@ -5,7 +5,7 @@ import { AlertTriangle, Loader2, LocateFixed } from 'lucide-react';
 import 'leaflet/dist/leaflet.css';
 import type { Offer } from '../../types';
 import { formatCOP } from '../../utils/format';
-import { EXACT_GPS_WARNING, ACCURACY_LIMIT_M, haversineMeters } from '../../utils/geo';
+import { EXACT_GPS_OPTIONS, EXACT_GPS_WARNING, ACCURACY_LIMIT_M, haversineMeters } from '../../utils/geo';
 import type { GeoStatus, LatLng } from '../../utils/geo';
 import { useToast } from '../ui/Toast';
 
@@ -249,13 +249,14 @@ export function LiveMap({
       (err) => {
         setLocalLocating(false);
         setLocalStatus('denied');
-        setLocalWarning(
+        const msg =
           err.code === 1
-            ? 'Activa el permiso de "Ubicación exacta" en el candado 🔒 del navegador para calcular distancias reales.'
-            : 'No pudimos obtener señal GPS exacta. Verifica que la ubicación del dispositivo esté encendida.',
-        );
+            ? 'Para calcular distancias, requerimos tu ubicación. Si la bloqueaste antes, toca el candado en la barra de direcciones para habilitarla.'
+            : 'No pudimos obtener señal GPS exacta. Verifica que la ubicación del dispositivo esté encendida.';
+        setLocalWarning(msg);
+        toast.info(msg);
       },
-      { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 },
+      EXACT_GPS_OPTIONS,
     );
   }
 

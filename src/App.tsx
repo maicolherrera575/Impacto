@@ -37,6 +37,7 @@ import { LegalModal } from './components/legal/LegalModal';
 import { AdminPanel } from './components/admin/AdminPanel';
 import { MerchantDashboard } from './components/merchant/MerchantDashboard';
 import { useToast } from './components/ui/Toast';
+import { useModalHistory } from './hooks/useModalHistory';
 
 /**
  * Impulso — Radar comercial en vivo.
@@ -87,6 +88,9 @@ export default function App() {
 
   const geo = useGeolocation();
 
+  // Botón "Atrás" en móvil regresa del Panel del Comerciante al Radar sin salir de la app
+  useModalHistory(view === 'dashboard', () => setView('radar'));
+
   // ── Interceptor de errores de URL (enlaces expirados o denegados) ────────
   // Si Supabase redirige con #error=access_denied&error_code=otp_expired,
   // la cadena fea desaparece de la barra y el vecino recibe un mensaje amable.
@@ -131,7 +135,7 @@ export default function App() {
         setProfileError(null);
       } else {
         setProfileError(
-          'Tu cuenta existe, pero no encontramos tu perfil en la base de datos. Ejecuta supabase_schema.sql completo en el SQL Editor de Supabase y vuelve a intentar.'
+          'Tu cuenta existe, pero no encontramos tu perfil comercial todavía. Intenta nuevamente o contacta al equipo de soporte.'
         );
       }
     } catch (err) {
@@ -333,16 +337,18 @@ export default function App() {
     }
   }, [toast]);
 
-  // ── Ubicación EXACTA nativa:
-  //   • Solo si error.code === 1 (PERMISSION_DENIED) se abre el modal del candadito 🔒.
-  //   • Si accuracy > 1500m, se muestra ÚNICAMENTE el toast sin modal bloqueante.
+  // ── Ubicación EXACTA nativa (Ley 1581 · cero modal intrusivo):
+  //   • Al abrir la app NO se solicita GPS; solo cuando el usuario pulsa el botón verde.
+  //   • Solo si error.code === 1 o accuracy > 1500m se muestra un aviso amable no bloqueante.
   useEffect(() => {
     if (geo.requestSeq === 0) return;
     if (geo.errorCode === 1) {
-      setGpsGuideOpen(true);
-      toast.info(geo.errorMessage || 'Ubicación bloqueada: activa los permisos en el navegador para usar el radar exacto.');
+      toast.info(
+        geo.errorMessage ||
+          'Para calcular distancias, requerimos tu ubicación. Si la bloqueaste antes, toca el candado en la barra de direcciones para habilitarla.'
+      );
     } else if (geo.status === 'inexact') {
-      toast.info('Para calcular distancias reales, tu dispositivo debe permitir la ubicación exacta, no aproximada.');
+      toast.info('Por favor, activa la ubicación exacta para medir distancias reales.');
     } else if (geo.errorMessage) {
       toast.info(geo.errorMessage);
     }

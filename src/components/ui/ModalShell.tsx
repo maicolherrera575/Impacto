@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { X } from 'lucide-react';
 import { cx } from '../../utils/format';
+import { useModalHistory } from '../../hooks/useModalHistory';
 
 type ModalSize = 'md' | 'lg' | 'xl' | 'full';
 
@@ -32,6 +33,8 @@ const SIZE_CLASSES: Record<ModalSize, string> = {
  * formularios largos); solo se cierra con el botón ✕ o acciones explícitas.
  */
 export function ModalShell({ open, onClose, children, size = 'md', panelClassName, closeLabel = 'Cerrar', escClose = false }: ModalShellProps) {
+  useModalHistory(open, onClose);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {

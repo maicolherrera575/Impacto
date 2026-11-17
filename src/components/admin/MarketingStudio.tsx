@@ -50,6 +50,7 @@ import { useToast } from '../ui/Toast';
 import { cx, formatCOP } from '../../utils/format';
 import { waLink } from '../../utils/whatsapp';
 import { clearDraft, loadDraft, saveDraft } from '../../utils/draft';
+import { useModalHistory } from '../../hooks/useModalHistory';
 
 interface MarketingStudioProps {
   merchants: Profile[];
@@ -453,7 +454,9 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
   const [socialMode, setSocialMode] = useState<SocialMode>('wa');
   const [igFormat, setIgFormat] = useState<'feed' | 'historia'>('feed');
   const [teleprompterOpen, setTeleprompterOpen] = useState(false);
+  useModalHistory(teleprompterOpen, () => setTeleprompterOpen(false));
   const [galleryTab, setGalleryTab] = useState<string>('sugeridas');
+  const userOwnPhotoLockRef = useRef(false);
   /** Refs de los 2 artboards dedicados al lanzador (story 9:16 y square 1:1). */
   const socialRefs = useRef<{ story: HTMLDivElement | null; square: HTMLDivElement | null }>({ story: null, square: null });
 
@@ -652,6 +655,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     setDockVariant('auto');
     setCustomWaGreeting('');
     setExternalUrl('');
+    userOwnPhotoLockRef.current = false;
     setCustomPhoto(null);
     setExtLogoUrl(null);
     setBrandPalette(null);
@@ -875,7 +879,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     () => (mode === 'plataforma' ? (merchants.find((x) => x.id === merchantId)?.logo_thumb ?? null) : null),
     [mode, merchants, merchantId],
   );
-  const effectiveLogoUrl = mode === 'plataforma' ? selectedMerchantLogo : extLogoUrl;
+  const effectiveLogoUrl = extLogoUrl ?? selectedMerchantLogo;
   const activeBrandPalette = useBrandPalette ? brandPalette : null;
   const activeThemeId = AFFICHE_THEMES[themeIdx]?.id ?? 'marble';
 
@@ -1056,19 +1060,20 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       const ti = picked.themeIdx;
       const nextLayout = picked.layout;
 
-      // ── Auto-imagen paso 1: foto HD real NUEVA del BANCO COMERCIAL (V13:
-      // garantizada distinta a la foto anterior) ──
-      toast.info('📷 Foto editorial HD del rubro colocada en el lienzo…');
-      void (async () => {
-        const dataUrl = await loadBankPhotoFresh(
-          briefText.trim() || `${bizName} ${art.categoryLabel} ${product}`,
-          lastPhotoUrlRef.current,
-        );
-        if (dataUrl && photoGenRef.current === genId) {
-          lastPhotoUrlRef.current = dataUrl;
-          setCustomPhoto(dataUrl);
-        }
-      })();
+      // ── Auto-imagen paso 1 (respeta foto propia subida por el cliente) ──
+      if (!userOwnPhotoLockRef.current) {
+        toast.info('📷 Foto editorial HD del rubro colocada en el lienzo…');
+        void (async () => {
+          const dataUrl = await loadBankPhotoFresh(
+            briefText.trim() || `${bizName} ${art.categoryLabel} ${product}`,
+            lastPhotoUrlRef.current,
+          );
+          if (dataUrl && photoGenRef.current === genId && !userOwnPhotoLockRef.current) {
+            lastPhotoUrlRef.current = dataUrl;
+            setCustomPhoto(dataUrl);
+          }
+        })();
+      }
 
       const input2 = { ...input, businessName: bizName, product };
 
@@ -1102,37 +1107,37 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       // V13: el mensaje inicial que llega al escanear el QR lo redacta la IA.
       setCustomWaGreeting(res.waLine1Msg || '');
 
-      // ── Auto-imagen paso 2 (segundo plano): foto IA a medida CON GUARDIA
-      // anti-banner de Pollinations (si trae "At its limit" → banco HD) ──
-      void (async () => {
-        try {
-          const seed = Math.floor(Math.random() * 999999);
-          const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(art.imagePromptEn)}?width=1080&height=1080&nologo=true&enhance=true&seed=${seed}`;
-          const img = await loadImage(url);
-          if (isPollinationsBlockImage(img)) throw new Error('pollinations-block');
-          const off = document.createElement('canvas');
-          off.width = 1080;
-          off.height = 1080;
-          const octx = off.getContext('2d');
-          if (!octx) return;
-          octx.drawImage(img, 0, 0, 1080, 1080);
-          if (photoGenRef.current === genId) {
-            setCustomPhoto(off.toDataURL('image/jpeg', 0.92));
-            toast.success('🎨 Foto IA a medida colocada en el lienzo');
+      // ── Auto-imagen paso 2 (segundo plano · omite si hay foto propia del cliente) ──
+      if (!userOwnPhotoLockRef.current) {
+        void (async () => {
+          try {
+            const seed = Math.floor(Math.random() * 999999);
+            const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(art.imagePromptEn)}?width=1080&height=1080&nologo=true&enhance=true&seed=${seed}`;
+            const img = await loadImage(url);
+            if (isPollinationsBlockImage(img)) throw new Error('pollinations-block');
+            const off = document.createElement('canvas');
+            off.width = 1080;
+            off.height = 1080;
+            const octx = off.getContext('2d');
+            if (!octx) return;
+            octx.drawImage(img, 0, 0, 1080, 1080);
+            if (photoGenRef.current === genId && !userOwnPhotoLockRef.current) {
+              setCustomPhoto(off.toDataURL('image/jpeg', 0.92));
+              toast.success('🎨 Foto IA a medida colocada en el lienzo');
+            }
+          } catch {
+            // Banner de bloqueo o fallo de red: banco comercial HD al rescate
+            const bank = await loadBankPhotoFresh(
+              briefText.trim() || `${bizName} ${art.categoryLabel} ${product}`,
+              lastPhotoUrlRef.current,
+            );
+            if (bank && photoGenRef.current === genId && !userOwnPhotoLockRef.current) {
+              lastPhotoUrlRef.current = bank;
+              setCustomPhoto(bank);
+            }
           }
-        } catch {
-          // Banner de bloqueo o fallo de red: banco comercial HD al rescate
-          // (V13: con foto garantizada distinta a la anterior).
-          const bank = await loadBankPhotoFresh(
-            briefText.trim() || `${bizName} ${art.categoryLabel} ${product}`,
-            lastPhotoUrlRef.current,
-          );
-          if (bank && photoGenRef.current === genId) {
-            lastPhotoUrlRef.current = bank;
-            setCustomPhoto(bank);
-          }
-        }
-      })();
+        })();
+      }
 
       if (synthetic) {
         toast.info('⚡ IA saturada: campaña generada por el motor sintético local (100% completa)');
@@ -1150,7 +1155,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     }
   }
 
-  /** 📷 Subida de foto propia: redimensionada y con extracción automática de paleta. */
+  /** 📷 Subida de foto propia: reemplaza la imagen IA/stock y extrae paleta automáticamente. */
   function handlePhotoFile(file: File | undefined): void {
     if (!file) return;
     const reader = new FileReader();
@@ -1165,6 +1170,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
         if (!ctx) return;
         ctx.drawImage(img, 0, 0, c.width, c.height);
         photoGenRef.current += 1; // invalida descargas IA en curso
+        userOwnPhotoLockRef.current = true;
         const dataUrl = c.toDataURL('image/jpeg', 0.88);
         setCustomPhoto(dataUrl);
         if (!effectiveLogoUrl) {
@@ -1172,10 +1178,10 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
             if (!pal) return;
             setBrandPalette(pal);
             setUseBrandPalette(true);
-            toast.success(`🎨 Paleta armonizada a tu foto (${pal.colors.join(' · ')})`);
+            toast.success(`🎨 Foto propia aplicada + paleta extraída (${pal.colors.join(' · ')})`);
           });
         } else {
-          toast.success('📷 Foto del cliente lista (0 bytes en la base de datos)');
+          toast.success('📷 Foto propia del negocio aplicada (reemplaza stock/IA)');
         }
       };
       img.src = String(reader.result);
@@ -1183,14 +1189,14 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     reader.readAsDataURL(file);
   }
 
-  /** 🏷️ Subida de logo del cliente externo: extrae sus 3 colores al instante. */
+  /** 🏷️ Subida de logo del comercio (PNG recomendado): extrae paleta e integra al afiche. */
   function handleLogoFile(file: File | undefined): void {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
       const img = new Image();
       img.onload = () => {
-        const scale = Math.min(1, 320 / Math.max(img.width, img.height));
+        const scale = Math.min(1, 360 / Math.max(img.width, img.height));
         const c = document.createElement('canvas');
         c.width = Math.round(img.width * scale);
         c.height = Math.round(img.height * scale);
@@ -1199,7 +1205,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
         ctx.drawImage(img, 0, 0, c.width, c.height);
         const dataUrl = c.toDataURL('image/png');
         setExtLogoUrl(dataUrl);
-        toast.success('🏷️ Logo cargado: extrayendo identidad cromática…');
+        toast.success('🏷️ Logo del comercio aplicado: extrayendo paleta de colores…');
       };
       img.src = String(reader.result);
     };
@@ -1247,6 +1253,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
   /** 🎨 Foto publicitaria IA (pollinations) CON GUARDIA: si el motor devuelve
    *  el banner de bloqueo "At its limit", se descarta y cae al banco HD. */
   async function generatePhoto(vary: boolean): Promise<void> {
+    userOwnPhotoLockRef.current = false;
     setPhotoBusy(true);
     const genId = ++photoGenRef.current;
     const briefSource = briefText.trim() || `${brand.product} ${brand.name} ${brand.slogan}`;
@@ -1285,6 +1292,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
   /** 🖼️ V14 · Aplica cualquier URL del banco/galería convirtiéndola a dataURL
    *  (misma ruta CORS-safe de los presets): el PNG exportado nunca se mancha. */
   async function applyPhotoUrl(url: string, label: string): Promise<void> {
+    userOwnPhotoLockRef.current = false;
     setPhotoBusy(true);
     const genId = ++photoGenRef.current;
     try {
@@ -1414,15 +1422,15 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     const picked = applyHyperVariability({ preserveBrandPalette: hasActiveLogo });
 
     const briefQuery = briefText.trim() || `${brand.name} ${brand.slogan} ${brand.product}`.trim();
-    const freshBankPromise = loadBankPhotoFresh(briefQuery || 'comercio local profesional', lastPhotoUrlRef.current).then(
-      (p) => {
-        if (p && photoGenRef.current === genId) {
-          lastPhotoUrlRef.current = p;
-          setCustomPhoto(p);
-        }
-        return p;
-      },
-    );
+    const freshBankPromise = userOwnPhotoLockRef.current
+      ? Promise.resolve(customPhoto)
+      : loadBankPhotoFresh(briefQuery || 'comercio local profesional', lastPhotoUrlRef.current).then((p) => {
+          if (p && photoGenRef.current === genId && !userOwnPhotoLockRef.current) {
+            lastPhotoUrlRef.current = p;
+            setCustomPhoto(p);
+          }
+          return p;
+        });
 
     const focuses: CampaignFocus[] = ['remate', 'prestigio', 'confianza', 'viral'];
     const altFocus = focuses.filter((f) => f !== focus)[Math.floor(Math.random() * (focuses.length - 1))] ?? 'viral';
@@ -1488,26 +1496,28 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
         setBadgeMode('custom');
       }
 
-      // Intenta foto IA a medida en segundo plano con guardia anti-banner
-      void freshBankPromise.then(async () => {
-        try {
-          const seed = Math.floor(Math.random() * 999999);
-          const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(art.imagePromptEn)}?width=1080&height=1080&nologo=true&enhance=true&seed=${seed}`;
-          const img = await loadImage(url);
-          if (isPollinationsBlockImage(img)) return;
-          const off = document.createElement('canvas');
-          off.width = 1080;
-          off.height = 1080;
-          const octx = off.getContext('2d');
-          if (!octx) return;
-          octx.drawImage(img, 0, 0, 1080, 1080);
-          if (photoGenRef.current === genId) {
-            setCustomPhoto(off.toDataURL('image/jpeg', 0.92));
+      // Intenta foto IA a medida en segundo plano solo si no hay foto propia bloqueada
+      if (!userOwnPhotoLockRef.current) {
+        void freshBankPromise.then(async () => {
+          try {
+            const seed = Math.floor(Math.random() * 999999);
+            const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(art.imagePromptEn)}?width=1080&height=1080&nologo=true&enhance=true&seed=${seed}`;
+            const img = await loadImage(url);
+            if (isPollinationsBlockImage(img)) return;
+            const off = document.createElement('canvas');
+            off.width = 1080;
+            off.height = 1080;
+            const octx = off.getContext('2d');
+            if (!octx) return;
+            octx.drawImage(img, 0, 0, 1080, 1080);
+            if (photoGenRef.current === genId && !userOwnPhotoLockRef.current) {
+              setCustomPhoto(off.toDataURL('image/jpeg', 0.92));
+            }
+          } catch {
+            /* ya colocamos la foto HD distinta del banco */
           }
-        } catch {
-          /* ya colocamos la foto HD distinta del banco */
-        }
-      });
+        });
+      }
 
       const themeName = hasActiveLogo
         ? 'Identidad del Logo'
@@ -1786,16 +1796,16 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     };
   }, [T, brand, primaryLink]);
 
-  /** 🎬 V18 · Guion de 15 s derivado (toma por toma) — siempre con contenido. */
+  /** 🎬 V23 · Guion TikTok de 15 s con indicaciones exactas de cámara + texto. */
   const videoShots = useMemo(() => {
     const hook = `${T.plain} ${T.highlight}`.trim();
     const price = brand.promoPrice != null ? ` Hoy por solo ${formatCOP(brand.promoPrice)}` : '';
     const ben = T.benefits.filter(Boolean);
     const wa = brand.phoneDisplay || 'el WhatsApp del anuncio';
     return {
-      s1: `Primer plano del producto con la frase «${hook || 'Promoción de hoy'}»: saluda, muestra el producto y di de qué se trata`,
-      s2: `Demostración de ${brand.product || hook || 'la promoción'}${price} mientras destacas: «${ben[0] || T.sub.trim() || 'Frescura y calidad garantizada'}»`,
-      s3: `Cierre invitando a escribir por WhatsApp (${wa}) y menciona el punto de entrega: ${brand.address || brand.municipality || 'Gachetá'}`,
+      s1: `[Cámara: Primer plano dinámico del producto] Texto: "¿Ya viste esto en ${brand.name || 'nuestro local'}? ${hook || 'Promoción de hoy'}"`,
+      s2: `[Cámara: Plano medio mostrando detalles y calidad] Texto: "Llévate ${brand.product || hook || 'esta promoción'}${price} con ${ben[0] || T.sub.trim() || 'calidad garantizada'}"`,
+      s3: `[Cámara: Toma abierta del local o logo señalando el link] Texto: "Escríbenos al ${wa} y encuéntranos en ${brand.address || brand.municipality || 'Gachetá'}"`,
     };
   }, [T, brand]);
 
@@ -2015,13 +2025,41 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
             </div>
             <input value={extAddress} onChange={(e) => setExtAddress(e.target.value)} placeholder="Ubicación / Ciudad (ej: Gachetá, calle 4)" className={inputCls} />
             <input value={extUrl} onChange={(e) => setExtUrl(e.target.value)} placeholder="WhatsApp del negocio (wa.me/57…) o web" className={inputCls} />
-            <div className="flex items-center gap-2 pt-1">
-              {extLogoUrl && (
-                <img src={extLogoUrl} alt="Logo" className="h-9 w-9 shrink-0 rounded-xl bg-white/10 object-cover" />
+          </div>
+        )}
+
+        {/* 🖼️ V23.0 · Recursos del Comercio (Opcional): Logo PNG + Foto Propia */}
+        <div className={cardCls}>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs font-extrabold text-white">🖼️ Recursos del Comercio (Opcional)</p>
+            {(extLogoUrl || customPhoto) && (
+              <span className="rounded-full bg-impulso-emerald/15 px-2 py-0.5 text-[9px] font-extrabold text-impulso-mint">
+                ACTIVO EN ARTE
+              </span>
+            )}
+          </div>
+          <p className="text-[10px] leading-relaxed text-slate-400">
+            Sube el logo y la fotografía real del comercio: adaptamos automáticamente los colores de la marca al póster y al QR.
+          </p>
+          <div className="grid grid-cols-1 gap-2">
+            {/* Subida de Logo */}
+            <div className="flex items-center gap-2 rounded-2xl bg-slate-950/60 p-2.5 ring-1 ring-white/[0.05]">
+              {effectiveLogoUrl ? (
+                <img
+                  src={effectiveLogoUrl}
+                  alt="Logo del comercio"
+                  className="h-10 w-10 shrink-0 rounded-xl bg-white/10 object-contain p-1"
+                />
+              ) : (
+                <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-white/[0.04] text-sm">🏷️</div>
               )}
-              <label className="pressable flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-xl bg-white/[0.05] px-3 py-2 text-[11px] font-bold text-slate-300 hover:bg-white/[0.08]">
-                <ImagePlus className="h-3.5 w-3.5 text-impulso-mint" />
-                {extLogoUrl ? 'Cambiar logo del cliente' : 'Subir logo (auto-extrae paleta)'}
+              <label className="pressable flex min-w-0 flex-1 cursor-pointer flex-col">
+                <span className="truncate text-[11px] font-extrabold text-white">
+                  {extLogoUrl ? 'Logo personalizado cargado ✅' : 'Subir Logo del Comercio (PNG)'}
+                </span>
+                <span className="text-[9px] font-semibold text-slate-400">
+                  PNG sin fondo recomendado · se coloca en el afiche y QR
+                </span>
                 <input type="file" accept="image/*" className="hidden" onChange={(e) => handleLogoFile(e.target.files?.[0])} />
               </label>
               {extLogoUrl && (
@@ -2029,16 +2067,52 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
                   type="button"
                   onClick={() => {
                     setExtLogoUrl(null);
-                    setBrandPalette(null);
+                    if (!selectedMerchantLogo) setBrandPalette(null);
                   }}
-                  className="pressable rounded-xl bg-white/[0.04] px-2.5 py-2 text-[10px] font-bold text-slate-400 hover:text-impulso-rose"
+                  title="Quitar logo personalizado"
+                  className="pressable shrink-0 rounded-lg bg-white/[0.05] px-2 py-1 text-[10px] font-bold text-slate-400 hover:text-impulso-rose"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
+            {/* Subida de Foto Propia */}
+            <div className="flex items-center gap-2 rounded-2xl bg-slate-950/60 p-2.5 ring-1 ring-white/[0.05]">
+              {customPhoto ? (
+                <img
+                  src={customPhoto}
+                  alt="Foto propia"
+                  className="h-10 w-10 shrink-0 rounded-xl object-cover"
+                />
+              ) : (
+                <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-white/[0.04] text-sm">📸</div>
+              )}
+              <label className="pressable flex min-w-0 flex-1 cursor-pointer flex-col">
+                <span className="truncate text-[11px] font-extrabold text-white">
+                  {userOwnPhotoLockRef.current && customPhoto ? 'Foto propia activa ✅' : 'Subir Foto Propia (Producto/Local)'}
+                </span>
+                <span className="text-[9px] font-semibold text-slate-400">
+                  Reemplaza la imagen de stock o IA en el diseño
+                </span>
+                <input type="file" accept="image/*" className="hidden" onChange={(e) => handlePhotoFile(e.target.files?.[0])} />
+              </label>
+              {customPhoto && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    userOwnPhotoLockRef.current = false;
+                    setCustomPhoto(null);
+                  }}
+                  title="Quitar foto propia"
+                  className="pressable shrink-0 rounded-lg bg-white/[0.05] px-2 py-1 text-[10px] font-bold text-slate-400 hover:text-impulso-rose"
                 >
                   ✕
                 </button>
               )}
             </div>
           </div>
-        )}
+        </div>
 
         {/* Brief IA */}
         <div className="space-y-3.5 rounded-3xl bg-slate-900/65 p-4 shadow-[0_0_40px_-15px_rgba(16,185,129,0.2)] ring-1 ring-impulso-emerald/25 backdrop-blur-xl">
@@ -2608,10 +2682,10 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
           <div className="flex rounded-2xl bg-slate-950/60 p-1">
             {(
               [
-                [0, '🏆 Maestra'],
-                [1, '⚡ Gancho Viral'],
-                [2, '💎 Infografía VIP'],
-                [3, '📲 Cierre + QR'],
+                [0, '🏆 1. Maestro'],
+                [1, '🔥 2. Gancho Viral'],
+                [2, '📊 3. Infografía'],
+                [3, '📲 4. Cierre VIP'],
               ] as const
             ).map(([p, label]) => (
               <button

@@ -310,10 +310,6 @@ function cleanPosterCopy(text: string): string {
     .trim();
 }
 
-function ht(plain: string, highlight: string): AfficheTexts {
-  return { plain, highlight, sub: '', benefits: [], cta: '', hook: '' };
-}
-
 function splitBenefit(b: string): { icon: string; body: string } {
   const m = /^\p{Extended_Pictographic}[\uFE0F\u200D]?/u.exec(b.trim());
   const icon = m ? m[0] : '';
@@ -1671,14 +1667,12 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
     photoZoom,
     photoPosY,
     qrLabel,
-    qrHint,
     fontStyle,
     headlineScale,
     benefitStyle = 'auto',
     dockVariant = 'auto',
     photoUrl2,
     photoUrl3,
-    photoUrl4,
     brandPalette,
     logoUrl,
   } = props;
@@ -1686,7 +1680,6 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
   const hs = headlineScale ?? 1.2;
   const photo2 = photoUrl2 ?? photoUrl;
   const photo3 = photoUrl3 ?? photoUrl;
-  const photo4 = photoUrl4 ?? photoUrl;
   const baseTheme = AFFICHE_THEMES.find((x) => x.id === themeId) ?? AFFICHE_THEMES[1];
   const t = buildBrandTheme(baseTheme, brandPalette);
   const brandColors = brandPalette
@@ -1785,11 +1778,10 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
     />
   ) : null;
 
-  // ═══ PIEZA 2 · GANCHO VIRAL EDITORIAL ════════════════════════════════════
+  // ═══ PIEZA 2 · GANCHO VIRAL EXTREMO (SOLO FOTO + PREGUNTA COLOSAL) ═════════
+  // Cero beneficios, cero tarjetas, cero QR: foco total en detener el scroll.
   if (piece === 1) {
-    const qr2 = 104 * s;
-    const bA = splitBenefit(benefits[0] ?? 'Calidad garantizada');
-    const bB = splitBenefit(benefits[1] ?? 'Atención inmediata');
+    const rawHook = texts.hook.trim() || `¿POR QUÉ TODOS HABLAN DE ${(brand.product || brand.name || 'ESTO').toUpperCase()}?`;
     return (
       <div
         style={{
@@ -1798,121 +1790,146 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
           height: H,
           flexShrink: 0,
           position: 'relative',
-          background: t.bg,
-          backgroundSize: t.bgSize ?? '100% 100%, 100% 100%, 100% 100%, 100% 100%',
-          color: t.text,
+          background: '#05070d',
+          color: '#ffffff',
           fontFamily: boardBodyFont,
           borderRadius: 24 * s,
           overflow: 'hidden',
         }}
       >
-        <ScenicBg url={photo2} t={t} frame />
+        <div style={{ position: 'absolute', inset: 0 }}>
+          <Photo url={photo2} zoom={photoZoom} posY={photoPosY} />
+        </div>
+        {/* Viñetado oscuro muy fuerte para máximo drama y legibilidad */}
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            background:
+              'radial-gradient(circle at 50% 48%, rgba(4,6,12,0.52) 0%, rgba(4,6,12,0.88) 72%, rgba(2,4,8,0.97) 100%)',
+          }}
+        />
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            background:
+              'linear-gradient(180deg, rgba(4,6,12,0.62) 0%, rgba(4,6,12,0.34) 44%, rgba(4,6,12,0.92) 100%)',
+          }}
+        />
+
         <div
           style={{
             position: 'relative',
+            zIndex: 6,
             width: '100%',
             height: '100%',
-            padding: pad,
+            padding: `${26 * s}px ${26 * s}px`,
             boxSizing: 'border-box',
             display: 'flex',
             flexDirection: 'column',
-            gap: 10 * s,
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            textAlign: 'center',
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+          {/* Sello mínimo de marca arriba */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 * s, opacity: 0.9 }}>
+            {logoUrl && (
+              <img
+                src={logoUrl}
+                alt=""
+                style={{
+                  width: 28 * s,
+                  height: 28 * s,
+                  borderRadius: 8 * s,
+                  objectFit: 'contain',
+                  background: 'rgba(255,255,255,0.08)',
+                  padding: 2 * s,
+                }}
+              />
+            )}
             <span
               style={{
-                background: `linear-gradient(90deg, ${t.accent}, ${t.accent2})`,
-                color: contrastTextOn(t.accent, t.accent2),
-                borderRadius: 999,
-                padding: `${6 * s}px ${14 * s}px`,
-                fontSize: 10.5 * s,
-                fontWeight: 900,
-                letterSpacing: 1.4,
+                fontSize: 11 * s,
+                fontWeight: 800,
+                letterSpacing: 3 * s,
                 textTransform: 'uppercase',
+                color: ensureReadableAccent(t.accent2, false),
               }}
             >
-              {(brand.municipality || 'Gachetá').toUpperCase()} · DESTACADO HOY
+              {cleanPosterCopy(brand.name || 'EDICIÓN VIRAL').toUpperCase()}
             </span>
-            <span style={{ fontSize: 11 * s, fontWeight: 800, color: t.sub, letterSpacing: 1.2 }}>EDICIÓN ESPECIAL</span>
           </div>
 
+          {/* Pregunta colosal centrada */}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 * s, maxWidth: '94%' }}>
+            <span
+              style={{
+                width: 48 * s,
+                height: 3.5 * s,
+                borderRadius: 999,
+                background: `linear-gradient(90deg, ${t.accent}, ${t.accent2})`,
+              }}
+            />
+            <p
+              style={{
+                margin: 0,
+                fontFamily: `"${boardDisplayFont}", system-ui, sans-serif`,
+                fontSize: (isSquare ? 50 : 58) * s,
+                lineHeight: 0.95,
+                fontWeight: 900,
+                textTransform: 'uppercase',
+                letterSpacing: -1.4 * s,
+                color: '#ffffff',
+                textShadow: '0 14px 36px rgba(0,0,0,0.88)',
+              }}
+            >
+              {rawHook}
+            </p>
+          </div>
+
+          {/* Pie minimalista único */}
           <p
             style={{
               margin: 0,
-              flexShrink: 0,
-              fontFamily: `"${t.font}", system-ui, sans-serif`,
-              fontSize: 32 * s,
-              lineHeight: 1.0,
-              fontWeight: 900,
+              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+              fontSize: 11.5 * s,
+              fontWeight: 800,
+              letterSpacing: 2.1 * s,
               textTransform: 'uppercase',
-              textAlign: 'left',
-              color: t.light ? t.text : '#ffffff',
+              color: 'rgba(241,245,249,0.82)',
+              borderTop: '1px solid rgba(255,255,255,0.2)',
+              paddingTop: 12 * s,
             }}
           >
-            {texts.hook.trim() || `${texts.plain.trim()} ${texts.highlight.trim()}`.toUpperCase()}
+            Desliza o toca el link en la bio ↑
           </p>
-
-          <div
-            style={{
-              position: 'relative',
-              flex: 1,
-              minHeight: 0,
-              borderRadius: 26 * s,
-              overflow: 'hidden',
-              boxShadow: `0 24px 50px -10px rgba(0,0,0,0.55), 0 8px 26px ${t.accent}35`,
-            }}
-          >
-            <Photo url={photo2} zoom={photoZoom} posY={photoPosY} />
-            <div
-              style={{
-                position: 'absolute',
-                inset: 0,
-                background: 'linear-gradient(180deg, transparent 48%, rgba(8,10,18,0.68) 100%)',
-              }}
-            />
-            {showPrice && brand.promoPrice != null && (
-              <div style={{ position: 'absolute', bottom: 14 * s, left: 14 * s }}>
-                <PricePill brand={brand} t={t} s={s} big />
-              </div>
-            )}
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 9 * s, flexShrink: 0 }}>
-            <div style={{ ...g.card, borderRadius: 18 * s, padding: `${10 * s}px ${12 * s}px` }}>
-              <p style={{ margin: 0, fontSize: 10 * s, fontWeight: 900, letterSpacing: 1.2, color: t.accent2 }}>VENTAJA 01</p>
-              <p style={{ margin: 0, marginTop: 4 * s, fontSize: 13 * s, fontWeight: 800, color: t.text, lineHeight: 1.2 }}>{bA.body}</p>
-            </div>
-            <div style={{ ...g.card, borderRadius: 18 * s, padding: `${10 * s}px ${12 * s}px` }}>
-              <p style={{ margin: 0, fontSize: 10 * s, fontWeight: 900, letterSpacing: 1.2, color: t.accent }}>VENTAJA 02</p>
-              <p style={{ margin: 0, marginTop: 4 * s, fontSize: 13 * s, fontWeight: 800, color: t.text, lineHeight: 1.2 }}>{bB.body}</p>
-            </div>
-          </div>
-
-          {showQr && (
-            <Dock
-              brand={brand}
-              t={t}
-              s={s}
-              qrUrl={qrUrl}
-              qrValue={qrValue}
-              qrStyle={qrStyle}
-              size={qr2}
-              qrLabel={qrLabel}
-              displayFont={boardDisplayFont}
-              bodyFont={activeTypo.bodyFont}
-              brandColors={brandColors}
-              logoUrl={logoUrl}
-            />
-          )}
         </div>
       </div>
     );
   }
 
-  // ═══ PIEZA 3 · BENTO EDITORIAL DE VALOR ═══════════════════════════════════
+  // ═══ PIEZA 3 · INFOGRAFÍA DE AUTORIDAD (ICONOS Y NÚMEROS · SIN FOTO) ══════
+  // Diseño estructural 100% tipográfico sobre textura pura del tema / marca.
   if (piece === 2) {
-    const qr3 = 100 * s;
+    const infoItems = [0, 1, 2].map((i) => {
+      const b = benefits[i] ?? ['Calidad garantizada de principio a fin', 'Atención directa y sin esperas', 'Ubicación estratégica y despacho ágil'][i];
+      const clean = splitBenefit(b).body;
+      return {
+        num: `0${i + 1}`,
+        title: clean,
+        hint: [
+          `Respaldo directo de ${cleanPosterCopy(brand.name || 'nuestro equipo')} en cada detalle.`,
+          `Atención ágil para clientes en ${cleanPosterCopy(brand.municipality || 'el municipio')}.`,
+          cleanPosterCopy(texts.sub || 'Beneficio exclusivo disponible hoy.'),
+        ][i],
+      };
+    });
+    const initials = extractInitials(brand.name || 'Impulso');
+    const numInk = ensureReadableAccent(t.accent2, Boolean(t.light));
+    const cardRule = t.light ? 'rgba(15,23,42,0.12)' : 'rgba(255,255,255,0.14)';
+
     return (
       <div
         style={{
@@ -1929,142 +1946,230 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
           overflow: 'hidden',
         }}
       >
-        <ScenicBg url={photo3} t={t} frame />
+        {/* Textura geométrica estructural (cero foto de fondo) */}
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            background:
+              `radial-gradient(420px 240px at 90% 8%, ${t.accent}24, transparent 62%),` +
+              `radial-gradient(380px 220px at 10% 94%, ${t.accent2}22, transparent 62%)`,
+            pointerEvents: 'none',
+          }}
+        />
         <div
           style={{
             position: 'relative',
+            zIndex: 2,
             width: '100%',
             height: '100%',
-            padding: pad,
+            padding: `${20 * s}px ${22 * s}px`,
             boxSizing: 'border-box',
             display: 'flex',
             flexDirection: 'column',
-            gap: 10 * s,
+            justifyContent: 'space-between',
+            gap: 12 * s,
           }}
         >
+          {/* Pequeño banner superior con el logo del comercio */}
           <div
             style={{
-              position: 'relative',
-              height: (isSquare ? 150 : 230) * s,
-              borderRadius: 24 * s,
-              overflow: 'hidden',
+              ...g.card,
+              borderRadius: 18 * s,
+              padding: `${10 * s}px ${14 * s}px`,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12 * s,
               flexShrink: 0,
-              boxShadow: `0 20px 44px -10px rgba(0,0,0,0.55)`,
             }}
           >
-            <Photo url={photo3} zoom={photoZoom} posY={photoPosY} />
-            <div
-              style={{
-                position: 'absolute',
-                inset: 0,
-                background: 'linear-gradient(180deg, transparent 32%, rgba(8,10,18,0.82) 100%)',
-              }}
-            />
-            <div style={{ position: 'absolute', bottom: 14 * s, left: 16 * s, right: 16 * s }}>
-              <p style={{ margin: 0, fontSize: 10 * s, fontWeight: 900, letterSpacing: 1.8, color: t.accent2, textTransform: 'uppercase' }}>
-                {(brand.address || brand.municipality || 'Gachetá').toUpperCase()}
-              </p>
-              <p
-                style={{
-                  margin: 0,
-                  fontFamily: `"${t.font}", system-ui, sans-serif`,
-                  fontSize: 28 * s,
-                  fontWeight: 900,
-                  color: '#ffffff',
-                  lineHeight: 1.04,
-                }}
-              >
-                {brand.name || 'Tu Negocio'}
-              </p>
-            </div>
-          </div>
-
-          <div
-            style={{
-              flex: 1,
-              minHeight: 0,
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
-              gridTemplateRows: '1fr 1fr',
-              gap: 9 * s,
-            }}
-          >
-            {[0, 1, 2, 3].map((i) => {
-              const b = benefits[i] ?? ['Calidad comprobada', 'Atención directa', 'Ubicación céntrica', 'Trato cercano'][i] ?? '';
-              const { body } = splitBenefit(b);
-              return (
-                <div
-                  key={i}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 * s, minWidth: 0 }}>
+              {logoUrl ? (
+                <img
+                  src={logoUrl}
+                  alt=""
                   style={{
-                    ...g.card,
-                    borderRadius: 20 * s,
-                    padding: `${11 * s}px ${13 * s}px`,
+                    width: 36 * s,
+                    height: 36 * s,
+                    borderRadius: 10 * s,
+                    objectFit: 'contain',
+                    background: t.light ? 'rgba(15,23,42,0.06)' : 'rgba(255,255,255,0.08)',
+                    padding: 3 * s,
+                    flexShrink: 0,
+                  }}
+                />
+              ) : (
+                <div
+                  style={{
+                    width: 36 * s,
+                    height: 36 * s,
+                    borderRadius: 10 * s,
+                    background: `linear-gradient(135deg, ${t.accent}, ${t.accent2})`,
+                    color: contrastTextOn(t.accent, t.accent2),
                     display: 'flex',
-                    flexDirection: 'column',
-                    justifyContent: 'space-between',
-                    position: 'relative',
-                    overflow: 'hidden',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontWeight: 900,
+                    fontSize: 13 * s,
+                    flexShrink: 0,
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <span
-                      style={{
-                        fontFamily: `"${t.font}", system-ui, sans-serif`,
-                        fontSize: 22 * s,
-                        fontWeight: 900,
-                        color: i % 2 === 0 ? t.accent2 : t.accent,
-                        lineHeight: 1,
-                      }}
-                    >
-                      0{i + 1}
-                    </span>
-                    <GlyphIcon kind={i} size={17 * s} color={t.accent2} />
-                  </div>
+                  {initials}
+                </div>
+              )}
+              <div style={{ minWidth: 0 }}>
+                <p
+                  style={{
+                    margin: 0,
+                    fontFamily: `"${boardDisplayFont}", system-ui, sans-serif`,
+                    fontSize: 18 * s,
+                    fontWeight: 900,
+                    color: t.text,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                >
+                  {cleanPosterCopy(brand.name || 'Tu Negocio')}
+                </p>
+                <p style={{ margin: 0, fontSize: 10 * s, fontWeight: 700, color: t.sub, letterSpacing: 1 * s, textTransform: 'uppercase' }}>
+                  {cleanPosterCopy(brand.slogan || brand.municipality || 'AUTORIDAD LOCAL')}
+                </p>
+              </div>
+            </div>
+            <span
+              style={{
+                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                fontSize: 9.5 * s,
+                fontWeight: 900,
+                letterSpacing: 1.6 * s,
+                color: numInk,
+                textTransform: 'uppercase',
+                flexShrink: 0,
+              }}
+            >
+              3 CLAVES
+            </span>
+          </div>
+
+          <p
+            style={{
+              margin: 0,
+              fontFamily: `"${boardDisplayFont}", system-ui, sans-serif`,
+              fontSize: (isSquare ? 26 : 32) * s,
+              fontWeight: 900,
+              lineHeight: 1.0,
+              textTransform: 'uppercase',
+              letterSpacing: -0.6 * s,
+              color: t.text,
+              flexShrink: 0,
+            }}
+          >
+            POR QUÉ ELEGIR <span style={{ color: numInk }}>{cleanPosterCopy(brand.product || brand.name || 'HOY')}</span>
+          </p>
+
+          {/* Tres bloques gigantes numerados 01, 02, 03 con iconos grandes y explicaciones breves */}
+          <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 10 * s }}>
+            {infoItems.map((item, idx) => (
+              <div
+                key={item.num}
+                style={{
+                  flex: 1,
+                  ...g.card,
+                  borderRadius: 22 * s,
+                  borderLeft: `4px solid ${idx % 2 === 0 ? numInk : ensureReadableAccent(t.accent, Boolean(t.light))}`,
+                  padding: `${12 * s}px ${16 * s}px`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 14 * s,
+                  minHeight: 0,
+                }}
+              >
+                <span
+                  style={{
+                    fontFamily: `"${boardDisplayFont}", system-ui, sans-serif`,
+                    fontSize: (isSquare ? 42 : 52) * s,
+                    fontWeight: 900,
+                    lineHeight: 0.9,
+                    color: numInk,
+                    opacity: 0.9,
+                    flexShrink: 0,
+                    minWidth: (isSquare ? 50 : 62) * s,
+                  }}
+                >
+                  {item.num}
+                </span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ margin: 0, fontSize: (isSquare ? 15 : 17) * s, fontWeight: 900, lineHeight: 1.15, color: t.text }}>
+                    {item.title}
+                  </p>
                   <p
                     style={{
                       margin: 0,
-                      fontSize: 13.5 * s,
-                      fontWeight: 800,
-                      color: t.text,
-                      lineHeight: 1.2,
+                      marginTop: 4 * s,
+                      fontSize: (isSquare ? 11.5 : 12.5) * s,
+                      fontWeight: 600,
+                      lineHeight: 1.25,
+                      color: t.sub,
                       display: '-webkit-box',
                       WebkitLineClamp: 2,
                       WebkitBoxOrient: 'vertical',
                       overflow: 'hidden',
                     }}
                   >
-                    {body}
+                    {item.hint}
                   </p>
                 </div>
-              );
-            })}
+                <span
+                  style={{
+                    width: (isSquare ? 42 : 50) * s,
+                    height: (isSquare ? 42 : 50) * s,
+                    borderRadius: 15 * s,
+                    background: `linear-gradient(145deg, ${t.accent}, ${t.accent2})`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                    boxShadow: `0 10px 24px ${t.accent}44`,
+                  }}
+                >
+                  <GlyphIcon kind={idx} size={(isSquare ? 22 : 26) * s} color={contrastTextOn(t.accent, t.accent2)} />
+                </span>
+              </div>
+            ))}
           </div>
 
-          {showQr && (
-            <Dock
-              brand={brand}
-              t={t}
-              s={s}
-              qrUrl={qrUrl}
-              qrValue={qrValue}
-              qrStyle={qrStyle}
-              size={qr3}
-              qrLabel={qrLabel}
-              displayFont={boardDisplayFont}
-              bodyFont={activeTypo.bodyFont}
-              brandColors={brandColors}
-              logoUrl={logoUrl}
-            />
-          )}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              borderTop: `1px solid ${cardRule}`,
+              paddingTop: 10 * s,
+              flexShrink: 0,
+            }}
+          >
+            <span style={{ fontSize: 11 * s, fontWeight: 700, color: t.sub }}>
+              📍 {cleanPosterCopy(brand.address || brand.municipality || 'Gachetá')}
+            </span>
+            <span style={{ fontSize: 12 * s, fontWeight: 900, color: numInk, fontVariantNumeric: 'tabular-nums' }}>
+              {brand.phoneDisplay || brand.name}
+            </span>
+          </div>
         </div>
       </div>
     );
   }
 
-  // ═══ PIEZA 4 · CIERRE VIP CON MEGA-QR PROTAGONISTA ═══════════════════════
+  // ═══ PIEZA 4 · CIERRE VIP DE CONVERSIÓN (LOGO ARRIBA + QR 60% ALTO) ═════════
   if (piece === 3) {
-    const qrBig = (isSquare ? 190 : 292) * s;
-    const medallion = (isSquare ? 96 : 148) * s;
+    // QR masivo ocupando ~55-60% del alto total dentro de tarjeta flotante centrada
+    const qrMasivo = Math.round(H * 0.48);
+    const initials = extractInitials(brand.name || 'Impulso');
+    const accentInk = ensureReadableAccent(t.accent2, Boolean(t.light));
+    const waFormatted = (brand.phoneDisplay || 'WhatsApp Directo').replace(/^[^\p{L}\p{N}+]+/u, '').trim();
+
     return (
       <div
         style={{
@@ -2081,75 +2186,154 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
           overflow: 'hidden',
         }}
       >
-        <ScenicBg url={photo4} t={t} frame />
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            background:
+              `radial-gradient(460px 320px at 50% 50%, ${t.accent2}24, transparent 70%)`,
+            pointerEvents: 'none',
+          }}
+        />
         <div
           style={{
             position: 'relative',
+            zIndex: 2,
             width: '100%',
             height: '100%',
-            padding: pad,
+            padding: `${20 * s}px ${22 * s}px`,
             boxSizing: 'border-box',
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'space-between',
-            gap: 8 * s,
           }}
         >
-          <div
-            style={{
-              width: medallion,
-              height: medallion,
-              flexShrink: 0,
-              borderRadius: '50%',
-              background: `linear-gradient(145deg, ${t.accent}, ${t.accent2})`,
-              padding: 4 * s,
-              boxShadow: `0 0 ${32 * s}px ${t.accent2}66, 0 18px 40px rgba(0,0,0,0.48)`,
-            }}
-          >
-            <div style={{ width: '100%', height: '100%', borderRadius: '50%', overflow: 'hidden' }}>
-              <Photo url={photo4} zoom={photoZoom} posY={photoPosY} />
-            </div>
+          {/* Logo del comercio centrado arriba */}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 * s, flexShrink: 0 }}>
+            {logoUrl ? (
+              <div
+                style={{
+                  width: 78 * s,
+                  height: 78 * s,
+                  borderRadius: 22 * s,
+                  padding: 6 * s,
+                  background: t.light ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.1)',
+                  backdropFilter: 'blur(14px)',
+                  border: `1.5px solid ${t.accent2}66`,
+                  boxShadow: `0 16px 34px rgba(0,0,0,0.42)`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <img src={logoUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain', borderRadius: 16 * s }} />
+              </div>
+            ) : (
+              <div
+                style={{
+                  width: 72 * s,
+                  height: 72 * s,
+                  borderRadius: 22 * s,
+                  background: `linear-gradient(145deg, ${t.accent}, ${t.accent2})`,
+                  color: contrastTextOn(t.accent, t.accent2),
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontFamily: `"${boardDisplayFont}", system-ui, sans-serif`,
+                  fontSize: 28 * s,
+                  fontWeight: 900,
+                  boxShadow: `0 16px 36px ${t.accent}55`,
+                }}
+              >
+                {initials}
+              </div>
+            )}
+            <p
+              style={{
+                margin: 0,
+                fontFamily: `"${boardDisplayFont}", system-ui, sans-serif`,
+                fontSize: 22 * s,
+                fontWeight: 900,
+                color: t.text,
+                letterSpacing: -0.3 * s,
+                textAlign: 'center',
+              }}
+            >
+              {cleanPosterCopy(brand.name || 'Tu Negocio')}
+            </p>
           </div>
 
-          <Headline texts={ht('ESCANEA Y', 'CONECTA YA')} t={t} s={s} size={36} styleId={fontStyle} scale={hs} />
-
+          {/* Tarjeta flotante con QR masivo (~60% del alto) */}
           {(qrValue || qrUrl) && (
             <div
               style={{
                 ...g.card,
-                borderRadius: 28 * s,
-                padding: `${12 * s}px`,
+                borderRadius: 34 * s,
+                padding: `${18 * s}px`,
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
-                gap: 8 * s,
+                justifyContent: 'center',
+                boxShadow: `0 32px 72px -12px rgba(0,0,0,0.72), 0 0 46px ${t.accent}35`,
                 flexShrink: 0,
               }}
             >
               <QrOrganicToken
                 qrValue={qrValue}
                 qrUrl={qrUrl}
-                size={qrBig}
+                size={qrMasivo}
                 t={t}
                 s={s}
                 businessName={brand.name || 'Impulso'}
                 qrStyle={qrStyle}
                 brandColors={brandColors}
               />
-              <p style={{ margin: 0, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 9.5 * s, fontWeight: 900, letterSpacing: 2.2 * s, color: t.accent2, textTransform: 'uppercase' }}>
-                {cleanPosterCopy(qrLabel || 'ESCANEA AQUÍ').toUpperCase()}
-              </p>
             </div>
           )}
 
-          <div style={{ textAlign: 'center', flexShrink: 0 }}>
-            <p style={{ margin: 0, fontSize: 13 * s, fontWeight: 700, color: t.text }}>{qrHint || 'Escanea para ir a nuestro WhatsApp'}</p>
-            <p style={{ margin: 0, marginTop: 4 * s, fontSize: 15 * s, fontWeight: 900, color: t.accent2, fontVariantNumeric: 'tabular-nums' }}>
-              {brand.phoneDisplay || brand.name}
+          {/* Llamado final: "Escanea ahora" + WhatsApp formateado con elegancia */}
+          <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 * s, flexShrink: 0 }}>
+            <p
+              style={{
+                margin: 0,
+                fontFamily: `"${boardDisplayFont}", system-ui, sans-serif`,
+                fontSize: 30 * s,
+                fontWeight: 900,
+                letterSpacing: 1 * s,
+                textTransform: 'uppercase',
+                color: t.text,
+                lineHeight: 1,
+              }}
+            >
+              ESCANEA AHORA
             </p>
-            <p style={{ margin: 0, marginTop: 2 * s, fontSize: 11 * s, fontWeight: 600, color: t.sub }}>
-              {brand.name || 'Tu Negocio'} · {brand.address || brand.municipality || 'Gachetá'}
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8 * s,
+                borderRadius: 999,
+                padding: `${7 * s}px ${18 * s}px`,
+                background: t.light ? 'rgba(5,150,105,0.12)' : 'rgba(16,185,129,0.18)',
+                border: `1.5px solid ${t.light ? 'rgba(5,150,105,0.35)' : 'rgba(52,211,153,0.45)'}`,
+              }}
+            >
+              <PhoneIcon size={15 * s} color={t.light ? '#065f46' : '#6ee7b7'} />
+              <span
+                style={{
+                  fontSize: 18 * s,
+                  fontWeight: 900,
+                  color: t.light ? '#065f46' : '#6ee7b7',
+                  fontVariantNumeric: 'tabular-nums',
+                  letterSpacing: 0.6 * s,
+                }}
+              >
+                {waFormatted}
+              </span>
+            </div>
+            <p style={{ margin: 0, fontSize: 11 * s, fontWeight: 700, color: accentInk, opacity: 0.9 }}>
+              {cleanPosterCopy(qrLabel || 'Contacto directo')} · {cleanPosterCopy(brand.address || brand.municipality || 'Gachetá')}
             </p>
           </div>
         </div>
@@ -3119,7 +3303,35 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
       }}
     >
       <ScenicBg url={photoUrl} t={t} />
-      <div style={{ position: 'relative', width: '100%', height: '100%', padding: pad, boxSizing: 'border-box' }}>{body}</div>
+      <div style={{ position: 'relative', width: '100%', height: '100%', padding: pad, boxSizing: 'border-box' }}>
+        {body}
+        {/* Logo en esquina estratégica del Póster Maestro (respetando cintas o sellos según layout) */}
+        {logoUrl && (
+          <div
+            style={{
+              position: 'absolute',
+              top: pad,
+              ...(layout === 'retail' || layout === 'magazine' || layout === 'immersive' || layout === 'hud'
+                ? { left: layout === 'magazine' || layout === 'immersive' ? undefined : pad, right: layout === 'magazine' || layout === 'immersive' ? pad : undefined }
+                : { right: pad }),
+              zIndex: 12,
+              padding: 4 * s,
+              borderRadius: 12 * s,
+              background: t.light ? 'rgba(255,255,255,0.72)' : 'rgba(8,12,24,0.52)',
+              backdropFilter: 'blur(12px)',
+              border: `1px solid ${t.light ? 'rgba(15,23,42,0.12)' : 'rgba(255,255,255,0.2)'}`,
+              boxShadow: '0 8px 20px rgba(0,0,0,0.35)',
+              pointerEvents: 'none',
+            }}
+          >
+            <img
+              src={logoUrl}
+              alt=""
+              style={{ width: 38 * s, height: 38 * s, objectFit: 'contain', display: 'block', borderRadius: 8 * s }}
+            />
+          </div>
+        )}
+      </div>
     </div>
   );
 }

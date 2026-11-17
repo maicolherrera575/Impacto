@@ -567,5 +567,5 @@ export async function authenticateWithPasskey(email: string): Promise<void> {
     return;
   }
 
-  throw new Error('No se pudo establecer la sesión biométrica en Supabase.');
+  throw new Error('No se pudo establecer la sesión biométrica. Intenta de nuevo o entra con tu contraseña.');
 }

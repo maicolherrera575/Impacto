@@ -1035,13 +1035,13 @@ Recibirás la ESTRATEGIA de la campaña (rubro, promesa de valor, tema y layout)
    "status3": "Estado de cierre de tarde/noche con *urgencia/escasez* + _garantía_ + 👉 link"
  },
  "socialMediaCopy": {
-   "pas": "copy completo para Instagram/Facebook con fórmula PAS, SALTOS DE LÍNEA LIMPIOS entre párrafos, y una nube de 6 a 10 #Hashtags relevantes al final (municipio, rubro y producto)",
+   "pas": "copy completo y persuasivo para Instagram/Facebook con fórmula PAS, SALTOS DE LÍNEA LIMPIOS entre párrafos, y una nube de 6 a 10 #Hashtags locales (ej: #Gachetá, #Guavio, municipio del negocio, rubro y producto) al final",
    "aida": "copy optimizado EXCLUSIVAMENTE para WhatsApp usando sintaxis real (*negrita*, _cursiva_), saltos limpios y llamado directo al chat"
  },
  "videoReelScript": {
-   "t0_3": "segundos 0-3 (GANCHO VISUAL + FRASE EXACTA PARA LEER A CÁMARA EN TELEPROMPTER)",
-   "t3_10": "segundos 3-10 (DEMOSTRACIÓN + BENEFICIO PRINCIPAL PARA LEER EN TELEPROMPTER)",
-   "t10_15": "segundos 10-15 (CIERRE URGENTE + UBICACIÓN + LLAMADO A WHATSAPP PARA TELEPROMPTER)"
+   "t0_3": "EXACTAMENTE con formato '[Cámara: indicación visual/plano de cámara] Texto: \"frase exacta de gancho para decir a cámara\"' (segundos 0-3)",
+   "t3_10": "EXACTAMENTE con formato '[Cámara: indicación visual mostrando producto/servicio] Texto: \"demostración y beneficio clave\"' (segundos 3-10)",
+   "t10_15": "EXACTAMENTE con formato '[Cámara: plano final del local/logo/contacto] Texto: \"cierre urgente con ubicación y llamado a WhatsApp\"' (segundos 10-15)"
  },
  "salesClosingTemplates": {
    "priceReply": "respuesta lista cuando el cliente pregunta ¿precio?: da el precio o invita a cotizar y ofrece combo/domicilio",
@@ -1733,9 +1733,9 @@ export function synthesizeCampaign(input: CampaignInput, art: ArtDirection): Mar
       aida: `⚡ *${plain.toUpperCase()} ${highlight.toUpperCase()}*${price}${normalTxt}\n\n_${hook.charAt(0).toUpperCase()}${hook.slice(1)}._\n✅ *${b0.replace(/^[^\p{L}\p{N}]+/u, '')}*\n✅ *${b1.replace(/^[^\p{L}\p{N}]+/u, '')}*\n\n📍 ${addr}\n👉 *Escríbenos AHORA a WhatsApp* y aparta hoy mismo`,
     },
     videoReelScript: {
-      t0_3: `[PRIMER PLANO] "¿Buscas ${product.toLowerCase()} de verdad en ${place}? Mira esto que llegó hoy a ${brand}…"`,
-      t3_10: `[MUESTRA EL PRODUCTO] "En ${brand} tienes ${b0.replace(/^[^\p{L}\p{N}]+/u, '').toLowerCase()} y ${b2.replace(/^[^\p{L}\p{N}]+/u, '').toLowerCase()}${price}."`,
-      t10_15: `[CIERRE A CÁMARA] "${plain} ${highlight}. Escríbenos ya al WhatsApp de ${brand} o encuéntranos en ${addr}."`,
+      t0_3: `[Cámara: Primer plano dinámico del producto con buena luz] Texto: "¿Buscas ${product.toLowerCase()} de verdad en ${place}? Mira esto que llegó hoy a ${brand}…"`,
+      t3_10: `[Cámara: Plano medio mostrando textura, detalle y uso] Texto: "En ${brand} tienes ${b0.replace(/^[^\p{L}\p{N}]+/u, '').toLowerCase()} y ${b2.replace(/^[^\p{L}\p{N}]+/u, '').toLowerCase()}${price}."`,
+      t10_15: `[Cámara: Cierre frente al local o señalando el enlace abajo] Texto: "${plain} ${highlight}. Escríbenos ya al WhatsApp de ${brand} o encuéntranos en ${addr}."`,
     },
     salesClosingTemplates: {
       priceReply: isService

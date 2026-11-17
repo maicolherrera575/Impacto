@@ -178,7 +178,7 @@ export function ForensicInspector({ data, onClose }: { data: ForensicData | null
           <div className="mt-4 rounded-2xl border border-white/[0.08] bg-slate-950/40 p-3.5">
             {geo.isLocalDemo && (
               <p className="mb-2 text-[11px] font-semibold leading-relaxed text-amber-200/90">
-                ⚙️ Modo Localhost: cuando despliegues en Vercel, aquí verás la IP pública real (Claro / Movistar / Tigo)
+                ⚙️ Entorno de pruebas local: cuando la plataforma esté publicada en su dominio web, aquí verás la IP pública real (Claro / Movistar / Tigo)
                 de cada usuario. Esta consulta muestra la IP de tu propio navegador como demostración.
               </p>
             )}

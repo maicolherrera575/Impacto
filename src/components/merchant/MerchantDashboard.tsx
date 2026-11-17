@@ -1001,7 +1001,7 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
                     ) : (
                       <>
                         <p className="text-[11px] font-bold text-slate-300">
-                          Por seguridad, confirma tu contraseña actual con Supabase antes de vincular la huella en este dispositivo:
+                          Por seguridad, confirma tu contraseña actual antes de vincular la huella en este dispositivo:
                         </p>
                         <input
                           type="password"
