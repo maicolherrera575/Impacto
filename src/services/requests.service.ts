@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { getDeviceId } from './deviceFingerprint';
+import { getEdgeClientIp } from './ip.service';
 import type { Category, QuickRequest } from '../types';
 
 /** Pedidos activos de la comunidad (subasta inversa). */
@@ -39,7 +40,8 @@ export interface CreateRequestInput {
  * huella del dispositivo y aplica el candado anti-spam (máx. 2 activos).
  */
 export async function createQuickRequest(input: CreateRequestInput): Promise<void> {
-  const { error } = await supabase.rpc('create_quick_request_rpc', {
+  const edgeIp = await getEdgeClientIp();
+  const baseParams = {
     p_category: input.category,
     p_customer_name: input.customerName,
     p_customer_whatsapp: input.customerWhatsapp,
@@ -49,6 +51,14 @@ export async function createQuickRequest(input: CreateRequestInput): Promise<voi
     p_municipality: input.municipality,
     p_client_lat: input.clientLat ?? null,
     p_client_lng: input.clientLng ?? null,
+  };
+  let { error } = await supabase.rpc('create_quick_request_rpc', {
+    ...baseParams,
+    p_edge_ip: edgeIp,
   });
+  if (error && ((error as { code?: string }).code === 'PGRST202' || /could not find the function/i.test(error.message ?? ''))) {
+    const retry = await supabase.rpc('create_quick_request_rpc', baseParams);
+    error = retry.error;
+  }
   if (error) throw error;
 }

@@ -66,10 +66,8 @@ export function ForensicInspector({ data, onClose }: { data: ForensicData | null
       const ip = data?.clientIp ?? '';
       try {
         if (LOCAL_IPS.has(ip)) {
-          // Modo Localhost: demostración con la IP pública actual del navegador
-          const mine = (await fetchJson('https://ipwho.is/')) as IpWhoResponse | null;
-          if (cancelled) return;
-          setGeo(toGeo(mine, true));
+          // Si la IP capturada fue 0.0.0.0 / localhost, no atribuir la IP del admin como si fuera del usuario
+          setGeo(null);
           return;
         }
         const primary = (await fetchJson(`https://ipwho.is/${encodeURIComponent(ip)}`)) as IpWhoResponse | null;
@@ -189,7 +187,9 @@ export function ForensicInspector({ data, onClose }: { data: ForensicData | null
           </div>
         ) : (
           <p className="mt-4 rounded-2xl border border-white/10 bg-slate-950/40 p-3 text-xs font-semibold text-slate-400">
-            No se pudo consultar el operador de esta IP (puede ser privada o sin cobertura de datos públicos).
+            {LOCAL_IPS.has(data.clientIp ?? '')
+              ? 'IP no disponible en este registro (evento creado en entorno local o sin cabecera pública X-Forwarded-For).'
+              : 'No se pudo consultar el operador de esta IP (puede ser privada o sin cobertura de datos públicos).'}
           </p>
         )}
 

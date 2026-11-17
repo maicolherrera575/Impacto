@@ -110,7 +110,8 @@ export function LegalModal({ open, onClose }: LegalModalProps) {
               <li>Está prohibido publicar contenido ilegal, <strong>engañoso</strong> o que induzca a error sobre precios, cantidades o disponibilidad. Impulso retira publicaciones incumplidas y suspende cuentas maliciosas.</li>
               <li>Se realiza <strong>auditoría de seguridad</strong> de publicaciones y comprobantes, y hay colaboración con las autoridades competentes cuando la ley lo exija.</li>
               <li>Las reservas se recogen <strong>en el local físico del comercio</strong> (ubicación registrada en el radar), nunca en puntos ajenos ni domicilios particulares.</li>
-              <li>Verifica la insignia <strong>✅ Verificado</strong>: la otorga el administrador tras conocer el negocio personalmente.</li>
+              <li>Verifica la insignia <strong>✅ Verificado</strong>: la otorga el administrador tras auditar identidad real del comercio (KYB).</li>
+              <li><strong>Protección contra denuncias falsas y competencia desleal (Ley 256 de 1996):</strong> los reportes comunitarios pasan por verificación de evidencia y nunca anulan unilateralmente a un comercio verificado sin pruebas reales. El administrador audita y depura cualquier denuncia maliciosa o por envidia.</li>
               <li>El pago se hace <strong>directamente al recibir el producto</strong>. Jamás pagues anticipos a desconocidos con pretextos de «apartado».</li>
               <li>Si detectas una oferta engañosa, un abuso o una conducta sospechosa, repórtala de inmediato al WhatsApp {ADMIN_WHATSAPP}.</li>
             </ul>

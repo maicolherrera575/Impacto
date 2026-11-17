@@ -4,8 +4,9 @@ import type { Category } from '../../types';
 import { CATEGORIES, MUNICIPIOS } from '../../types';
 import { ModalShell } from '../ui/ModalShell';
 import { useToast } from '../ui/Toast';
-import { friendlyError, supabase } from '../../services/supabase';
+import { friendlyError } from '../../services/supabase';
 import { ensureSignedInAfterSignUp, signIn, signOut, signUpMerchant, validateInviteCode } from '../../services/profile.service';
+import { authenticateWithPasskey, isWebAuthnSupported } from '../../services/WebAuthnService';
 import { cx } from '../../utils/format';
 
 interface AuthModalProps {
@@ -37,32 +38,19 @@ export function AuthModal({ open, onClose, onAuthed, onOpenLegal }: AuthModalPro
   const emailOk = /.+@.+\..+/.test(email.trim());
   const passOk = password.length >= 6;
 
-  /** 🫆 V20 · Soporte base de autenticación biométrica (Passkeys / WebAuthn).
-   *  Detección de capacidad: el botón aparece solo si la librería de Supabase
-   *  y el navegador del dispositivo lo soportan (huella / FaceID / Windows Hello). */
-  const webAuthnApi = supabase.auth as unknown as {
-    signInWithWebAuthn?: (options: { email: string }) => Promise<{ error: { message: string } | null }>;
-  };
-  const passkeyAvailable =
-    typeof webAuthnApi.signInWithWebAuthn === 'function' &&
-    typeof window !== 'undefined' &&
-    typeof window.PublicKeyCredential !== 'undefined';
+  /** 🔐 V19.0 · Autenticación biométrica real (WebAuthn / Passkeys). */
+  const passkeyAvailable = isWebAuthnSupported();
 
-  /** 🫆 V20 · Inicio de sesión biométrico: el navegador ejecuta la ceremonia
-   *  WebAuthn (huella/FaceID) y Supabase entrega la sesión directamente. */
   async function passkeyLogin() {
     setErrorMsg('');
     if (!emailOk) {
-      setErrorMsg('Escribe tu correo para entrar con tu huella / FaceID');
+      setErrorMsg('Escribe tu correo para validar tu huella / FaceID');
       return;
     }
     setLoading(true);
     try {
-      const fn = webAuthnApi.signInWithWebAuthn;
-      if (!fn) throw new Error('La autenticación biométrica aún no está disponible en este dispositivo');
-      const { error } = await fn({ email: email.trim() });
-      if (error) throw new Error(error.message);
-      toast.success('¡Bienvenido de vuelta! 👋');
+      await authenticateWithPasskey(email.trim());
+      toast.success('🔐 ¡Identidad biométrica verificada! Bienvenido 👋');
       onAuthed();
       onClose();
     } catch (err) {

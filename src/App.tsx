@@ -334,19 +334,21 @@ export default function App() {
   }, [toast]);
 
   // ── Ubicación EXACTA únicamente: si el navegador solo concedió "aproximada",
-  // la app NO la usa y abre la guía paso a paso para cambiarla. Tocar el 🎯
-  // del mapa lanza una lectura fresca: al llegar la señal exacta, todo se
-  // activa solo (sin recargar la página). ───────────────────────────────────
+  // la app NO la usa, muestra la advertencia exacta y abre la guía paso a paso.
   useEffect(() => {
+    if (geo.requestSeq === 0) return;
     if (geo.status === 'inexact') {
       setGpsGuideOpen(true);
-      // ⚖️ V21 · Aviso legal + técnico (Ley 1581): la ubicación llegó APROXIMADA
-      toast.info('Para el correcto funcionamiento del radar, requerimos tu ubicación exacta. Por favor configúralo en los permisos de tu navegador.');
+      toast.info(
+        'Para usar el radar de proximidad, requerimos tu ubicación exacta. La ubicación aproximada no permite calcular distancias reales.',
+      );
+    } else if (geo.status === 'denied') {
+      setGpsGuideOpen(true);
+      toast.info(geo.errorMessage || 'Ubicación bloqueada: activa los permisos en el navegador para usar el radar exacto.');
+    } else if (geo.errorMessage) {
+      toast.info(geo.errorMessage);
     }
-    if (geo.status === 'denied') {
-      toast.info('Ubicación no compartida: el radar sigue activo en Gachetá. Puedes activarla cuando quieras.');
-    }
-  }, [geo.status, toast]);
+  }, [geo.requestSeq, geo.status, geo.errorMessage, toast]);
 
   useEffect(() => {
     if (geo.status === 'active' && gpsGuideOpen) {
@@ -355,10 +357,9 @@ export default function App() {
     }
   }, [geo.status, gpsGuideOpen, toast]);
 
-  /** 🎯 Botón de GPS (barra superior + mapa): reintento con lectura fresca. */
+  /** 🎯 Botón de GPS (barra superior + mapa + tarjeta): pide ubicación exacta directa. */
   const handleGeoRequest = useCallback(() => {
     geo.request();
-    if (geo.status === 'inexact') setGpsGuideOpen(true);
   }, [geo]);
 
   /**
@@ -385,9 +386,9 @@ export default function App() {
             /* almacenamiento no disponible: el servidor deduplica igual */
           }
           if (res.cancelled) {
-            toast.info('🚩 Oferta tumbada por la comunidad. Gracias por proteger el pueblo');
+            toast.info('🚩 Oferta pausada para revisión por reportes verificados. Gracias por proteger la comunidad');
           } else {
-            toast.success(`🛡️ Reporte registrado (${res.reports}/3). Con 3 se retira del radar`);
+            toast.success('🛡️ Reporte recibido y enviado a auditoría del administrador (protegido contra reportes falsos)');
           }
         }
         setReporting(null);
@@ -511,7 +512,12 @@ export default function App() {
                 center={mapCenter}
                 geoPos={geo.status === 'active' && geo.pos ? geo.pos : null}
                 geoStatus={geo.status}
+                geoLocating={geo.locating}
+                geoAccuracy={geo.accuracy}
+                geoError={geo.errorMessage}
                 onGeoRequest={handleGeoRequest}
+                onGeoRevoke={geo.revoke}
+                onOpenGpsGuide={() => setGpsGuideOpen(true)}
                 recenterToken={recenterToken}
                 onSelectOffer={setSelectedOffer}
                 onShareOffer={(o) => void shareOffer(o)}
@@ -635,7 +641,8 @@ export default function App() {
         open={gpsGuideOpen}
         onClose={() => setGpsGuideOpen(false)}
         onRetry={handleGeoRequest}
-        retrying={geo.status === 'inexact'}
+        retrying={geo.locating}
+        mode={geo.status === 'denied' ? 'denied' : 'inexact'}
       />
       <ReportModal
         offer={reporting}

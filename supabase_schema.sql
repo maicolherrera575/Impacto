@@ -254,7 +254,20 @@ create policy "Cualquiera puede pedir"
 
 -- 4.1 Actualizar mi perfil (campos en lista blanca; créditos y rol intactos)
 -- (v3: añade datos de confianza del comercio para la auditoría IA del admin)
-drop function if exists public.update_my_profile_rpc(text, text, text, text, text, double precision, double precision, text);
+-- (V19.0: limpia cualquier sobrecarga previa para evitar errores PGRST203)
+do $$
+declare r record;
+begin
+  for r in
+    select p.oid::regprocedure as sig
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public' and p.proname = 'update_my_profile_rpc'
+  loop
+    execute 'drop function if exists ' || r.sig;
+  end loop;
+end $$;
+
 create or replace function public.update_my_profile_rpc(
   p_business_name     text default null,
   p_category          text default null,
@@ -288,6 +301,12 @@ begin
   if p_category is not null and p_category not in ('comida', 'transporte_flete', 'agro_mercado', 'hoteles_turismo', 'salud_belleza', 'hogar_construccion', 'servicios_comercios') then
     raise exception 'Categoría inválida';
   end if;
+  if p_lat is not null and (p_lat < -90 or p_lat > 90) then
+    raise exception 'Latitud inválida';
+  end if;
+  if p_lng is not null and (p_lng < -180 or p_lng > 180) then
+    raise exception 'Longitud inválida';
+  end if;
 
   update public.profiles set
     business_name      = coalesce(p_business_name, business_name),
@@ -311,6 +330,55 @@ begin
   if not found then
     raise exception 'Perfil no encontrado';
   end if;
+
+  return v_profile;
+end;
+$$;
+
+-- 4.1b V19.0 · Guardar ubicación exacta del comercio (profiles + ofertas activas)
+create or replace function public.update_profile_location_rpc(
+  p_lat               double precision,
+  p_lng               double precision,
+  p_address_reference text default null
+)
+returns public.profiles
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_profile public.profiles;
+  v_addr    text;
+begin
+  if auth.uid() is null then
+    raise exception 'Debes iniciar sesión';
+  end if;
+  if p_lat is null or p_lng is null or p_lat < -90 or p_lat > 90 or p_lng < -180 or p_lng > 180 then
+    raise exception 'Coordenadas inválidas. Selecciona un punto válido en el mapa.';
+  end if;
+
+  v_addr := nullif(btrim(coalesce(p_address_reference, '')), '');
+  if v_addr is not null and char_length(v_addr) > 120 then
+    v_addr := left(v_addr, 120);
+  end if;
+
+  update public.profiles
+     set lat = p_lat,
+         lng = p_lng,
+         address_reference = coalesce(v_addr, address_reference)
+   where id = auth.uid()
+  returning * into v_profile;
+
+  if not found then
+    raise exception 'Perfil no encontrado';
+  end if;
+
+  -- Sincroniza las ofertas activas del comercio para que sus pines en el radar reflejen el local real
+  update public.offers
+     set lat = p_lat,
+         lng = p_lng
+   where merchant_id = auth.uid()
+     and status = 'active';
 
   return v_profile;
 end;
@@ -426,9 +494,10 @@ end;
 $$;
 
 -- 4.3 Reservar: bloqueo de fila, validación de stock, cupos y código de ticket
--- (v3: trazabilidad de IP/dispositivo; v4: coordenadas GPS silenciosas)
+-- (v3: trazabilidad de IP/dispositivo; v4: coordenadas GPS silenciosas; V19: IP real desde edge)
 drop function if exists public.reserve_offer_rpc(uuid, text, text, integer, text);
 drop function if exists public.reserve_offer_rpc(uuid, text, text, integer, text, text);
+drop function if exists public.reserve_offer_rpc(uuid, text, text, integer, text, text, double precision, double precision);
 create or replace function public.reserve_offer_rpc(
   p_offer_id       uuid,
   p_customer_name  text,
@@ -437,7 +506,8 @@ create or replace function public.reserve_offer_rpc(
   p_customer_note  text default '',
   p_device_id      text default null,
   p_client_lat     double precision default null,
-  p_client_lng     double precision default null
+  p_client_lng     double precision default null,
+  p_edge_ip        text default null
 )
 returns jsonb
 language plpgsql
@@ -452,8 +522,8 @@ declare
   v_client_ip text;
   v_device    text;
 begin
-  -- Trazabilidad forense: IP real capturada en el servidor, nunca en el cliente
-  v_client_ip := public.get_client_ip();
+  -- Trazabilidad forense: IP real capturada en el servidor (prioriza X-Forwarded-For, fallback /api/ip validado)
+  v_client_ip := public.resolve_client_ip(p_edge_ip);
   v_device    := nullif(btrim(coalesce(p_device_id, '')), '');
 
   if char_length(trim(p_customer_name)) < 2 or char_length(p_customer_name) > 60 then
@@ -723,8 +793,9 @@ $$;
 -- Concesión de ejecución explícita --------------------------------------------
 grant execute on function public.is_admin()                          to anon, authenticated;
 grant execute on function public.update_my_profile_rpc(text, text, text, text, text, double precision, double precision, text, text, text) to authenticated;
+grant execute on function public.update_profile_location_rpc(double precision, double precision, text) to authenticated;
 grant execute on function public.publish_offer_rpc(text, text, text, integer, text, numeric, numeric, numeric, text, double precision, double precision, text, text) to authenticated;
-grant execute on function public.reserve_offer_rpc(uuid, text, text, integer, text, text, double precision, double precision)    to anon, authenticated;
+grant execute on function public.reserve_offer_rpc(uuid, text, text, integer, text, text, double precision, double precision, text)    to anon, authenticated;
 grant execute on function public.merchant_update_reservation_rpc(uuid, text)           to authenticated;
 grant execute on function public.rate_reservation_rpc(uuid, text, integer)             to anon, authenticated;
 grant execute on function public.admin_manage_merchant_rpc(uuid, integer, boolean, boolean) to authenticated;
@@ -1035,9 +1106,10 @@ begin
            updated_at         = now()
      where id = v_owner;
 
-    -- Asignar el rol de administrador
+    -- Asignar el rol de administrador y verificación automática
     update public.profiles
-       set role = 'admin'
+       set role = 'admin',
+           is_verified = true
      where id = v_owner;
 
     -- Garantía de admin único: nadie más queda como admin
@@ -1064,31 +1136,42 @@ alter table public.offers add column if not exists delivery_type text not null d
   constraint offers_delivery_type_check check (delivery_type in ('local_fisico', 'parque_principal', 'domicilio'));
 alter table public.offers add column if not exists reports_count integer not null default 0;
 
--- 8.2 Reportes comunitarios v2: motivo, detalle y dedupe por dispositivo.
--- Cada dispositivo cuenta 1 sola vez por oferta (el doble clic NO suma 2),
--- y el administrador ve los motivos exactos + trazabilidad en su panel.
+-- 8.2 Reportes comunitarios v3 (Blindaje anti-envidia + depuración admin):
+--   · Exige motivo válido y detalle sustancial (evita reportes en 1 clic por envidia).
+--   · Deduplica por dispositivo Y por IP pública en la misma oferta (24h).
+--   · Verifica si el reportante tuvo una reserva real con la oferta/comercio
+--     (is_verified_buyer). Comercios verificados jamás caen por clics anónimos
+--     sin prueba real: las denuncias pasan a revisión del administrador.
+--   · Permite al administrador borrar denuncias falsas y restaurar ofertas/locales.
 create table if not exists public.offer_reports (
-  id         uuid primary key default gen_random_uuid(),
-  offer_id   uuid not null references public.offers(id) on delete cascade,
-  reason     text not null,
-  detail     text,
-  device_id  text,
-  client_ip  text,
-  created_at timestamptz not null default now(),
+  id                uuid primary key default gen_random_uuid(),
+  offer_id          uuid not null references public.offers(id) on delete cascade,
+  reason            text not null,
+  detail            text,
+  device_id         text,
+  client_ip         text,
+  is_verified_buyer boolean not null default false,
+  trust_weight      integer not null default 1,
+  created_at        timestamptz not null default now(),
   constraint offer_reports_reason_check check (char_length(reason) between 1 and 60),
   constraint offer_reports_detail_check check (detail is null or char_length(detail) <= 500)
 );
+alter table public.offer_reports add column if not exists is_verified_buyer boolean not null default false;
+alter table public.offer_reports add column if not exists trust_weight integer not null default 1;
 alter table public.offer_reports enable row level security;
 create index if not exists offer_reports_offer_idx  on public.offer_reports (offer_id);
 create index if not exists offer_reports_recent_idx on public.offer_reports (created_at desc);
+create index if not exists offer_reports_ip_idx     on public.offer_reports (offer_id, client_ip);
 
--- Firma vieja (sin motivo ni dedupe): fuera, para que la nueva sea la única.
+-- Firmas previas: fuera, para evitar ambigüedad en PostgREST.
 drop function if exists public.report_offer_rpc(uuid);
+drop function if exists public.report_offer_rpc(uuid, text, text, text);
 create or replace function public.report_offer_rpc(
-  p_offer_id uuid,
-  p_reason   text,
-  p_detail   text default null,
-  p_device_id text default null
+  p_offer_id  uuid,
+  p_reason    text,
+  p_detail    text default null,
+  p_device_id text default null,
+  p_edge_ip   text default null
 )
 returns jsonb
 language plpgsql
@@ -1096,50 +1179,120 @@ security definer
 set search_path = ''
 as $$
 declare
-  v_reports integer;
-  v_device  text := nullif(trim(coalesce(p_device_id, '')), '');
+  v_offer           public.offers;
+  v_merchant_verif  boolean := false;
+  v_device          text := nullif(trim(coalesce(p_device_id, '')), '');
+  v_ip              text := public.resolve_client_ip(p_edge_ip);
+  v_detail          text := nullif(trim(coalesce(p_detail, '')), '');
+  v_is_buyer        boolean := false;
+  v_weight          integer := 1;
+  v_total_reports   integer := 0;
+  v_buyer_reports   integer := 0;
+  v_recent_by_actor integer := 0;
+  v_should_pause    boolean := false;
 begin
   if p_offer_id is null or coalesce(p_reason, '') = '' then
     raise exception 'Reporte inválido: falta la oferta o el motivo';
   end if;
+  if p_reason not in ('no_existe', 'precio_enganoso', 'cerrado', 'estafa', 'otro') then
+    raise exception 'Motivo de reporte inválido';
+  end if;
+  if v_detail is null or char_length(v_detail) < 12 then
+    raise exception 'DETALLE_REQUERIDO: explica brevemente lo ocurrido (mínimo 12 caracteres) para evitar reportes falsos o por envidia';
+  end if;
 
-  select reports_count into v_reports from public.offers where id = p_offer_id;
-  if v_reports is null then
+  select * into v_offer from public.offers where id = p_offer_id for update;
+  if not found then
     raise exception 'Oferta no encontrada';
   end if;
 
-  -- Anti doble conteo: 1 dispositivo = 1 reporte por oferta, siempre.
-  if v_device is not null
-     and exists (
-       select 1 from public.offer_reports
-        where offer_id = p_offer_id and device_id = v_device
-     )
-  then
-    return jsonb_build_object('reports', v_reports, 'cancelled', false, 'already', true);
+  select coalesce(is_verified, false) into v_merchant_verif
+    from public.profiles
+   where id = v_offer.merchant_id;
+
+  -- Escudo anti-sabotaje: clientes bloqueados no pueden tumbar ofertas
+  if public.is_client_blocked(null, v_device) then
+    raise exception 'CLIENTE_BLOQUEADO: tu dispositivo tiene restringido enviar reportes';
   end if;
 
-  insert into public.offer_reports (offer_id, reason, detail, device_id, client_ip)
-  values (
-    p_offer_id,
-    p_reason,
-    nullif(trim(coalesce(p_detail, '')), ''),
-    v_device,
-    public.get_client_ip()
+  -- Anti doble conteo: 1 dispositivo O 1 IP pública = 1 reporte por oferta
+  if (
+    v_device is not null and exists (
+      select 1 from public.offer_reports where offer_id = p_offer_id and device_id = v_device
+    )
+  ) or (
+    v_ip is not null and v_ip <> '0.0.0.0' and exists (
+      select 1 from public.offer_reports
+       where offer_id = p_offer_id and client_ip = v_ip and created_at > now() - interval '24 hours'
+    )
+  ) then
+    return jsonb_build_object(
+      'reports', v_offer.reports_count,
+      'cancelled', false,
+      'already', true,
+      'verifiedBuyer', false,
+      'underReview', false
+    );
+  end if;
+
+  -- Anti-bombardeo: máx. 3 reportes cada 24h por dispositivo o IP en toda la app
+  select count(*) into v_recent_by_actor
+    from public.offer_reports r
+   where r.created_at > now() - interval '24 hours'
+     and (
+       (v_device is not null and r.device_id = v_device)
+       or (v_ip is not null and v_ip <> '0.0.0.0' and r.client_ip = v_ip)
+     );
+  if v_recent_by_actor >= 3 then
+    raise exception 'LIMITE_REPORTES: alcanzaste el máximo de 3 reportes en 24 horas. El administrador revisará los casos pendientes.';
+  end if;
+
+  -- Verifica si el reportante realmente apartó/interactuó con esta oferta o comercio
+  v_is_buyer := exists (
+    select 1 from public.reservations res
+     where (res.offer_id = p_offer_id or res.merchant_id = v_offer.merchant_id)
+       and (
+         (v_device is not null and res.device_id = v_device)
+         or (v_ip is not null and v_ip <> '0.0.0.0' and res.client_ip = v_ip)
+       )
   );
+  v_weight := case when v_is_buyer then 3 else 1 end;
+
+  insert into public.offer_reports (offer_id, reason, detail, device_id, client_ip, is_verified_buyer, trust_weight)
+  values (p_offer_id, p_reason, v_detail, v_device, v_ip, v_is_buyer, v_weight);
+
+  select count(*),
+         count(*) filter (where is_verified_buyer)
+    into v_total_reports, v_buyer_reports
+    from public.offer_reports
+   where offer_id = p_offer_id;
+
+  -- Blindaje Anti-Envidia:
+  --  · Comercio verificado: JAMÁS se tumba por clics anónimos sin reserva real.
+  --    Solo pausa automática si >= 3 compradores verificados distintos reportan.
+  --  · Comercio no verificado: requiere >= 2 compradores reales O >= 5 IPs distintas.
+  v_should_pause := case
+    when v_merchant_verif then v_buyer_reports >= 3
+    else (v_buyer_reports >= 2 or v_total_reports >= 5)
+  end;
 
   update public.offers
-     set reports_count = reports_count + 1,
-         status = case when reports_count + 1 >= 3 then 'cancelled' else status end
-   where id = p_offer_id
-     and status = 'active'
-  returning reports_count into v_reports;
+     set reports_count = v_total_reports,
+         status = case when status = 'active' and v_should_pause then 'cancelled' else status end
+   where id = p_offer_id;
 
-  return jsonb_build_object('reports', v_reports, 'cancelled', v_reports >= 3, 'already', false);
+  return jsonb_build_object(
+    'reports', v_total_reports,
+    'cancelled', v_should_pause,
+    'already', false,
+    'verifiedBuyer', v_is_buyer,
+    'underReview', not v_should_pause
+  );
 end;
 $$;
-grant execute on function public.report_offer_rpc(uuid, text, text, text) to anon, authenticated;
+grant execute on function public.report_offer_rpc(uuid, text, text, text, text) to anon, authenticated;
 
--- Bandeja de reportes para el administrador: motivos + oferta + comercio + trazabilidad.
+-- Bandeja de reportes para el administrador: motivos + oferta + comercio + evidencia real.
 drop function if exists public.admin_reports_list_rpc();
 create or replace function public.admin_reports_list_rpc()
 returns jsonb
@@ -1155,20 +1308,142 @@ begin
   return coalesce((
     select jsonb_agg(to_jsonb(t) order by t.created_at desc)
     from (
-      select r.id, r.offer_id, r.reason, r.detail, r.device_id, r.client_ip, r.created_at,
+      select r.id, r.offer_id, r.reason, r.detail, r.device_id, r.client_ip,
+             r.is_verified_buyer, r.trust_weight, r.created_at,
              o.title  as offer_title,
              o.status as offer_status,
-             p.business_name as merchant_name
+             o.merchant_id,
+             p.business_name as merchant_name,
+             coalesce(p.is_verified, false) as merchant_verified
       from public.offer_reports r
       join public.offers o on o.id = r.offer_id
       left join public.profiles p on p.id = o.merchant_id
       order by r.created_at desc
-      limit 30
+      limit 50
     ) t
   ), '[]'::jsonb);
 end;
 $$;
 grant execute on function public.admin_reports_list_rpc() to authenticated;
+
+-- 🧹 V19.0 · Desestimar una denuncia falsa / por envidia y recalcular contador (y restaurar oferta)
+create or replace function public.admin_dismiss_report_rpc(
+  p_report_id     uuid,
+  p_restore_offer boolean default true
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_offer_id  uuid;
+  v_remaining integer := 0;
+  v_restored  boolean := false;
+begin
+  if not public.is_admin() then
+    raise exception 'SOLO_ADMIN: esta acción está reservada al administrador';
+  end if;
+
+  delete from public.offer_reports
+   where id = p_report_id
+  returning offer_id into v_offer_id;
+
+  if v_offer_id is null then
+    raise exception 'Denuncia no encontrada (quizá ya fue borrada)';
+  end if;
+
+  select count(*) into v_remaining
+    from public.offer_reports
+   where offer_id = v_offer_id;
+
+  update public.offers
+     set reports_count = v_remaining,
+         status = case
+           when p_restore_offer and status = 'cancelled' and expires_at > now() and available_quota > 0
+             then 'active'
+           else status
+         end
+   where id = v_offer_id
+  returning (status = 'active') into v_restored;
+
+  return jsonb_build_object('ok', true, 'remaining', v_remaining, 'restored', coalesce(v_restored, false));
+end;
+$$;
+grant execute on function public.admin_dismiss_report_rpc(uuid, boolean) to authenticated;
+
+-- 🧹 V19.0 · Borrar TODAS las denuncias de un local/comercio (protección total contra ataques por envidia)
+create or replace function public.admin_clear_merchant_reports_rpc(
+  p_merchant_id    uuid,
+  p_restore_offers boolean default true
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_deleted  integer := 0;
+  v_restored integer := 0;
+begin
+  if not public.is_admin() then
+    raise exception 'SOLO_ADMIN: esta acción está reservada al administrador';
+  end if;
+
+  delete from public.offer_reports r
+   using public.offers o
+   where r.offer_id = o.id
+     and o.merchant_id = p_merchant_id;
+  get diagnostics v_deleted = row_count;
+
+  update public.offers
+     set reports_count = 0,
+         status = case
+           when p_restore_offers and status = 'cancelled' and expires_at > now() and available_quota > 0
+             then 'active'
+           else status
+         end
+   where merchant_id = p_merchant_id;
+  get diagnostics v_restored = row_count;
+
+  return jsonb_build_object('ok', true, 'deleted', v_deleted, 'offersUpdated', v_restored);
+end;
+$$;
+grant execute on function public.admin_clear_merchant_reports_rpc(uuid, boolean) to authenticated;
+
+-- 🧹 V19.0 · Borrar todas las denuncias de una oferta específica y restaurarla
+create or replace function public.admin_clear_offer_reports_rpc(
+  p_offer_id      uuid,
+  p_restore_offer boolean default true
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_deleted integer := 0;
+begin
+  if not public.is_admin() then
+    raise exception 'SOLO_ADMIN: esta acción está reservada al administrador';
+  end if;
+
+  delete from public.offer_reports where offer_id = p_offer_id;
+  get diagnostics v_deleted = row_count;
+
+  update public.offers
+     set reports_count = 0,
+         status = case
+           when p_restore_offer and status = 'cancelled' and expires_at > now() and available_quota > 0
+             then 'active'
+           else status
+         end
+   where id = p_offer_id;
+
+  return jsonb_build_object('ok', true, 'deleted', v_deleted);
+end;
+$$;
+grant execute on function public.admin_clear_offer_reports_rpc(uuid, boolean) to authenticated;
 
 -- 8.3 Kill-switch del administrador: tumba (borra) cualquier oferta al instante
 create or replace function public.admin_delete_offer_rpc(p_offer_id uuid)
@@ -1325,7 +1600,8 @@ alter table public.profiles add column if not exists social_or_maps_link text de
 create index if not exists reservations_device_idx  on public.reservations (device_id, created_at desc);
 create index if not exists quick_requests_device_idx on public.quick_requests (device_id, created_at desc);
 
--- 9.2 IP real del cliente: se lee en el SERVIDOR (imposible falsificarla desde el navegador)
+-- 9.2 IP real del cliente: prioriza el primer valor de X-Forwarded-For,
+--     luego x-real-ip y cf-connecting-ip (imposible falsificar desde el navegador).
 create or replace function public.get_client_ip()
 returns text
 language plpgsql
@@ -1335,18 +1611,64 @@ set search_path = ''
 as $$
 declare
   v_headers json;
+  v_xff     text;
+  v_raw     text;
   v_ip      text;
 begin
   begin
     v_headers := nullif(current_setting('request.headers', true), '')::json;
-    v_ip := split_part(
-      coalesce(v_headers ->> 'x-forwarded-for', v_headers ->> 'cf-connecting-ip', '0.0.0.0'),
-      ',', 1
+    -- Prioriza siempre el primer valor no vacío de X-Forwarded-For (IP pública original)
+    v_xff := nullif(btrim(split_part(coalesce(v_headers ->> 'x-forwarded-for', ''), ',', 1)), '');
+    v_raw := coalesce(
+      v_xff,
+      nullif(btrim(v_headers ->> 'x-real-ip'), ''),
+      nullif(btrim(v_headers ->> 'cf-connecting-ip'), ''),
+      nullif(btrim(v_headers ->> 'x-vercel-forwarded-for'), ''),
+      nullif(btrim(v_headers ->> 'x-client-ip'), ''),
+      '0.0.0.0'
     );
+    v_ip := regexp_replace(btrim(v_raw), '^::ffff:', '', 'i');
   exception when others then
     v_ip := '0.0.0.0';
   end;
-  return trim(coalesce(nullif(v_ip, ''), '0.0.0.0'));
+  return coalesce(nullif(v_ip, ''), '0.0.0.0');
+end;
+$$;
+
+-- Helper forense: si get_client_ip() devolvió 0.0.0.0 o IP privada de proxy/localhost,
+-- acepta la IP pública validada capturada por /api/ip (cabeceras X-Forwarded-For / x-real-ip).
+create or replace function public.resolve_client_ip(p_edge_ip text default null)
+returns text
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+declare
+  v_srv  text := public.get_client_ip();
+  v_edge text := regexp_replace(btrim(coalesce(p_edge_ip, '')), '^::ffff:', '', 'i');
+  v_srv_is_private boolean;
+  v_edge_is_valid  boolean;
+begin
+  v_srv_is_private :=
+    v_srv is null
+    or v_srv in ('', '0.0.0.0', '127.0.0.1', '::1')
+    or v_srv ~ '^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|100\.(6[4-9]|[7-9][0-9]|1[0-1][0-9]|12[0-7])\.)';
+
+  v_edge_is_valid :=
+    v_edge <> ''
+    and char_length(v_edge) <= 45
+    and (
+      v_edge ~ '^([0-9]{1,3}\.){3}[0-9]{1,3}$'
+      or v_edge ~ '^[0-9a-fA-F:]+$'
+    )
+    and v_edge not in ('0.0.0.0', '127.0.0.1', '::1')
+    and v_edge !~ '^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)';
+
+  if v_srv_is_private and v_edge_is_valid then
+    return v_edge;
+  end if;
+  return v_srv;
 end;
 $$;
 
@@ -1386,9 +1708,10 @@ $$;
 
 -- 9.4 Publicar pedido de la comunidad: SIEMPRE vía servidor (cero inserts directos)
 --     Candados: cliente bloqueado, teléfono colombiano real, máximo 2 pedidos activos.
---     (v4: coordenadas GPS silenciosas para el inspector forense)
+--     (v4: coordenadas GPS silenciosas; V19: IP real desde edge)
 drop function if exists public.create_quick_request_rpc(text, text, text, text, text, text);
 drop function if exists public.create_quick_request_rpc(text, text, text, text, text, text, text);
+drop function if exists public.create_quick_request_rpc(text, text, text, text, text, text, text, double precision, double precision);
 create or replace function public.create_quick_request_rpc(
   p_category          text,
   p_customer_name     text,
@@ -1398,7 +1721,8 @@ create or replace function public.create_quick_request_rpc(
   p_device_id         text default null,
   p_municipality      text default 'Gachetá',
   p_client_lat        double precision default null,
-  p_client_lng        double precision default null
+  p_client_lng        double precision default null,
+  p_edge_ip           text default null
 )
 returns jsonb
 language plpgsql
@@ -1411,7 +1735,7 @@ declare
   v_device    text;
   v_spam      integer;
 begin
-  v_client_ip := public.get_client_ip();
+  v_client_ip := public.resolve_client_ip(p_edge_ip);
   v_device    := nullif(btrim(coalesce(p_device_id, '')), '');
 
   if p_category not in ('comida', 'transporte_flete', 'agro_mercado', 'hoteles_turismo', 'salud_belleza', 'hogar_construccion', 'servicios_comercios') then
@@ -1687,7 +2011,7 @@ end;
 $$;
 
 -- 9.8 Concesión de ejecución (firmas exactas, sin paréntesis literales)
-grant execute on function public.create_quick_request_rpc(text, text, text, text, text, text, text, double precision, double precision) to anon, authenticated;
+grant execute on function public.create_quick_request_rpc(text, text, text, text, text, text, text, double precision, double precision, text) to anon, authenticated;
 grant execute on function public.cancel_my_reservation_rpc(uuid, text)                     to anon, authenticated;
 grant execute on function public.check_reservation_status_rpc(uuid[])                     to anon, authenticated;
 grant execute on function public.merchant_block_client_rpc(text, text, text, text)         to authenticated;
@@ -2618,6 +2942,450 @@ begin
 end;
 $$;
 grant execute on function public.submit_kyb_docs_rpc(text, text, text, text) to authenticated;
+
+-- ============================================================================
+-- 12. AUTENTICACIÓN BIOMÉTRICA REAL (WEBAUTHN / PASSKEYS · V19.0)
+--     Llaves asimétricas vinculadas al hardware del dispositivo (Huella / FaceID /
+--     Windows Hello). Tabla auth.user_passkeys con RLS estricto + retos
+--     criptográficos de un solo uso en el servidor.
+-- ============================================================================
+
+do $$
+begin
+  create table if not exists auth.user_passkeys (
+    id              uuid primary key default gen_random_uuid(),
+    user_id         uuid not null references auth.users (id) on delete cascade,
+    credential_id   text not null unique,
+    public_key_spki text not null,
+    algorithm       integer not null default -7 check (algorithm in (-7, -257)),
+    sign_count      bigint not null default 0 check (sign_count >= 0),
+    transports      text[] not null default array[]::text[],
+    device_label    text not null default 'Dispositivo biométrico',
+    created_at      timestamptz not null default now(),
+    last_used_at    timestamptz
+  );
+  alter table auth.user_passkeys enable row level security;
+
+  drop policy if exists "Usuario ve sus propias passkeys" on auth.user_passkeys;
+  create policy "Usuario ve sus propias passkeys"
+    on auth.user_passkeys for select
+    to authenticated
+    using (auth.uid() = user_id);
+
+  drop policy if exists "Usuario revoca sus propias passkeys" on auth.user_passkeys;
+  create policy "Usuario revoca sus propias passkeys"
+    on auth.user_passkeys for delete
+    to authenticated
+    using (auth.uid() = user_id);
+
+  create index if not exists auth_user_passkeys_user_idx on auth.user_passkeys (user_id);
+exception when insufficient_privilege then
+  -- Respaldo en proyectos Supabase donde el rol SQL Editor no posee CREATE en schema auth
+  create table if not exists public.user_passkeys (
+    id              uuid primary key default gen_random_uuid(),
+    user_id         uuid not null references auth.users (id) on delete cascade,
+    credential_id   text not null unique,
+    public_key_spki text not null,
+    algorithm       integer not null default -7 check (algorithm in (-7, -257)),
+    sign_count      bigint not null default 0 check (sign_count >= 0),
+    transports      text[] not null default array[]::text[],
+    device_label    text not null default 'Dispositivo biométrico',
+    created_at      timestamptz not null default now(),
+    last_used_at    timestamptz
+  );
+  alter table public.user_passkeys enable row level security;
+
+  drop policy if exists "Usuario ve sus propias passkeys" on public.user_passkeys;
+  create policy "Usuario ve sus propias passkeys"
+    on public.user_passkeys for select
+    to authenticated
+    using (auth.uid() = user_id);
+
+  drop policy if exists "Usuario revoca sus propias passkeys" on public.user_passkeys;
+  create policy "Usuario revoca sus propias passkeys"
+    on public.user_passkeys for delete
+    to authenticated
+    using (auth.uid() = user_id);
+
+  create index if not exists public_user_passkeys_user_idx on public.user_passkeys (user_id);
+end $$;
+
+-- Retos criptográficos efímeros de un solo uso (3 min TTL · cero acceso directo por RLS)
+create table if not exists public.webauthn_challenges (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null references auth.users (id) on delete cascade,
+  kind        text not null check (kind in ('register', 'login')),
+  challenge   text not null,
+  expires_at  timestamptz not null default (now() + interval '3 minutes'),
+  consumed_at timestamptz,
+  created_at  timestamptz not null default now()
+);
+alter table public.webauthn_challenges enable row level security;
+create index if not exists webauthn_challenges_exp_idx on public.webauthn_challenges (expires_at);
+
+create or replace function public.passkeys_table_name()
+returns text
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select case
+    when to_regclass('auth.user_passkeys') is not null then 'auth.user_passkeys'
+    else 'public.user_passkeys'
+  end;
+$$;
+
+create or replace function public.webauthn_random_challenge()
+returns text
+language sql
+volatile
+security definer
+set search_path = ''
+as $$
+  select rtrim(translate(encode(extensions.gen_random_bytes(32), 'base64'), '+/', '-_'), '=');
+$$;
+
+-- 12.1 Iniciar registro biométrico (solo comerciante verificado o admin autenticado)
+create or replace function public.webauthn_begin_register_rpc()
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_uid       uuid := auth.uid();
+  v_profile   public.profiles;
+  v_email     text;
+  v_challenge text;
+  v_chal_id   uuid;
+  v_tbl       text := public.passkeys_table_name();
+  v_exclude   jsonb;
+begin
+  if v_uid is null then
+    raise exception 'Debes iniciar sesión para registrar tu dispositivo';
+  end if;
+
+  select * into v_profile from public.profiles where id = v_uid;
+  if not found then
+    raise exception 'Perfil no encontrado';
+  end if;
+  if not coalesce(v_profile.is_active, true) or coalesce(v_profile.is_suspended, false) then
+    raise exception 'CUENTA_SUSPENDIDA: tu cuenta no puede registrar llaves biométricas';
+  end if;
+  if not coalesce(v_profile.is_verified, false) and v_profile.role <> 'admin' then
+    raise exception 'SOLO_VERIFICADOS: la biometría se habilita cuando tu comercio esté verificado (✅)';
+  end if;
+
+  select email into v_email from auth.users where id = v_uid;
+
+  delete from public.webauthn_challenges where expires_at < now() - interval '1 hour';
+
+  v_challenge := public.webauthn_random_challenge();
+  insert into public.webauthn_challenges (user_id, kind, challenge)
+  values (v_uid, 'register', v_challenge)
+  returning id into v_chal_id;
+
+  execute format(
+    'select coalesce(jsonb_agg(credential_id), ''[]''::jsonb) from %s where user_id = $1',
+    v_tbl
+  ) into v_exclude using v_uid;
+
+  return jsonb_build_object(
+    'challengeId', v_chal_id,
+    'challenge', v_challenge,
+    'userId', v_uid::text,
+    'email', coalesce(v_email, ''),
+    'businessName', v_profile.business_name,
+    'excludeCredentialIds', coalesce(v_exclude, '[]'::jsonb)
+  );
+end;
+$$;
+
+-- 12.2 Completar registro biométrico: consume el reto y guarda la clave pública en auth.user_passkeys
+create or replace function public.webauthn_complete_register_rpc(
+  p_challenge_id    uuid,
+  p_credential_id   text,
+  p_public_key_spki text,
+  p_algorithm       integer default -7,
+  p_transports      text[] default array[]::text[],
+  p_device_label    text default 'Dispositivo biométrico'
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_uid      uuid := auth.uid();
+  v_profile  public.profiles;
+  v_chal     public.webauthn_challenges;
+  v_tbl      text := public.passkeys_table_name();
+  v_new_id   uuid;
+  v_label    text := left(coalesce(nullif(btrim(p_device_label), ''), 'Dispositivo biométrico'), 80);
+begin
+  if v_uid is null then
+    raise exception 'Debes iniciar sesión';
+  end if;
+  select * into v_profile from public.profiles where id = v_uid;
+  if not found or (not coalesce(v_profile.is_verified, false) and v_profile.role <> 'admin') then
+    raise exception 'SOLO_VERIFICADOS: solo comercios verificados pueden registrar Passkeys';
+  end if;
+  if coalesce(btrim(p_credential_id), '') = '' or coalesce(btrim(p_public_key_spki), '') = '' then
+    raise exception 'Credencial o clave pública WebAuthn inválida';
+  end if;
+  if p_algorithm not in (-7, -257) then
+    raise exception 'Algoritmo criptográfico no soportado (requiere ES256 o RS256)';
+  end if;
+
+  update public.webauthn_challenges
+     set consumed_at = now()
+   where id = p_challenge_id
+     and user_id = v_uid
+     and kind = 'register'
+     and consumed_at is null
+     and expires_at > now()
+  returning * into v_chal;
+
+  if not found then
+    raise exception 'El reto de registro biométrico expiró o ya fue utilizado. Intenta de nuevo.';
+  end if;
+
+  execute format(
+    'insert into %s (user_id, credential_id, public_key_spki, algorithm, sign_count, transports, device_label)
+     values ($1, $2, $3, $4, 0, $5, $6)
+     on conflict (credential_id) do nothing
+     returning id',
+    v_tbl
+  ) into v_new_id using v_uid, btrim(p_credential_id), btrim(p_public_key_spki), p_algorithm, coalesce(p_transports, array[]::text[]), v_label;
+
+  if v_new_id is null then
+    raise exception 'Este dispositivo ya está registrado con esa credencial biométrica';
+  end if;
+
+  return jsonb_build_object(
+    'ok', true,
+    'id', v_new_id,
+    'credentialId', btrim(p_credential_id),
+    'deviceLabel', v_label
+  );
+end;
+$$;
+
+-- 12.3 Listar mis dispositivos biométricos registrados
+create or replace function public.webauthn_list_my_passkeys_rpc()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_tbl text := public.passkeys_table_name();
+  v_out jsonb;
+begin
+  if v_uid is null then
+    return '[]'::jsonb;
+  end if;
+  execute format(
+    'select coalesce(jsonb_agg(jsonb_build_object(
+       ''id'', id,
+       ''credential_id'', credential_id,
+       ''device_label'', device_label,
+       ''algorithm'', algorithm,
+       ''created_at'', created_at,
+       ''last_used_at'', last_used_at
+     ) order by created_at desc), ''[]''::jsonb)
+     from %s where user_id = $1',
+    v_tbl
+  ) into v_out using v_uid;
+  return coalesce(v_out, '[]'::jsonb);
+end;
+$$;
+
+-- 12.4 Revocar un dispositivo biométrico (ej: cambio o pérdida de celular)
+create or replace function public.webauthn_revoke_passkey_rpc(p_passkey_id uuid)
+returns boolean
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_uid     uuid := auth.uid();
+  v_tbl     text := public.passkeys_table_name();
+  v_deleted integer := 0;
+begin
+  if v_uid is null then
+    raise exception 'Debes iniciar sesión';
+  end if;
+  execute format('delete from %s where id = $1 and user_id = $2', v_tbl)
+    using p_passkey_id, v_uid;
+  get diagnostics v_deleted = row_count;
+  return v_deleted > 0;
+end;
+$$;
+
+-- 12.5 Iniciar login biométrico: emite reto aleatorio y lista SOLO los IDs permitidos
+create or replace function public.webauthn_begin_login_rpc(p_email text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_user_id   uuid;
+  v_profile   public.profiles;
+  v_tbl       text := public.passkeys_table_name();
+  v_creds     jsonb;
+  v_challenge text;
+  v_chal_id   uuid;
+begin
+  select id into v_user_id
+    from auth.users
+   where lower(email) = lower(btrim(coalesce(p_email, '')))
+   limit 1;
+
+  if v_user_id is null then
+    raise exception 'PASSKEY_NOT_REGISTERED: No existe una cuenta con biometría activa para ese correo.';
+  end if;
+
+  select * into v_profile from public.profiles where id = v_user_id;
+  if found and (not coalesce(v_profile.is_active, true) or coalesce(v_profile.is_suspended, false)) then
+    raise exception 'CUENTA_SUSPENDIDA: tu cuenta está suspendida temporalmente.';
+  end if;
+
+  execute format(
+    'select coalesce(jsonb_agg(jsonb_build_object(''id'', credential_id, ''transports'', transports)), ''[]''::jsonb)
+       from %s where user_id = $1',
+    v_tbl
+  ) into v_creds using v_user_id;
+
+  if v_creds is null or jsonb_array_length(v_creds) = 0 then
+    raise exception 'PASSKEY_NOT_REGISTERED: Esta cuenta no tiene biometría activada. Inicia sesión con tu contraseña y registra este dispositivo en tu panel.';
+  end if;
+
+  v_challenge := public.webauthn_random_challenge();
+  insert into public.webauthn_challenges (user_id, kind, challenge)
+  values (v_user_id, 'login', v_challenge)
+  returning id into v_chal_id;
+
+  return jsonb_build_object(
+    'challengeId', v_chal_id,
+    'challenge', v_challenge,
+    'allowCredentials', v_creds
+  );
+end;
+$$;
+
+-- 12.6 Consumir reto y entregar material público de verificación criptográfica al servidor (/api/webauthn)
+create or replace function public.webauthn_consume_login_challenge_rpc(
+  p_challenge_id  uuid,
+  p_credential_id text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_chal    public.webauthn_challenges;
+  v_tbl     text := public.passkeys_table_name();
+  v_pk      text;
+  v_alg     integer;
+  v_cnt     bigint;
+  v_email   text;
+  v_active  boolean;
+  v_susp    boolean;
+begin
+  update public.webauthn_challenges
+     set consumed_at = now()
+   where id = p_challenge_id
+     and kind = 'login'
+     and consumed_at is null
+     and expires_at > now()
+  returning * into v_chal;
+
+  if not found then
+    raise exception 'CHALLENGE_INVALID: El reto biométrico expiró o ya fue usado. Intenta de nuevo.';
+  end if;
+
+  execute format(
+    'select public_key_spki, algorithm, sign_count
+       from %s
+      where user_id = $1 and credential_id = $2
+      limit 1',
+    v_tbl
+  ) into v_pk, v_alg, v_cnt using v_chal.user_id, btrim(coalesce(p_credential_id, ''));
+
+  if v_pk is null then
+    raise exception 'CREDENTIAL_MISMATCH: Esta llave biométrica no pertenece a esta cuenta.';
+  end if;
+
+  select email into v_email from auth.users where id = v_chal.user_id;
+  select coalesce(is_active, true), coalesce(is_suspended, false)
+    into v_active, v_susp
+    from public.profiles where id = v_chal.user_id;
+
+  if not coalesce(v_active, true) or coalesce(v_susp, false) then
+    raise exception 'CUENTA_SUSPENDIDA: la cuenta está suspendida';
+  end if;
+
+  return jsonb_build_object(
+    'challenge', v_chal.challenge,
+    'userId', v_chal.user_id,
+    'email', coalesce(v_email, ''),
+    'publicKeySpki', v_pk,
+    'algorithm', v_alg,
+    'signCount', v_cnt
+  );
+end;
+$$;
+
+-- 12.7 Actualiza contador anti-clonación y último uso tras validación criptográfica exitosa
+create or replace function public.webauthn_commit_login_usage_rpc(
+  p_challenge_id   uuid,
+  p_credential_id  text,
+  p_new_sign_count bigint
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_chal public.webauthn_challenges;
+  v_tbl  text := public.passkeys_table_name();
+begin
+  select * into v_chal
+    from public.webauthn_challenges
+   where id = p_challenge_id
+     and kind = 'login'
+     and consumed_at is not null
+     and consumed_at > now() - interval '2 minutes';
+  if not found then
+    return false;
+  end if;
+
+  execute format(
+    'update %s
+        set sign_count = greatest(sign_count, $1),
+            last_used_at = now()
+      where user_id = $2 and credential_id = $3',
+    v_tbl
+  ) using greatest(0, coalesce(p_new_sign_count, 0)), v_chal.user_id, btrim(coalesce(p_credential_id, ''));
+
+  return true;
+end;
+$$;
+
+grant execute on function public.webauthn_begin_register_rpc()                                     to authenticated;
+grant execute on function public.webauthn_complete_register_rpc(uuid, text, text, integer, text[], text) to authenticated;
+grant execute on function public.webauthn_list_my_passkeys_rpc()                                 to authenticated;
+grant execute on function public.webauthn_revoke_passkey_rpc(uuid)                               to authenticated;
+grant execute on function public.webauthn_begin_login_rpc(text)                                  to anon, authenticated;
+grant execute on function public.webauthn_consume_login_challenge_rpc(uuid, text)                to anon, authenticated;
+grant execute on function public.webauthn_commit_login_usage_rpc(uuid, text, bigint)             to anon, authenticated;
 
 -- 🔄 V19 · Refresca el caché de PostgREST automáticamente al correr el script:
 -- sin esto, funciones nuevas (como admin_reports_list_rpc) pueden seguir

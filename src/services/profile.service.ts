@@ -67,6 +67,44 @@ export async function updateMyProfile(input: UpdateProfileInput): Promise<Profil
   return data as unknown as Profile;
 }
 
+/**
+ * 📍 V19.0 · Guarda las coordenadas exactas del local en Supabase (profiles + ofertas activas).
+ * Usa `update_profile_location_rpc` y cae automáticamente a `update_my_profile_rpc`
+ * si el esquema SQL aún no se ha actualizado en la instancia.
+ */
+export async function updateProfileLocation(input: {
+  lat: number;
+  lng: number;
+  addressReference?: string;
+}): Promise<Profile> {
+  if (!Number.isFinite(input.lat) || !Number.isFinite(input.lng) || input.lat < -90 || input.lat > 90 || input.lng < -180 || input.lng > 180) {
+    throw new Error('Las coordenadas del mapa no son válidas.');
+  }
+
+  const cleanRef = input.addressReference?.trim() || 'Casco Urbano';
+  const { data, error } = await supabase.rpc('update_profile_location_rpc', {
+    p_lat: input.lat,
+    p_lng: input.lng,
+    p_address_reference: cleanRef,
+  });
+
+  if (!error && data) {
+    return data as unknown as Profile;
+  }
+
+  const code = (error as { code?: string } | null)?.code ?? '';
+  const isMissingRpc = code === 'PGRST202' || /could not find the function/i.test(error?.message ?? '');
+  if (!isMissingRpc && error) {
+    throw error;
+  }
+
+  return updateMyProfile({
+    lat: input.lat,
+    lng: input.lng,
+    addressReference: cleanRef,
+  });
+}
+
 /** 🪪 V20 · Envío del blindaje KYB: documento + foto con sus huellas SHA-256.
  *  La RPC security definer escribe en la fila del propio comercio y deja el
  *  expediente en 'pending' para que el administrador lo audite visualmente. */

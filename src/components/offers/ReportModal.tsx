@@ -32,26 +32,24 @@ interface ReportModalProps {
 }
 
 /**
- * Confirmación de reporte en 2 pasos: primero se elige el motivo y solo
- * entonces se envía. Así un toque accidental jamás reporta una oferta,
- * y el administrador recibe el motivo exacto (no solo un contador).
+ * Confirmación de reporte con evidencia mínima (anti-envidia):
+ * exige motivo + explicación real (mín. 12 caracteres) para proteger a los
+ * comercios contra ataques coordinados o denuncias sin fundamento.
  */
 export function ReportModal({ offer, busy, onClose, onConfirm }: ReportModalProps) {
   const [reason, setReason] = useState<string | null>(null);
   const [detail, setDetail] = useState('');
 
-  const needsDetail = reason === 'otro';
-  const canSubmit =
-    reason != null && !busy && (!needsDetail || detail.trim().length >= 3);
+  const detailClean = detail.trim();
+  const canSubmit = reason != null && !busy && detailClean.length >= 12;
 
   function confirm() {
     if (!canSubmit || reason == null) return;
-    onConfirm(reason, needsDetail ? detail.trim() : '');
+    onConfirm(reason, detailClean);
     setReason(null);
     setDetail('');
   }
 
-  /** Cierre sin enviar: limpia la selección para la próxima vez. */
   function handleClose() {
     setReason(null);
     setDetail('');
@@ -60,36 +58,37 @@ export function ReportModal({ offer, busy, onClose, onConfirm }: ReportModalProp
 
   return (
     <ModalShell open={offer != null} onClose={handleClose}>
-      <div className="p-5">
+      <div className="p-5 pt-14">
         <div className="mb-3 flex items-center gap-2.5">
           <div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-impulso-rose/30 bg-impulso-rose/10">
             <ShieldAlert className="h-5 w-5 text-impulso-rose" />
           </div>
           <div className="min-w-0">
-            <h3 className="text-base font-extrabold text-white">¿Quieres reportar esta oferta?</h3>
+            <h3 className="text-base font-extrabold text-white">Reportar irregularidad real</h3>
             <p className="truncate text-xs font-semibold text-slate-400">
               {offer?.emoji_icon} {offer?.title}
             </p>
           </div>
         </div>
 
-        <p className="mb-3 text-xs leading-relaxed text-slate-400">
-          Dinos <strong className="text-slate-200">cuál es el motivo</strong> para que el administrador pueda revisarla
-          de verdad (y no por envidia o broma 😉). Con <strong className="text-impulso-rose">3 reportes</strong> la
-          oferta sale del radar automáticamente.
+        <p className="mb-3 rounded-2xl border border-white/10 bg-slate-950/40 p-3 text-xs leading-relaxed text-slate-300">
+          Para proteger a los comercios honestos contra reportes falsos o por envidia, toda denuncia pasa por{' '}
+          <strong className="text-white">auditoría de evidencia</strong> (comprobación de reserva, IP pública y
+          descripción). Las denuncias sin sustento son desestimadas por el administrador.
         </p>
 
         <div className="space-y-1.5">
           {REPORT_REASONS.map((r) => (
             <button
               key={r.id}
+              type="button"
               onClick={() => setReason(r.id)}
               disabled={busy}
               className={cx(
-                'pressable flex w-full items-center gap-3 rounded-2xl border px-3.5 py-3 text-left text-sm font-bold transition disabled:opacity-60',
+                'pressable flex w-full items-center gap-3 rounded-2xl border px-3.5 py-2.5 text-left text-sm font-bold transition disabled:opacity-60',
                 reason === r.id
                   ? 'border-impulso-rose/60 bg-impulso-rose/10 text-white'
-                  : 'border-white/10 bg-slate-950/40 text-slate-300 hover:border-impulso-rose/30'
+                  : 'border-white/10 bg-slate-950/40 text-slate-300 hover:border-impulso-rose/30',
               )}
             >
               <span className="text-lg">{r.emoji}</span>
@@ -98,30 +97,36 @@ export function ReportModal({ offer, busy, onClose, onConfirm }: ReportModalProp
           ))}
         </div>
 
-        {needsDetail && (
+        <div className="mt-3">
           <textarea
             value={detail}
             onChange={(e) => setDetail(e.target.value)}
             rows={3}
             maxLength={500}
-            placeholder="Cuéntanos qué pasa (mínimo 3 letras)…"
-            className="mt-3 w-full resize-none rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3 text-sm font-medium text-white placeholder:text-slate-600 outline-none focus:border-impulso-rose/50"
-            aria-label="Detalle del reporte"
+            placeholder="Describe qué ocurrió con datos concretos (ej: fui al local a las 3pm y cobraban otro precio). Mínimo 12 letras *"
+            className="w-full resize-none rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3 text-sm font-medium text-white placeholder:text-slate-600 outline-none focus:border-impulso-rose/50"
+            aria-label="Explicación de la denuncia"
           />
-        )}
+          <p className="mt-1 text-right text-[10px] font-semibold text-slate-500">
+            {detailClean.length < 12
+              ? `Faltan ${12 - detailClean.length} caracteres mínimos`
+              : `${detailClean.length}/500 caracteres · Listo para auditoría`}
+          </p>
+        </div>
 
         <button
+          type="button"
           onClick={confirm}
           disabled={!canSubmit}
-          className="pressable mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-impulso-rose py-3.5 text-sm font-extrabold text-white shadow-glow disabled:opacity-40 disabled:shadow-none"
+          className="pressable mt-3 flex w-full items-center justify-center gap-2 rounded-2xl bg-impulso-rose py-3.5 text-sm font-extrabold text-white shadow-glow disabled:opacity-40 disabled:shadow-none"
         >
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldAlert className="h-4 w-4" />}
-          Enviar reporte
+          Enviar reporte verificado
         </button>
 
         <p className="mt-2.5 text-center text-[10px] leading-relaxed text-slate-500">
-          Tu reporte es anónimo para el comercio, pero el administrador puede ver el motivo y la trazabilidad
-          (dispositivo/IP) para evitar reportes falsos. Tratamiento de datos conforme a la Ley 1581 de 2012.
+          El abuso de denuncias falsas o competencia desleal queda registrado con IP y huella de dispositivo (Ley 1581
+          de 2012, Ley 1273 de 2009 y Ley 256 de 1996).
         </p>
       </div>
     </ModalShell>

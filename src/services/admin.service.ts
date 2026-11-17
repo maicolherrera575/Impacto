@@ -174,11 +174,15 @@ export interface OfferReport {
   offer_id: string;
   offer_title: string;
   offer_status: string;
+  merchant_id?: string | null;
+  merchant_verified?: boolean;
   reason: string;
   detail: string | null;
   merchant_name: string | null;
   device_id: string | null;
   client_ip: string | null;
+  is_verified_buyer?: boolean;
+  trust_weight?: number;
   created_at: string;
 }
 
@@ -239,4 +243,43 @@ export async function adminBlockClient(input: {
 export async function adminUnblockClient(blockId: string): Promise<void> {
   const { error } = await supabase.rpc('admin_unblock_client_rpc', { p_block_id: blockId });
   if (error) throw error;
+}
+
+/** 🧹 V19.0 · Desestima una denuncia falsa/por envidia y restaura la oferta si fue pausada. */
+export async function dismissReport(
+  reportId: string,
+  restoreOffer = true,
+): Promise<{ remaining: number; restored: boolean }> {
+  const { data, error } = await supabase.rpc('admin_dismiss_report_rpc', {
+    p_report_id: reportId,
+    p_restore_offer: restoreOffer,
+  });
+  if (error) throw error;
+  return data as unknown as { remaining: number; restored: boolean };
+}
+
+/** 🧹 V19.0 · Borra TODAS las denuncias de un local y reactiva sus ofertas vigentes. */
+export async function clearMerchantReports(
+  merchantId: string,
+  restoreOffers = true,
+): Promise<{ deleted: number; offersUpdated: number }> {
+  const { data, error } = await supabase.rpc('admin_clear_merchant_reports_rpc', {
+    p_merchant_id: merchantId,
+    p_restore_offers: restoreOffers,
+  });
+  if (error) throw error;
+  return data as unknown as { deleted: number; offersUpdated: number };
+}
+
+/** 🧹 V19.0 · Borra todas las denuncias de una oferta específica y la restaura. */
+export async function clearOfferReports(
+  offerId: string,
+  restoreOffer = true,
+): Promise<{ deleted: number }> {
+  const { data, error } = await supabase.rpc('admin_clear_offer_reports_rpc', {
+    p_offer_id: offerId,
+    p_restore_offer: restoreOffer,
+  });
+  if (error) throw error;
+  return data as unknown as { deleted: number };
 }

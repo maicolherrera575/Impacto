@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { getDeviceId } from './deviceFingerprint';
+import { getEdgeClientIp } from './ip.service';
 import type { MerchantReservation, Offer, Profile, Reservation, ReservationStatus } from '../types';
 
 export interface ReserveResult {
@@ -25,7 +26,8 @@ export interface ReserveInput {
  * forense (la IP la captura el servidor; la huella del dispositivo viaja aquí).
  */
 export async function reserveOffer(input: ReserveInput): Promise<ReserveResult> {
-  const { data, error } = await supabase.rpc('reserve_offer_rpc', {
+  const edgeIp = await getEdgeClientIp();
+  const baseParams = {
     p_offer_id: input.offerId,
     p_customer_name: input.customerName,
     p_customer_phone: input.customerPhone,
@@ -34,7 +36,16 @@ export async function reserveOffer(input: ReserveInput): Promise<ReserveResult> 
     p_device_id: getDeviceId(),
     p_client_lat: input.clientLat ?? null,
     p_client_lng: input.clientLng ?? null,
+  };
+  let { data, error } = await supabase.rpc('reserve_offer_rpc', {
+    ...baseParams,
+    p_edge_ip: edgeIp,
   });
+  if (error && ((error as { code?: string }).code === 'PGRST202' || /could not find the function/i.test(error.message ?? ''))) {
+    const retry = await supabase.rpc('reserve_offer_rpc', baseParams);
+    data = retry.data;
+    error = retry.error;
+  }
   if (error) throw error;
   return data as unknown as ReserveResult;
 }

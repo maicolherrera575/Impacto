@@ -30,105 +30,194 @@ export function distanceText(meters: number): string {
 
 /**
  * Estados del GPS:
- *  - idle:      pidiendo permiso / esperando la primera señal exacta.
- *  - active:    señal EXACTA (precisión ≤ 200 m): la app la usa con confianza.
- *  - inexact:   el navegador solo dio ubicación APROXIMADA (> 200 m):
- *               no la adoptamos — un pin equivocado arruina el radar —
- *               y seguimos escuchando por si mejora a exacta.
- *  - denied:    permiso negado o GPS apagado: fallback a Gachetá sin bloquear.
+ *  - idle:    esperando consentimiento explícito del usuario.
+ *  - active:  señal EXACTA (accuracy ≤ 1000 m): usada solo en estado de React.
+ *  - inexact: el navegador devolvió ubicación APROXIMADA (accuracy > 1000 m):
+ *             se descarta y se advierte al usuario.
+ *  - denied:  permiso bloqueado o GPS indisponible: fallback a Gachetá.
  */
 export type GeoStatus = 'idle' | 'active' | 'inexact' | 'denied';
 
-/** Precisión mínima (en metros) para considerar la ubicación EXACTA. */
-const ACCURACY_LIMIT_M = 200;
+/** Límite máximo de radio de error permitido (en metros) para considerar la señal exacta. */
+export const ACCURACY_LIMIT_M = 1000;
+
+export const EXACT_GPS_WARNING =
+  'Para usar el radar de proximidad, requerimos tu ubicación exacta. La ubicación aproximada no permite calcular distancias reales.';
+
+export const EXACT_GPS_OPTIONS: PositionOptions = {
+  enableHighAccuracy: true,
+  timeout: 10_000,
+  maximumAge: 0,
+};
 
 /**
- * ⚖️ V18/V21 · Geolocalización EXACTA y VOLUNTARIA (Ley 1581 de 2012):
- *  1. La app JAMÁS pide la ubicación de golpe: solo con el consentimiento
- *     explícito del usuario ("📍 Encontrar ofertas exactas cerca de mí").
- *  2. Lecturas frescas de alta precisión: enableHighAccuracy, maximumAge 0
- *     y un filtro de exactitud (≤ 200 m) — lo aproximado se descarta.
- *  3. El punto azul se actualiza EN VIVO con watchPosition (como el mapa
- *     de Google: caminas y el punto te sigue).
- *  4. Si el usuario niega o falla, la app JAMÁS se bloquea: se centra en
- *     el Parque Principal de Gachetá y puede reintentar desde el mapa
- *     o desde la barra superior.
- *  5. Las coordenadas viven SOLO en el estado de React: jamás van a la BD.
+ * ⚖️ V19.0 · Geolocalización EXACTA y VOLUNTARIA (Ley 1581 de 2012):
+ *  1. Nunca solicita GPS al abrir sin consentimiento previo e informado.
+ *  2. Invoca `getCurrentPosition` con `{ enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }`.
+ *  3. Rechaza lecturas aproximadas (`accuracy > 1000` m) con mensaje claro.
+ *  4. Mantiene las coordenadas exclusivamente en el estado efímero de React (jamás en BD).
+ *  5. Permite revocar el acceso en 1 clic.
  */
 export function useGeolocation() {
   const [pos, setPos] = useState<LatLng | null>(null);
   const [status, setStatus] = useState<GeoStatus>('idle');
+  const [locating, setLocating] = useState(false);
+  const [accuracy, setAccuracy] = useState<number | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [requestSeq, setRequestSeq] = useState(0);
   const watchIdRef = useRef<number | null>(null);
 
   const stop = useCallback(() => {
-    if (watchIdRef.current != null && 'geolocation' in navigator) {
+    if (watchIdRef.current != null && typeof navigator !== 'undefined' && 'geolocation' in navigator) {
       navigator.geolocation.clearWatch(watchIdRef.current);
       watchIdRef.current = null;
     }
   }, []);
 
-  /** Regla de oro: SOLO adoptamos lecturas EXACTAS (≤ 200 m). */
-  const adoptFix = useCallback((p: GeolocationPosition) => {
-    if (p.coords.accuracy > ACCURACY_LIMIT_M) {
-      // El navegador concedió "aproximada": la descartamos (no mueve el
-      // punto azul ni ordena distancias) y seguimos esperando una exacta.
-      setStatus('inexact');
-      return;
-    }
-    setPos({ lat: p.coords.latitude, lng: p.coords.longitude });
-    setStatus('active');
-  }, []);
+  /** Regla de oro: solo adoptamos lecturas con accuracy <= 1000 m. */
+  const adoptFix = useCallback(
+    (p: GeolocationPosition) => {
+      setLocating(false);
+      const acc = Math.round(p.coords.accuracy);
+      setAccuracy(acc);
+
+      if (p.coords.accuracy > ACCURACY_LIMIT_M) {
+        setPos(null);
+        setStatus('inexact');
+        setErrorMessage(EXACT_GPS_WARNING);
+        setRequestSeq((n) => n + 1);
+        stop();
+        return;
+      }
+
+      setPos({ lat: p.coords.latitude, lng: p.coords.longitude });
+      setStatus('active');
+      setErrorMessage(null);
+    },
+    [stop],
+  );
+
+  const startWatch = useCallback(() => {
+    if (watchIdRef.current != null || typeof navigator === 'undefined' || !('geolocation' in navigator)) return;
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (p) => {
+        if (p.coords.accuracy <= ACCURACY_LIMIT_M) {
+          setAccuracy(Math.round(p.coords.accuracy));
+          setPos({ lat: p.coords.latitude, lng: p.coords.longitude });
+          setStatus('active');
+          setErrorMessage(null);
+        }
+      },
+      (err) => {
+        if (err.code === err.PERMISSION_DENIED) {
+          setStatus('denied');
+          setPos(null);
+          stop();
+        }
+      },
+      { enableHighAccuracy: true, timeout: 12_000, maximumAge: 5_000 },
+    );
+  }, [stop]);
 
   const onError = useCallback(
     (err: GeolocationPositionError) => {
-      // Solo el permiso NEGADO corta el rastreo; un timeout no: el GPS de
-      // los celulares puede tardar y el watch lo recupera solo.
+      setLocating(false);
       if (err.code === err.PERMISSION_DENIED) {
+        setPos(null);
         setStatus('denied');
+        setErrorMessage(
+          'Permiso de ubicación denegado. Toca el candado 🔒 en la barra del navegador, activa "Ubicación" y selecciona "Ubicación exacta".',
+        );
         stop();
+      } else if (err.code === err.POSITION_UNAVAILABLE) {
+        setErrorMessage(
+          'No pudimos obtener señal GPS del dispositivo. Verifica que el GPS / Ubicación del celular esté encendido e intenta de nuevo.',
+        );
+      } else {
+        setErrorMessage(
+          'Tiempo de espera agotado buscando señal exacta. Verifica que el GPS esté activo y vuelve a intentarlo.',
+        );
       }
+      setRequestSeq((n) => n + 1);
     },
-    [stop]
+    [stop],
   );
 
   /**
-   * Activa el rastreo en vivo y SIEMPRE lanza además una lectura fresca de
-   * alta precisión (prioridad máxima, cero caché). Así, en cuanto el
-   * usuario cambia el navegador a "Ubicación exacta", la app se activa
-   * solita — con el botón 🎯 del mapa, el GPS de la barra o al instante.
+   * Lanza una lectura fresca de alta precisión directamente en el gesto de clic
+   * para asegurar que el navegador muestre el diálogo de permiso exacto.
    */
   const request = useCallback(() => {
-    if (!('geolocation' in navigator)) {
+    if (typeof navigator === 'undefined' || !('geolocation' in navigator)) {
       setStatus('denied');
+      setErrorMessage('Este navegador no soporta geolocalización GPS.');
+      setRequestSeq((n) => n + 1);
       return;
     }
-    if (watchIdRef.current == null) {
-      watchIdRef.current = navigator.geolocation.watchPosition(adoptFix, onError, {
-        enableHighAccuracy: true,
-        timeout: 12_000,
-        maximumAge: 10_000,
-      });
+    if (typeof window !== 'undefined' && !window.isSecureContext) {
+      setStatus('denied');
+      setErrorMessage('El navegador bloqueó el GPS porque la página no está bajo HTTPS seguro.');
+      setRequestSeq((n) => n + 1);
+      return;
     }
-    navigator.geolocation.getCurrentPosition(adoptFix, onError, {
-      enableHighAccuracy: true,
-      timeout: 10_000,
-      maximumAge: 0,
-    });
-  }, [adoptFix, onError]);
 
-  // ── V18 · GPS 100% VOLUNTARIO (Ley 1581 de 2012): la app JAMÁS pide la
-  // ubicación de golpe al entrar. El mapa carga en paz centrado en el Parque
-  // Principal de Gachetá y solo se activa si el usuario da clic en
-  // "📍 Activar mi ubicación" (consentimiento previo e informado, guardado
-  // en localStorage). Si ya dio su consentimiento antes, el rastreo arranca.
+    setLocating(true);
+    setErrorMessage(null);
+    try {
+      localStorage.setItem('impulso_gps_consent', 'granted');
+    } catch {
+      /* sin almacenamiento */
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (p) => {
+        adoptFix(p);
+        if (p.coords.accuracy <= ACCURACY_LIMIT_M) {
+          startWatch();
+        }
+      },
+      onError,
+      EXACT_GPS_OPTIONS,
+    );
+  }, [adoptFix, onError, startWatch]);
+
+  /** Revoca el uso efímero del GPS (Ley 1581 de 2012). */
+  const revoke = useCallback(() => {
+    stop();
+    setPos(null);
+    setAccuracy(null);
+    setStatus('idle');
+    setLocating(false);
+    setErrorMessage(null);
+    try {
+      localStorage.setItem('impulso_gps_consent', 'denied');
+    } catch {
+      /* sin almacenamiento */
+    }
+  }, [stop]);
+
   useEffect(() => {
-    if (localStorage.getItem('impulso_gps_consent') === 'granted') {
-      request();
+    try {
+      if (localStorage.getItem('impulso_gps_consent') === 'granted') {
+        request();
+      }
+    } catch {
+      /* sin almacenamiento */
     }
     return stop;
   }, [request, stop]);
 
-  return { pos, status, request, center: pos ?? GACHETA_CENTER } as const;
+  return {
+    pos,
+    status,
+    locating,
+    accuracy,
+    errorMessage,
+    requestSeq,
+    request,
+    revoke,
+    center: pos ?? GACHETA_CENTER,
+  } as const;
 }
 
 export function centroDeMunicipio(nombre: string): LatLng {

@@ -21,6 +21,9 @@ import {
   adminDeleteOffer,
   adminUnblockClient,
   cleanupExpiredData,
+  clearMerchantReports,
+  clearOfferReports,
+  dismissReport,
   fetchAdminStatsRpc,
   fetchBlockedClients,
   fetchKybPending,
@@ -341,6 +344,60 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
       await adminDeleteOffer(offer.id);
       setOffers((prev) => prev.filter((o) => o.id !== offer.id));
       toast.success(`🗑️ "${offer.title.slice(0, 40)}" tumbada al instante`);
+      void load();
+    } catch (err) {
+      toast.error(friendlyError(err));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  /** 🧹 V19.0 · Desestima una denuncia falsa/por envidia y restaura la oferta. */
+  async function handleDismissReport(report: OfferReport) {
+    setBusyId(report.id);
+    try {
+      const res = await dismissReport(report.id, true);
+      setReports((prev) => prev.filter((r) => r.id !== report.id));
+      toast.success(
+        res.restored
+          ? '🧹 Denuncia falsa borrada y oferta restaurada en el radar'
+          : '🧹 Denuncia desestimada y borrada del historial',
+      );
+      void load();
+      void loadOffers();
+    } catch (err) {
+      toast.error(friendlyError(err));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  /** 🧹 V19.0 · Limpia TODAS las denuncias de un local y restaura sus ofertas vigentes. */
+  async function handleClearMerchantReports(merchantId: string, merchantName: string) {
+    setBusyId(merchantId);
+    try {
+      const res = await clearMerchantReports(merchantId, true);
+      setReports((prev) => prev.filter((r) => r.merchant_id !== merchantId));
+      toast.success(
+        `🛡️ ${merchantName}: ${res.deleted} denuncia${res.deleted === 1 ? '' : 's'} eliminada${res.deleted === 1 ? '' : 's'} y ofertas restauradas`,
+      );
+      void load();
+      void loadOffers();
+    } catch (err) {
+      toast.error(friendlyError(err));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  /** 🧹 V19.0 · Limpia reportes acumulados sobre una oferta activa. */
+  async function handleClearOfferReports(offer: Offer) {
+    setBusyId(offer.id);
+    try {
+      await clearOfferReports(offer.id, true);
+      setOffers((prev) => prev.map((o) => (o.id === offer.id ? { ...o, reports_count: 0 } : o)));
+      setReports((prev) => prev.filter((r) => r.offer_id !== offer.id));
+      toast.success(`🧹 Reportes limpiados en "${offer.title.slice(0, 32)}"`);
       void load();
     } catch (err) {
       toast.error(friendlyError(err));
@@ -685,19 +742,29 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
                       </button>
                     </div>
 
-                    {/* Auditoría IA de confianza + datos que dio el comercio */}
+                    {/* Auditoría IA de confianza + limpiar denuncias del local */}
                     <div className="mt-2 flex items-center justify-between gap-2 rounded-2xl border border-white/10 bg-slate-950/40 p-2.5">
                       <p className="min-w-0 truncate text-[10px] font-semibold text-slate-500">
                         🪪 {m.nit_or_cedula ?? 'Sin NIT/cédula'} · 🌐 {m.social_or_maps_link ? 'con link social' : 'sin link social'}
                       </p>
-                      <button
-                        onClick={() => void runTrustAnalysis(m)}
-                        disabled={trustBusyId === m.id}
-                        title="Analizar nivel de confianza del comercio con IA"
-                        className="pressable flex shrink-0 items-center gap-1 rounded-xl border border-impulso-gold/30 bg-impulso-gold/5 px-2.5 py-1.5 text-[11px] font-extrabold text-impulso-gold disabled:opacity-50"
-                      >
-                        {trustBusyId === m.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : '🤖'} Confianza IA
-                      </button>
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        <button
+                          onClick={() => void handleClearMerchantReports(m.id, m.business_name)}
+                          disabled={busyId === m.id}
+                          title="Borrar denuncias falsas o por envidia de este local"
+                          className="pressable rounded-xl border border-impulso-emerald/30 bg-impulso-emerald/10 px-2 py-1.5 text-[10px] font-extrabold text-impulso-mint disabled:opacity-50"
+                        >
+                          🧹 Limpiar denuncias
+                        </button>
+                        <button
+                          onClick={() => void runTrustAnalysis(m)}
+                          disabled={trustBusyId === m.id}
+                          title="Analizar nivel de confianza del comercio con IA"
+                          className="pressable flex shrink-0 items-center gap-1 rounded-xl border border-impulso-gold/30 bg-impulso-gold/5 px-2.5 py-1.5 text-[11px] font-extrabold text-impulso-gold disabled:opacity-50"
+                        >
+                          {trustBusyId === m.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : '🤖'} Confianza IA
+                        </button>
+                      </div>
                     </div>
                   </article>
                 ))
@@ -746,33 +813,45 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
                         </p>
                       )}
                     </div>
-                    <button
-                      onClick={() => void killOffer(o)}
-                      disabled={busyId === o.id}
-                      className="pressable flex shrink-0 items-center gap-1.5 rounded-xl border border-impulso-rose/40 bg-impulso-rose/10 px-3 py-2 text-xs font-extrabold text-impulso-rose disabled:opacity-50"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                      Tumbar
-                    </button>
+                    <div className="flex shrink-0 flex-col gap-1.5">
+                      {o.reports_count >= 1 && (
+                        <button
+                          onClick={() => void handleClearOfferReports(o)}
+                          disabled={busyId === o.id}
+                          title="Borrar denuncias falsas de esta oferta"
+                          className="pressable flex items-center justify-center gap-1 rounded-xl border border-impulso-emerald/40 bg-impulso-emerald/10 px-2.5 py-1.5 text-[10px] font-extrabold text-impulso-mint disabled:opacity-50"
+                        >
+                          🧹 Absolver
+                        </button>
+                      )}
+                      <button
+                        onClick={() => void killOffer(o)}
+                        disabled={busyId === o.id}
+                        className="pressable flex items-center justify-center gap-1.5 rounded-xl border border-impulso-rose/40 bg-impulso-rose/10 px-3 py-2 text-xs font-extrabold text-impulso-rose disabled:opacity-50"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Tumbar
+                      </button>
+                    </div>
                   </div>
                 </article>
               ))
             )}
             <p className="flex items-center gap-2 rounded-2xl border border-white/10 bg-slate-950/40 p-3 text-[11px] font-semibold text-slate-400">
               <Gavel className="h-4 w-4 shrink-0 text-impulso-gold" />
-              Las ofertas con 3+ reportes 🚩 se tumban automáticamente. Aquí puedes tumbar cualquiera de una vez.
+              Blindaje anti-envidia activo: los comercios verificados nunca caen por clics anónimos sin reserva real. Aquí puedes tumbar ofertas peligrosas o absolver denuncias falsas.
             </p>
             </div>
 
             <div className="mt-4 space-y-4 lg:mt-0">
-            {/* ── 🚩 Reportes de la comunidad: el motivo exacto que eligió el vecino ── */}
+            {/* ── 🚩 Reportes de la comunidad: evidencia real y depuración anti-envidia ── */}
             <div className="mt-4 rounded-3xl border border-impulso-rose/25 bg-impulso-rose/5 p-3.5">
               <p className="flex items-center gap-1.5 text-sm font-extrabold text-impulso-rose">
-                <Flag className="h-4 w-4" /> 🚩 Reportes de la comunidad (motivos)
+                <Flag className="h-4 w-4" /> 🚩 Denuncias de la comunidad (auditoría real)
               </p>
               <p className="mt-1 text-[11px] leading-relaxed text-slate-400">
-                Lo que la gente eligió al reportar cada oferta, con trazabilidad para detectar reportes falsos.
-                Un dispositivo solo puede reportar cada oferta 1 vez.
+                Verifica si el reportante apartó realmente o si es un ataque por envidia. Puedes borrar denuncias falsas,
+                limpiar todo el local o inspeccionar la IP del reportante.
               </p>
               {offersLoading ? (
                 <div className="flex justify-center py-4">
@@ -781,26 +860,75 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
               ) : reports.length === 0 ? (
                 <p className="py-3 text-center text-[11px] text-slate-500">Aún no hay reportes. Radar limpio ✨</p>
               ) : (
-                <div className="mt-2.5 space-y-1.5">
+                <div className="mt-2.5 space-y-2">
                   {reports.map((r) => {
                     const meta = reportReasonMeta(r.reason);
                     return (
-                      <div key={r.id} className="rounded-xl border border-white/10 bg-slate-950/50 px-2.5 py-2">
-                        <p className="text-[11px] font-extrabold text-white">
-                          {meta.emoji} {meta.label}
-                        </p>
+                      <div key={r.id} className="rounded-xl border border-white/10 bg-slate-950/50 px-3 py-2.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-[11px] font-extrabold text-white">
+                            {meta.emoji} {meta.label}
+                          </p>
+                          <span
+                            className={cx(
+                              'shrink-0 rounded-full px-2 py-0.5 text-[9px] font-extrabold',
+                              r.is_verified_buyer
+                                ? 'bg-impulso-emerald/15 text-impulso-mint'
+                                : 'bg-amber-400/15 text-amber-300',
+                            )}
+                          >
+                            {r.is_verified_buyer ? '🎟️ Comprador real' : '👤 Visitante sin reserva'}
+                          </span>
+                        </div>
                         {r.detail && (
-                          <p className="mt-0.5 line-clamp-2 text-[10px] font-semibold italic text-slate-300">
+                          <p className="mt-1 rounded-lg bg-slate-900/70 px-2 py-1 text-[10px] font-semibold italic text-slate-200">
                             ✍️ "{r.detail}"
                           </p>
                         )}
-                        <p className="mt-0.5 truncate text-[10px] font-semibold text-slate-400">
+                        <p className="mt-1 truncate text-[10px] font-semibold text-slate-400">
                           🛍️ {r.offer_title} · 🏪 {r.merchant_name ?? '—'}
-                          {r.offer_status === 'cancelled' ? ' · ⛔ ya tumbada' : ''}
+                          {r.offer_status === 'cancelled' ? ' · ⛔ pausada' : ''}
                         </p>
                         <p className="truncate font-mono text-[10px] font-semibold text-slate-500">
-                          💻 {tail(r.device_id)} · 🌐 {tail(r.client_ip, 8)} · ⏱️ {timeAgo(r.created_at, Date.now())}
+                          💻 {tail(r.device_id)} · 🌐 {r.client_ip ?? '—'} · ⏱️ {timeAgo(r.created_at, Date.now())}
                         </p>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          <button
+                            onClick={() => void handleDismissReport(r)}
+                            disabled={busyId === r.id}
+                            className="pressable flex items-center gap-1 rounded-lg border border-impulso-emerald/40 bg-impulso-emerald/10 px-2.5 py-1 text-[10px] font-extrabold text-impulso-mint disabled:opacity-50"
+                          >
+                            🗑️ Borrar denuncia
+                          </button>
+                          {r.merchant_id && (
+                            <button
+                              onClick={() => void handleClearMerchantReports(r.merchant_id!, r.merchant_name ?? 'Local')}
+                              disabled={busyId === r.merchant_id}
+                              className="pressable flex items-center gap-1 rounded-lg border border-white/15 bg-slate-900 px-2.5 py-1 text-[10px] font-extrabold text-slate-200 disabled:opacity-50"
+                            >
+                              🧹 Limpiar local
+                            </button>
+                          )}
+                          {(r.client_ip || r.device_id) && (
+                            <button
+                              onClick={() =>
+                                setInspecting({
+                                  customerName: 'Reportante anónimo',
+                                  phone: '—',
+                                  clientIp: r.client_ip,
+                                  deviceId: r.device_id,
+                                  clientLat: null,
+                                  clientLng: null,
+                                  code: `REP-${r.id.slice(0, 6).toUpperCase()}`,
+                                  createdAt: r.created_at,
+                                })
+                              }
+                              className="pressable rounded-lg border border-impulso-gold/40 bg-impulso-gold/10 px-2 py-1 text-[10px] font-extrabold text-impulso-gold"
+                            >
+                              🕵️‍♂️ IP
+                            </button>
+                          )}
+                        </div>
                       </div>
                     );
                   })}

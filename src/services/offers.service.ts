@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { getDeviceId } from './deviceFingerprint';
+import { getEdgeClientIp } from './ip.service';
 import type { Category, Offer } from '../types';
 
 const MERCHANT_EMBED =
@@ -112,25 +113,38 @@ export async function publishOffer(input: PublishOfferInput): Promise<Offer> {
 export interface ReportResult {
   reports: number;
   cancelled: boolean;
-  /** true = este dispositivo ya había reportado la oferta (no se vuelve a sumar). */
+  /** true = este dispositivo o IP ya había reportado la oferta (no se vuelve a sumar). */
   already: boolean;
+  verifiedBuyer?: boolean;
+  underReview?: boolean;
 }
 
 /**
- * Reporte comunitario con motivo: 3 reportes tumban la oferta automáticamente.
- * El servidor deduplica por dispositivo: el doble clic jamás suma 2 reportes.
+ * Reporte comunitario con motivo y blindaje anti-envidia:
+ * el servidor deduplica por dispositivo e IP pública, verifica si el reportante
+ * apartó realmente y protege a los comercios verificados de sabotajes por envidia.
  */
 export async function reportOffer(
   offerId: string,
   reason: string,
   detail?: string | null
 ): Promise<ReportResult> {
-  const { data, error } = await supabase.rpc('report_offer_rpc', {
+  const edgeIp = await getEdgeClientIp();
+  const baseParams = {
     p_offer_id: offerId,
     p_reason: reason,
     p_detail: detail ?? null,
     p_device_id: getDeviceId(),
+  };
+  let { data, error } = await supabase.rpc('report_offer_rpc', {
+    ...baseParams,
+    p_edge_ip: edgeIp,
   });
+  if (error && ((error as { code?: string }).code === 'PGRST202' || /could not find the function/i.test(error.message ?? ''))) {
+    const retry = await supabase.rpc('report_offer_rpc', baseParams);
+    data = retry.data;
+    error = retry.error;
+  }
   if (error) throw error;
   return data as unknown as ReportResult;
 }

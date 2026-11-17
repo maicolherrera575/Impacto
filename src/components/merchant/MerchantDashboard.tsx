@@ -5,6 +5,7 @@ import {
   Camera,
   CheckCircle2,
   Coins,
+  Fingerprint,
   Flame,
   History,
   Loader2,
@@ -31,6 +32,14 @@ import {
 import { friendlyError, supabase } from '../../services/supabase';
 import { compressImageToMicroWebP, compressionSummary } from '../../services/imageCompressor';
 import { submitKybVerification, updateMyProfile } from '../../services/profile.service';
+import {
+  getWebAuthnServerMode,
+  isWebAuthnSupported,
+  listMyPasskeys,
+  registerDevicePasskey,
+  revokePasskey,
+} from '../../services/WebAuthnService';
+import type { PasskeyDevice, WebAuthnServerMode } from '../../services/WebAuthnService';
 import { sha256Hex } from '../../utils/hash';
 import {
   deleteMyPaymentMethod,
@@ -90,8 +99,66 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
   const [payHolder, setPayHolder] = useState('');
   const [payBusy, setPayBusy] = useState(false);
   const [payDeleting, setPayDeleting] = useState<PaymentType | null>(null);
+  /** 🔐 V19.0 · Biometría real (WebAuthn / Passkeys en auth.user_passkeys). */
+  const [passkeys, setPasskeys] = useState<PasskeyDevice[]>([]);
+  const [passkeyMode, setPasskeyMode] = useState<WebAuthnServerMode>('unconfigured');
+  const [passkeyBusy, setPasskeyBusy] = useState(false);
+  const [vaultPwdPrompt, setVaultPwdPrompt] = useState(false);
+  const [vaultPassword, setVaultPassword] = useState('');
+  const [revokingId, setRevokingId] = useState<string | null>(null);
   /** 📱 Número oficial de recargas/soporte (BD del admin, fallback al .env). */
   const [paymentContact, setPaymentContact] = useState(ADMIN_WHATSAPP);
+
+  const refreshPasskeys = useCallback(async () => {
+    if (!isWebAuthnSupported()) return;
+    try {
+      const [list, srvMode] = await Promise.all([listMyPasskeys(), getWebAuthnServerMode()]);
+      setPasskeys(list);
+      setPasskeyMode(srvMode);
+    } catch {
+      /* si aún falta correr el SQL de passkeys, la tarjeta lo indica sin romper */
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshPasskeys();
+  }, [refreshPasskeys]);
+
+  async function enrollPasskey(pwd?: string) {
+    setPasskeyBusy(true);
+    try {
+      const created = await registerDevicePasskey({ vaultPassword: pwd });
+      setVaultPwdPrompt(false);
+      setVaultPassword('');
+      toast.success(`🔐 ¡Biometría activada en ${created.deviceLabel}!`);
+      await refreshPasskeys();
+    } catch (err) {
+      toast.error(friendlyError(err));
+    } finally {
+      setPasskeyBusy(false);
+    }
+  }
+
+  function handleActivateBiometric() {
+    if (passkeyMode === 'sealed-vault') {
+      setVaultPwdPrompt(true);
+      return;
+    }
+    void enrollPasskey();
+  }
+
+  async function handleRevokePasskey(p: PasskeyDevice) {
+    setRevokingId(p.id);
+    try {
+      await revokePasskey(p.id, p.credential_id);
+      setPasskeys((prev) => prev.filter((x) => x.id !== p.id));
+      toast.info('🔓 Dispositivo biométrico revocado');
+    } catch (err) {
+      toast.error(friendlyError(err));
+    } finally {
+      setRevokingId(null);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -797,6 +864,108 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
           </div>
           <Stars value={Number(rating)} size="md" />
         </section>
+
+        {/* 🔐 V19.0 · Seguridad Biométrica Real (WebAuthn / Passkeys) */}
+        {isWebAuthnSupported() && (
+          <section className="rounded-3xl border border-impulso-emerald/25 bg-impulso-panel p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="flex items-center gap-1.5 text-sm font-bold text-white">
+                  <Fingerprint className="h-4 w-4 text-impulso-mint" /> Acceso con Huella / FaceID
+                </p>
+                <p className="mt-1 text-xs leading-relaxed text-slate-400">
+                  Vincula la clave criptográfica de este celular o PC. Si cambias de equipo, el acceso biométrico queda
+                  bloqueado hasta que entres con contraseña y registres el nuevo.
+                </p>
+              </div>
+              <span className="shrink-0 rounded-full border border-impulso-emerald/30 bg-impulso-emerald/10 px-2.5 py-1 text-[10px] font-extrabold text-impulso-mint">
+                {passkeys.length} activo{passkeys.length === 1 ? '' : 's'}
+              </span>
+            </div>
+
+            {!profile.is_verified && profile.role !== 'admin' ? (
+              <p className="mt-3 rounded-2xl border border-impulso-gold/30 bg-impulso-gold/10 p-3 text-xs font-semibold leading-relaxed text-amber-200/90">
+                🛡️ Disponible al completar tu verificación de identidad (✅ Verificado). Así garantizamos que solo comercios verificados registren llaves biométricas.
+              </p>
+            ) : (
+              <>
+                {passkeys.length > 0 && (
+                  <div className="mt-3 space-y-2">
+                    {passkeys.map((pk) => (
+                      <div
+                        key={pk.id}
+                        className="flex items-center justify-between gap-2 rounded-2xl border border-white/10 bg-slate-950/40 px-3 py-2.5"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-xs font-extrabold text-white">🔐 {pk.device_label}</p>
+                          <p className="truncate text-[10px] font-semibold text-slate-500">
+                            Registrado {new Date(pk.created_at).toLocaleDateString('es-CO')}
+                            {pk.last_used_at ? ` · Último uso ${new Date(pk.last_used_at).toLocaleDateString('es-CO')}` : ''}
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => void handleRevokePasskey(pk)}
+                          disabled={revokingId === pk.id}
+                          title="Revocar este dispositivo"
+                          className="pressable shrink-0 rounded-xl border border-impulso-rose/30 bg-impulso-rose/10 px-2.5 py-1.5 text-[10px] font-extrabold text-impulso-rose disabled:opacity-50"
+                        >
+                          {revokingId === pk.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Revocar'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {vaultPwdPrompt ? (
+                  <div className="mt-3 space-y-2 rounded-2xl border border-impulso-emerald/30 bg-slate-950/50 p-3">
+                    <p className="text-[11px] font-bold text-slate-300">
+                      Confirma tu contraseña actual una sola vez para sellar la llave de este dispositivo:
+                    </p>
+                    <input
+                      type="password"
+                      value={vaultPassword}
+                      onChange={(e) => setVaultPassword(e.target.value)}
+                      placeholder="Tu contraseña actual"
+                      autoComplete="current-password"
+                      className="w-full rounded-xl border border-white/10 bg-slate-950/70 px-3 py-2.5 text-sm font-medium text-white placeholder:text-slate-600 outline-none focus:border-impulso-emerald/60"
+                    />
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setVaultPwdPrompt(false);
+                          setVaultPassword('');
+                        }}
+                        className="pressable rounded-xl border border-white/10 py-2 text-xs font-bold text-slate-400"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        disabled={passkeyBusy || vaultPassword.length < 6}
+                        onClick={() => void enrollPasskey(vaultPassword)}
+                        className="pressable flex items-center justify-center gap-1.5 rounded-xl bg-impulso-emerald py-2 text-xs font-extrabold text-slate-950 disabled:opacity-50"
+                      >
+                        {passkeyBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Fingerprint className="h-3.5 w-3.5" />}
+                        Vincular Huella
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleActivateBiometric}
+                    disabled={passkeyBusy}
+                    className="pressable mt-3 flex w-full items-center justify-center gap-2 rounded-2xl border border-impulso-emerald/40 bg-impulso-emerald/15 py-3 text-xs font-extrabold text-impulso-mint disabled:opacity-50"
+                  >
+                    {passkeyBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Fingerprint className="h-4 w-4" />}
+                    {passkeyBusy ? 'Esperando huella / FaceID…' : 'Activar Huella / FaceID en este dispositivo'}
+                  </button>
+                )}
+              </>
+            )}
+          </section>
+        )}
 
         {/* 🪪 Datos de confianza: el admin los audita con IA para verificar más rápido */}
         <section className="rounded-3xl border border-white/10 bg-impulso-panel p-4">

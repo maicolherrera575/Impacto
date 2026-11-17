@@ -22,7 +22,6 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import * as QRCode from 'qrcode';
 import { toPng, getFontEmbedCSS } from 'html-to-image';
 import { Check, Copy, Dices, Download, ImagePlus, Loader2, Send, Sparkles, Trash2, Wand2 } from 'lucide-react';
 import type { Offer, Profile } from '../../types';
@@ -36,12 +35,14 @@ import {
 } from '../../services/gemini.service';
 import type { ArtDirection, CampaignFocus, MarketingCampaign, PriceMode } from '../../services/gemini.service';
 import { loadBankPhoto, isPollinationsBlockImage, guessPhotoCategory, PHOTO_BANK, PHOTO_GALLERY_TABS } from '../../utils/commercialPhotoBank';
+import { generateStyledQrDataUrl, QR_STYLES } from '../../utils/styledQr';
+import type { QrStyle } from '../../utils/styledQr';
 import {
   AfficheArtboard,
   AFFICHE_THEMES,
   AFFICHE_TYPOS,
 } from './AfficheArtboard';
-import type { AfficheFormat, AfficheLayout, AffichePiece, AfficheProps } from './AfficheArtboard';
+import type { AfficheFormat, AfficheLayout, AffichePiece, AfficheProps, BenefitPresentation } from './AfficheArtboard';
 import { useToast } from '../ui/Toast';
 import { cx, formatCOP } from '../../utils/format';
 import { waLink } from '../../utils/whatsapp';
@@ -325,6 +326,9 @@ interface MktDraft {
   fontIdx?: number;
   /** 🔍 V18: escala del titular guardada en el borrador (0.8–1.5). */
   headlineScale?: number;
+  /** 🎨 V19: estilo dinámico del QR y presentación no repetitiva de beneficios. */
+  qrStyle?: QrStyle;
+  benefitStyle?: BenefitPresentation;
   socialMode?: SocialMode;
   igFormat?: 'feed' | 'historia';
 }
@@ -431,8 +435,10 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
   const [showBenefits, setShowBenefits] = useState(true);
   const [showQr, setShowQr] = useState(true);
 
-  // ── V13 · Selector de destino del QR ──
+  // ── V13 · Selector de destino y estilo del QR ──
   const [qrMode, setQrMode] = useState<QrMode>('wa');
+  const [qrStyle, setQrStyle] = useState<QrStyle>('rounded');
+  const [benefitStyle, setBenefitStyle] = useState<BenefitPresentation>('auto');
   const [customWaGreeting, setCustomWaGreeting] = useState('');
   const [externalUrl, setExternalUrl] = useState('');
 
@@ -444,9 +450,10 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
   /** Refs de los 2 artboards dedicados al lanzador (story 9:16 y square 1:1). */
   const socialRefs = useRef<{ story: HTMLDivElement | null; square: HTMLDivElement | null }>({ story: null, square: null });
 
-  // ── V13 · ROTACIÓN GARANTIZADA: jamás repetir tema, arquitectura o foto ──
+  // ── V13 · ROTACIÓN GARANTIZADA: jamás repetir tema, arquitectura, QR o foto ──
   const lastThemeIdxRef = useRef(themeIdx);
   const lastLayoutIdxRef = useRef<Layout>(layout);
+  const lastQrStyleRef = useRef<QrStyle>(qrStyle);
   const lastPhotoUrlRef = useRef<string | null>(null);
 
   // ── Fotografía ──
@@ -530,6 +537,10 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     if (typeof d.photoPosY === 'number' && d.photoPosY >= 0 && d.photoPosY <= 1) setPhotoPosY(d.photoPosY);
     if (typeof d.fontIdx === 'number' && d.fontIdx >= 0 && d.fontIdx < AFFICHE_TYPOS.length) setFontIdx(d.fontIdx);
     if (typeof d.headlineScale === 'number' && d.headlineScale >= 0.8 && d.headlineScale <= 1.5) setHeadlineScale(d.headlineScale);
+    if (d.qrStyle === 'rounded' || d.qrStyle === 'dots' || d.qrStyle === 'luxury' || d.qrStyle === 'sharp') setQrStyle(d.qrStyle);
+    if (d.benefitStyle === 'auto' || d.benefitStyle === 'badges' || d.benefitStyle === 'bento' || d.benefitStyle === 'editorial' || d.benefitStyle === 'ribbons') {
+      setBenefitStyle(d.benefitStyle);
+    }
     if (d.socialMode === 'wa' || d.socialMode === 'ig' || d.socialMode === 'fb' || d.socialMode === 'tt') setSocialMode(d.socialMode);
     if (d.igFormat === 'feed' || d.igFormat === 'historia') setIgFormat(d.igFormat);
     draftReadyRef.current = true;
@@ -566,6 +577,8 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       showBenefits,
       showQr,
       qrMode,
+      qrStyle,
+      benefitStyle,
       customWaGreeting,
       externalUrl,
       customPhoto,
@@ -576,7 +589,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       socialMode,
       igFormat,
     });
-  }, [mode, merchantId, offerId, extName, extSlogan, extProduct, extNormalPrice, extPromoPrice, extAddress, extUrl, lines, briefText, priceMode, focus, detectedCategory, texts, themeIdx, format, layout, piece, badgeMode, badgeCustom, showPrice, showBenefits, showQr, qrMode, customWaGreeting, externalUrl, customPhoto, photoZoom, photoPosY, fontIdx, headlineScale, socialMode, igFormat]);
+  }, [mode, merchantId, offerId, extName, extSlogan, extProduct, extNormalPrice, extPromoPrice, extAddress, extUrl, lines, briefText, priceMode, focus, detectedCategory, texts, themeIdx, format, layout, piece, badgeMode, badgeCustom, showPrice, showBenefits, showQr, qrMode, qrStyle, benefitStyle, customWaGreeting, externalUrl, customPhoto, photoZoom, photoPosY, fontIdx, headlineScale, socialMode, igFormat]);
 
   /** 🧹 Empieza el estudio desde cero (borra el autoguardado). */
   function clearAllDraft(): void {
@@ -607,6 +620,8 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     setShowBenefits(true);
     setShowQr(true);
     setQrMode('wa');
+    setQrStyle('rounded');
+    setBenefitStyle('auto');
     setCustomWaGreeting('');
     setExternalUrl('');
     setCustomPhoto(null);
@@ -809,24 +824,34 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     return out;
   }, [effectivePhoto, briefText, brand.name, brand.slogan, brand.product, photoSeed]);
 
-  // QR codificado localmente (0 bytes en la base de datos) — se muestra como
-  // <img> dataURL en el artboard: captura limpia, sin tainting del canvas.
+  const selectedMerchantLogo = useMemo(
+    () => (mode === 'plataforma' ? (merchants.find((x) => x.id === merchantId)?.logo_thumb ?? null) : null),
+    [mode, merchants, merchantId],
+  );
+  const activeThemeId = AFFICHE_THEMES[themeIdx]?.id ?? 'marble';
+
+  // V19: QR vectorial personalizado por tema, con ojos redondeados/diamante,
+  // alto contraste garantizado e iniciales o logo del negocio en el centro.
   useEffect(() => {
     let alive = true;
-    QRCode.toDataURL(qrTarget, {
-      margin: 1,
-      width: 480,
-      errorCorrectionLevel: 'M',
-      color: { dark: '#0f172a', light: '#ffffff' },
+    generateStyledQrDataUrl({
+      value: qrTarget,
+      style: qrStyle,
+      themeId: activeThemeId,
+      logoUrl: selectedMerchantLogo,
+      businessName: brand.name || 'Impulso',
+      size: 540,
     })
       .then((url) => {
         if (alive) setQrUrl(url);
       })
-      .catch(() => setQrUrl(null));
+      .catch(() => {
+        if (alive) setQrUrl(null);
+      });
     return () => {
       alive = false;
     };
-  }, [qrTarget]);
+  }, [qrTarget, qrStyle, activeThemeId, selectedMerchantLogo, brand.name]);
 
   // V11: embebe el CSS de las Google Fonts UNA vez para que la exportación
   // con html-to-image salga con la tipografía de agencia real (no la fallback).
@@ -842,12 +867,13 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
 
   /** Props del artboard para una pieza dada (preview y pack comparten esto). */
   const artboardProps = (p: Piece): AfficheProps => ({
-    themeId: AFFICHE_THEMES[themeIdx]?.id ?? 'marble',
+    themeId: activeThemeId,
     layout,
     format,
     piece: p,
     fontStyle: AFFICHE_TYPOS[fontIdx]?.id,
     headlineScale,
+    benefitStyle,
     brand: {
       name: brand.name,
       slogan: dockSlogan,
@@ -1145,7 +1171,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     }
   }
 
-  /** 🎲 V11/V13 · Sorpréndeme: cambia fondo + arquitectura en un clic,
+  /** 🎲 V11/V19 · Sorpréndeme: cambia fondo + arquitectura + estilo QR en un clic,
    *  SIEMPRE evitando el diseño actual, y trae una foto NUEVA del banco HD. */
   function surpriseDesign(): void {
     let ni = themeIdx;
@@ -1157,6 +1183,12 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     if (nl) {
       setLayout(nl.id);
       lastLayoutIdxRef.current = nl.id;
+    }
+    const otherQrs = QR_STYLES.filter((q) => q.id !== lastQrStyleRef.current);
+    const nq = otherQrs[Math.floor(Math.random() * otherQrs.length)];
+    if (nq) {
+      setQrStyle(nq.id);
+      lastQrStyleRef.current = nq.id;
     }
     // Foto nueva del banco, GARANTIZADA distinta a la anterior (V13).
     void loadBankPhotoFresh(
@@ -1561,7 +1593,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       </div>
 
       {/* ═══ COLUMNA IZQUIERDA: datos, brief IA, foto y diseño ═══ */}
-      <div className="space-y-3 lg:col-span-4">
+      <div className="space-y-3 lg:col-span-4 lg:max-h-[calc(92dvh-9.5rem)] lg:overflow-y-auto lg:pr-1.5 lg:pb-24 overscroll-contain">
         {/* Modo dual */}
         <div className="grid grid-cols-2 gap-2">
           <button
@@ -1955,7 +1987,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
               Agranda el texto principal del afiche en vivo (80% a 150%).
             </p>
           </div>
-          <p className={labelCls}>📐 Layout · 16 arquitecturas (cambian el afiche en vivo)</p>
+          <p className={labelCls}>📐 Layout · 28 arquitecturas (cambian el afiche en vivo)</p>
           <div className="grid grid-cols-2 gap-1.5">
             {AFFICHE_LAYOUTS.map((l) => (
               <button
@@ -2012,12 +2044,62 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
               className={inputCls}
             />
           )}
+          <p className={labelCls}>🔳 Estilo de QR Dinámico (tinta y centro del tema)</p>
+          <div className="grid grid-cols-2 gap-1.5">
+            {QR_STYLES.map((q) => (
+              <button
+                key={q.id}
+                onClick={() => {
+                  setQrStyle(q.id);
+                  lastQrStyleRef.current = q.id;
+                }}
+                className={cx(
+                  'pressable rounded-xl border px-2 py-2 text-left text-[10px] font-extrabold transition',
+                  qrStyle === q.id
+                    ? 'border-impulso-emerald/60 bg-impulso-emerald/15 text-impulso-mint'
+                    : 'border-white/10 bg-slate-950/40 text-slate-400',
+                )}
+              >
+                {q.label}
+                <span className="mt-0.5 block font-semibold opacity-70">{q.hint}</span>
+              </button>
+            ))}
+          </div>
+
+          <p className={labelCls}>✨ Presentación de Beneficios (cero moldes repetitivos)</p>
+          <div className="grid grid-cols-2 gap-1.5">
+            {(
+              [
+                ['auto', '🎲 Auto Dinámico', 'Alterna según el diseño'],
+                ['badges', '🔘 Insignias Flotantes', 'Pills y círculos 3D'],
+                ['bento', '🧱 Cajas Bento', 'Mosaico asimétrico'],
+                ['editorial', '✒️ Editorial Bold', 'Frases grandes sin viñetas'],
+                ['ribbons', '🎗️ Cintas de Acento', 'Tiras modernas'],
+              ] as const
+            ).map(([id, label, hint]) => (
+              <button
+                key={id}
+                onClick={() => setBenefitStyle(id)}
+                className={cx(
+                  'pressable rounded-xl border px-2 py-2 text-left text-[10px] font-extrabold transition',
+                  id === 'auto' ? 'col-span-2' : '',
+                  benefitStyle === id
+                    ? 'border-impulso-gold/60 bg-impulso-gold/15 text-impulso-gold'
+                    : 'border-white/10 bg-slate-950/40 text-slate-400',
+                )}
+              >
+                {label}
+                <span className="mt-0.5 block font-semibold opacity-70">{hint}</span>
+              </button>
+            ))}
+          </div>
+
           <p className={labelCls}>Elementos en el afiche</p>
           {(
             [
               [showPrice, setShowPrice, '💰 Precio / promoción (o etiqueta de servicio)'],
-              [showBenefits, setShowBenefits, '✅ Los 3 beneficios en tarjetas de cristal'],
-              [showQr, setShowQr, '🔳 QR GIGANTE + botón de WhatsApp'],
+              [showBenefits, setShowBenefits, '✅ Los 3 beneficios en diseño dinámico'],
+              [showQr, setShowQr, '🔳 QR GIGANTE + dock Glassmorphism'],
             ] as const
           ).map(([val, set, label]) => (
             <button
@@ -2037,7 +2119,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       {/* ═══ COLUMNA CENTRAL: artboard en vivo (HTML escalado) · V21 anclado
               a la pantalla (sticky) mientras las columnas laterales hacen
               scroll: el afiche SIEMPRE visible y centrado, sin recortarse. ═══ */}
-      <div className="lg:sticky lg:top-4 lg:col-span-4 lg:flex lg:max-h-[calc(100vh-2rem)] lg:flex-col lg:overflow-y-auto">
+      <div className="lg:sticky lg:top-2 lg:col-span-4 lg:flex lg:max-h-[calc(92dvh-9.5rem)] lg:flex-col lg:overflow-y-auto lg:pb-12">
         <div className="space-y-3 lg:m-auto lg:w-full">
           {/* 📲 V14 · ¿Para qué Red Social es esta publicidad? */}
           <div className={cardCls}>
@@ -2189,7 +2271,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       </div>
 
       {/* ═══ COLUMNA DERECHA: textos, copywriting y WhatsApp ═══ */}
-      <div className="space-y-3 lg:col-span-4">
+      <div className="space-y-3 lg:col-span-4 lg:max-h-[calc(92dvh-9.5rem)] lg:overflow-y-auto lg:pr-1.5 lg:pb-24 overscroll-contain">
         {/* Editor de textos */}
         <div className={cardCls}>
           <p className="text-xs font-extrabold text-white">✍️ Editor de textos del afiche</p>

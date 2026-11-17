@@ -1,5 +1,38 @@
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
+import type { Plugin } from 'vite';
+
+function localApiDevPlugin(env: Record<string, string>): Plugin {
+  return {
+    name: 'impulso-local-api',
+    configureServer(server) {
+      // Asegura que las variables de .env estén disponibles para api/*.ts en desarrollo local
+      for (const [k, v] of Object.entries(env)) {
+        if (v && !process.env[k]) process.env[k] = v;
+      }
+      server.middlewares.use('/api/ip', async (req, res, next) => {
+        try {
+          const mod = (await server.ssrLoadModule('/api/ip.ts')) as {
+            default: (r: unknown, s: unknown) => void | Promise<void>;
+          };
+          await mod.default(req, res);
+        } catch {
+          next();
+        }
+      });
+      server.middlewares.use('/api/webauthn', async (req, res, next) => {
+        try {
+          const mod = (await server.ssrLoadModule('/api/webauthn.ts')) as {
+            default: (r: unknown, s: unknown) => void | Promise<void>;
+          };
+          await mod.default(req, res);
+        } catch {
+          next();
+        }
+      });
+    },
+  };
+}
 
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
@@ -11,7 +44,7 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
 
   return {
-    plugins: [react()],
+    plugins: [react(), localApiDevPlugin(env)],
     define: {
       // Inyecta en el bundle los valores con fallback: primero el nombre sin
       // prefijo (Vercel "Secreto"), luego el clásico con VITE_ (.env local).
