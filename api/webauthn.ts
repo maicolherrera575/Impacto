@@ -114,6 +114,7 @@ function assertValidOrigin(req: IncomingMessage, clientOrigin: string): string {
   if (host) allowedHosts.add(host);
   if (process.env.VERCEL_URL) allowedHosts.add(stripPort(process.env.VERCEL_URL));
   allowedHosts.add('impacto-tawny.vercel.app');
+  allowedHosts.add('tuimpulso.vercel.app');
 
   if (allowedHosts.size > 0 && !allowedHosts.has(hostname)) {
     throw new Error(`Origen no autorizado para biometría (${hostname})`);

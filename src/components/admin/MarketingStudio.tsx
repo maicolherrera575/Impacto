@@ -49,6 +49,7 @@ import type { AfficheFormat, AfficheLayout, AffichePiece, AfficheProps, BenefitP
 import { useToast } from '../ui/Toast';
 import { cx, formatCOP } from '../../utils/format';
 import { waLink } from '../../utils/whatsapp';
+import { encodeShortUuid } from '../../utils/shortId';
 import { clearDraft, loadDraft, saveDraft } from '../../utils/draft';
 import { useModalHistory } from '../../hooks/useModalHistory';
 
@@ -820,33 +821,35 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
 
   const primaryLink = lineLinks[0] || brand.url;
 
-  // ── V21.0 · Orquestación total del destino del Código QR ──
-  const PUBLIC_APP_URL = 'https://impacto-tawny.vercel.app/';
+  // ── V25.0 · QR ultra-compacto y escaneable (URL corta ?c=ID y texto WA mínimo) ──
+  const PUBLIC_APP_URL = 'https://tuimpulso.vercel.app/';
   const qrTarget = useMemo<string>(() => {
     const publicBase =
       window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
         ? PUBLIC_APP_URL
-        : `${window.location.origin}${window.location.pathname}`;
+        : `${window.location.origin}/`;
     if (qrMode === 'perfil') {
-      return `${publicBase}?comercio=${merchantId || 'catalogo'}`;
+      return `${publicBase}?c=${encodeShortUuid(merchantId || 'catalogo')}`;
     }
     if (qrMode === 'oferta') {
-      return `${publicBase}?oferta=${offerId || 'activa'}`;
+      return `${publicBase}?o=${encodeShortUuid(offerId || 'activa')}`;
     }
     if (qrMode === 'externo') {
       const rawUrl = externalUrl.trim();
       if (rawUrl) return /^https?:\/\//i.test(rawUrl) ? rawUrl : `https://${rawUrl}`;
-      return primaryLink || PUBLIC_APP_URL;
+      return PUBLIC_APP_URL;
     }
-    // WhatsApp: https://wa.me/57[NUMERO]?text=[MENSAJE_IA]
+    // WhatsApp: URL corta https://wa.me/57[NUMERO]?text=[TEXTO_MINIMO] para máxima legibilidad QR
     const num =
       lines[0].number.trim() ||
       (mode === 'plataforma'
         ? merchants.find((m) => m.id === merchantId)?.whatsapp ?? ''
         : (/wa\.me\/(\d+)/.exec(extUrl)?.[1] ?? ''));
-    if (num) return waLink(normalizePhone(num), fillMessage(customWaGreeting || lines[0].message, brand));
+    const customTrimmed = customWaGreeting.trim();
+    const shortMsg = customTrimmed ? customTrimmed.slice(0, 22) : 'Hola, info';
+    if (num) return waLink(normalizePhone(num), shortMsg);
     return primaryLink || PUBLIC_APP_URL;
-  }, [qrMode, mode, merchantId, offerId, externalUrl, lines, customWaGreeting, brand, primaryLink, merchants, extUrl]);
+  }, [qrMode, mode, merchantId, offerId, externalUrl, lines, customWaGreeting, primaryLink, merchants, extUrl]);
 
   /** Leyenda del QR + indicador de destino para la pieza 4. */
   const qrMeta = QR_META[qrMode];
@@ -923,7 +926,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
         : null,
       logoUrl: effectiveLogoUrl,
       businessName: brand.name || 'Impulso',
-      size: 540,
+      size: 720,
     })
       .then((url) => {
         if (alive) setQrUrl(url);
@@ -2331,12 +2334,12 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
           )}
           {qrMode === 'perfil' && (
             <p className="rounded-xl bg-impulso-emerald/10 px-3 py-2 text-[10px] font-bold text-impulso-mint">
-              📍 Leyenda en afiche: «Ver Perfil y Ofertas» · dirige al comercio en Impulso (?comercio=ID).
+              📍 Leyenda en afiche: «Ver Perfil y Ofertas» · URL ultra-corta (?c=ID) para lectura instantánea en cámara y Lens.
             </p>
           )}
           {qrMode === 'wa' && (
             <p className="rounded-xl bg-impulso-emerald/10 px-3 py-2 text-[10px] font-bold text-impulso-mint">
-              💬 Leyenda en afiche: «Escanea y Cotiza» · dirige a WhatsApp con el mensaje prellenado de la IA.
+              💬 Leyenda en afiche: «Escanea y Cotiza» · WhatsApp directo con enlace compacto (máxima legibilidad QR).
             </p>
           )}
           {qrMode === 'oferta' && (

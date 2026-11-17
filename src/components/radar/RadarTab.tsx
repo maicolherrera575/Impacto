@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { AlertTriangle, Loader2, Search, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, Loader2, RefreshCw, Search, ShieldCheck } from 'lucide-react';
 import type { Category, Offer } from '../../types';
 import { CATEGORIES } from '../../types';
 import { LiveMap } from './LiveMap';
@@ -16,12 +16,16 @@ interface RadarTabProps {
   geoStatus: GeoStatus;
   /** True mientras el navegador busca la lectura exacta del GPS. */
   geoLocating?: boolean;
+  /** True mientras el chip GPS recalibra vía watchPosition. */
+  geoRecalibrating?: boolean;
   /** Precisión actual en metros (solo informativa en UI). */
   geoAccuracy?: number | null;
   /** Advertencia o error explícito del GPS (ej. ubicación aproximada > 1000m). */
   geoError?: string | null;
   /** Solicita permiso y lectura exacta al navegador. */
   onGeoRequest: () => void;
+  /** Recalibra forzando watchPosition para limpiar caché Wi-Fi/IP. */
+  onGeoRecalibrate?: () => void;
   /** Apaga/revoca la ubicación efímera (Ley 1581). */
   onGeoRevoke?: () => void;
   /** Abre la guía visual paso a paso de Ubicación Exacta. */
@@ -47,9 +51,11 @@ export function RadarTab({
   geoPos,
   geoStatus,
   geoLocating = false,
+  geoRecalibrating = false,
   geoAccuracy = null,
   geoError = null,
   onGeoRequest,
+  onGeoRecalibrate,
   onGeoRevoke,
   onOpenGpsGuide,
   recenterToken,
@@ -128,12 +134,23 @@ export function RadarTab({
               <button
                 type="button"
                 onClick={grantGpsConsent}
-                disabled={geoLocating}
+                disabled={geoLocating || geoRecalibrating}
                 className="pressable flex items-center gap-1.5 rounded-xl bg-amber-400 px-3 py-2 text-[11px] font-extrabold text-slate-950 disabled:opacity-60"
               >
                 {geoLocating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : '🔄'}
                 Reintentar ubicación exacta
               </button>
+              {onGeoRecalibrate && (
+                <button
+                  type="button"
+                  onClick={onGeoRecalibrate}
+                  disabled={geoRecalibrating}
+                  className="pressable flex items-center gap-1 rounded-xl border border-amber-300/40 bg-slate-950/60 px-3 py-2 text-[11px] font-bold text-amber-200 disabled:opacity-60"
+                >
+                  {geoRecalibrating ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                  {geoRecalibrating ? 'Calibrando chip GPS…' : '↻ Recalibrar GPS'}
+                </button>
+              )}
               {onOpenGpsGuide && (
                 <button
                   type="button"
@@ -149,20 +166,34 @@ export function RadarTab({
 
         {/* Indicador cuando el GPS exacto está activo (solo en memoria del navegador) */}
         {geoPos && geoStatus === 'active' && (
-          <div className="mt-3 flex items-center justify-between gap-2 rounded-2xl border border-impulso-emerald/30 bg-impulso-emerald/10 px-3.5 py-2.5">
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-impulso-emerald/30 bg-impulso-emerald/10 px-3.5 py-2.5">
             <p className="flex items-center gap-2 text-[11px] font-bold text-impulso-mint">
               <ShieldCheck className="h-4 w-4 shrink-0" />
               <span>
                 Radar exacto activo{geoAccuracy != null ? ` (±${geoAccuracy} m)` : ''} · Solo en tu pantalla (Ley 1581)
               </span>
             </p>
-            <button
-              type="button"
-              onClick={skipGps}
-              className="pressable shrink-0 rounded-lg border border-white/10 bg-slate-950/50 px-2.5 py-1 text-[10px] font-bold text-slate-300 hover:text-white"
-            >
-              Apagar
-            </button>
+            <div className="flex items-center gap-1.5">
+              {onGeoRecalibrate && (
+                <button
+                  type="button"
+                  onClick={onGeoRecalibrate}
+                  disabled={geoRecalibrating}
+                  title="Forzar lectura limpia del chip GPS sin caché"
+                  className="pressable flex shrink-0 items-center gap-1 rounded-lg border border-impulso-emerald/40 bg-slate-950/60 px-2.5 py-1 text-[10px] font-extrabold text-impulso-mint transition hover:bg-impulso-emerald/20 disabled:opacity-60"
+                >
+                  {geoRecalibrating ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                  {geoRecalibrating ? 'Calibrando…' : '↻ Recalibrar GPS'}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={skipGps}
+                className="pressable shrink-0 rounded-lg border border-white/10 bg-slate-950/50 px-2.5 py-1 text-[10px] font-bold text-slate-300 hover:text-white"
+              >
+                Apagar
+              </button>
+            </div>
           </div>
         )}
 

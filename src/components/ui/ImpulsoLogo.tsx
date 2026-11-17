@@ -88,26 +88,26 @@ export function ImpulsoLogo({ subtitle, size = 'md', hideTextOnMobile = false, c
   const height = size === 'sm' ? 28 : size === 'lg' ? 38 : 32;
   const markSize = size === 'sm' ? 30 : size === 'lg' ? 38 : 34;
 
+  const svgWidth = Math.round(height * (162 / 40));
+
   return (
     <div className={cx('inline-flex items-center gap-2.5 select-none', className)}>
-      {hideTextOnMobile && (
-        <div className="sm:hidden">
-          <ImpulsoMark size={markSize} />
-        </div>
-      )}
+      {/* Emblema oficial con la "i" de radar: visible consistentemente en móvil y PC */}
+      <ImpulsoMark size={markSize} />
 
       <div className={cx('leading-none', hideTextOnMobile ? 'hidden sm:block' : 'block')}>
         <svg
+          width={svgWidth}
           height={height}
-          viewBox="0 0 212 40"
+          viewBox="0 0 162 40"
           fill="none"
           xmlns="http://www.w3.org/2000/svg"
           role="img"
           aria-label="IMPULSO"
-          className="block w-auto"
+          className="block shrink-0"
         >
           <defs>
-            <linearGradient id={gradId} x1="4" y1="6" x2="36" y2="28" gradientUnits="userSpaceOnUse">
+            <linearGradient id={gradId} x1="4" y1="6" x2="152" y2="34" gradientUnits="userSpaceOnUse">
               <stop offset="0" stopColor="#10B981" />
               <stop offset="0.55" stopColor="#34D399" />
               <stop offset="1" stopColor="#22D3EE" />
@@ -118,42 +118,26 @@ export function ImpulsoLogo({ subtitle, size = 'md', hideTextOnMobile = false, c
               cy="0"
               r="1"
               gradientUnits="userSpaceOnUse"
-              gradientTransform="translate(11 10) rotate(90) scale(11)"
+              gradientTransform="translate(9 12) rotate(90) scale(10)"
             >
-              <stop stopColor="#22D3EE" stopOpacity="0.55" />
+              <stop stopColor="#22D3EE" stopOpacity="0.45" />
               <stop offset="1" stopColor="#22D3EE" stopOpacity="0" />
             </radialGradient>
           </defs>
 
-          {/* Halo de radar sutil coronando la "I" */}
-          <circle cx="11" cy="10" r="10" fill={`url(#${glowId})`} />
-          <path
-            d="M4.8 7.5C6.4 4.8 8.7 3.6 11 3.6C13.3 3.6 15.6 4.8 17.2 7.5"
-            stroke={`url(#${gradId})`}
-            strokeWidth="1.6"
-            strokeLinecap="round"
-            strokeOpacity="0.68"
-          />
-
-          {/* Letra I geométrica con punto de destello Esmeralda/Cian */}
-          <circle cx="11" cy="10.2" r="3.1" fill={`url(#${gradId})`} />
-          <rect x="8.1" y="15.8" width="5.8" height="17.2" rx="2.6" fill="#FFFFFF" />
-
-          {/* Tipografía gruesa y extendida MPULSO */}
+          <circle cx="9" cy="12" r="9" fill={`url(#${glowId})`} />
           <text
-            x="21"
-            y="33"
+            x="2"
+            y="29"
             fill="#F8FAFC"
             fontFamily="'Space Grotesk', 'Montserrat', system-ui, -apple-system, sans-serif"
-            fontSize="26"
+            fontSize="24"
             fontWeight="900"
-            letterSpacing="3.4"
+            letterSpacing="3.2"
           >
-            MPULSO
+            IMPULSO
           </text>
-
-          {/* Acento mínimo de cierre */}
-          <circle cx="203" cy="29.5" r="2.6" fill={`url(#${gradId})`} />
+          <circle cx="154" cy="25.5" r="2.6" fill={`url(#${gradId})`} />
         </svg>
         {subtitle && (
           <p className="mt-0.5 hidden pl-0.5 text-[10px] font-medium tracking-wide text-slate-400 md:block">

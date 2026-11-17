@@ -191,14 +191,17 @@ export async function generateStyledQrDataUrl(options: StyledQrOptions): Promise
   const size = options.size ?? 540;
   const style: QrStyle = options.style ?? 'rounded';
   const palette = themeQrPalette(options.themeId ?? 'emerald', options.brandColors);
-  const targetValue = options.value?.trim() || 'https://impacto-tawny.vercel.app';
+  const targetValue = options.value?.trim() || 'https://tuimpulso.vercel.app';
 
-  const qr = QRCode.create(targetValue, { errorCorrectionLevel: 'H' });
+  // Carga opcional del logo ANTES de crear la matriz: si no hay logo, usamos ECC 'M'
+  // para reducir densidad de módulos y lograr cuadritos más grandes y escaneables.
+  const logoImg = options.logoUrl ? await loadCorsImage(options.logoUrl) : null;
+  const qr = QRCode.create(targetValue, { errorCorrectionLevel: logoImg ? 'H' : 'M' });
   const n = qr.modules.size;
   const data = qr.modules.data;
 
-  // Quiet zone ajustado estrictamente (0.3 módulos ≈ <= 4px reales — cero marcos blancos excesivos)
-  const quiet = 0.3;
+  // Quiet zone sólido de 4 módulos en blanco puro para máxima lectura en cámara y Lens
+  const quiet = 4;
   const totalCells = n + quiet * 2;
   const cell = size / totalCells;
   const offset = quiet * cell;
@@ -213,9 +216,6 @@ export async function generateStyledQrDataUrl(options: StyledQrOptions): Promise
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, size, size);
 
-  // Carga opcional del logo del negocio ANTES de renderizar módulos:
-  // si no hay logo real, matriz 100% pura sin cubo feo de iniciales en el centro.
-  const logoImg = options.logoUrl ? await loadCorsImage(options.logoUrl) : null;
   const centerIdx = n / 2;
   const clearRadiusCells = logoImg ? n * 0.145 : 0;
 

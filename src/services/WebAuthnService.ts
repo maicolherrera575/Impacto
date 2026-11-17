@@ -263,6 +263,9 @@ export const PASSKEY_LINKED_SUCCESS_MSG =
 
 export const WEBAUTHN_CANCELLED_MSG = 'Autenticación cancelada. Puedes seguir usando tu contraseña.';
 
+export const WEBAUTHN_CROSS_DEVICE_MSG =
+  'Si estás en un equipo nuevo o diferente al que registraste tu huella, por favor ingresa con tu contraseña. Podrás vincular la huella de este nuevo equipo desde tu panel.';
+
 // ── Validación de contraseña previa + registro WebAuthn (navigator.credentials.create) ───
 
 /**
@@ -340,7 +343,8 @@ export async function completePreparedPasskeyEnrollment(
         ],
         authenticatorSelection: {
           ...(hasPlatformAuthenticator ? { authenticatorAttachment: 'platform' as const } : {}),
-          residentKey: 'preferred',
+          residentKey: 'required',
+          requireResidentKey: true,
           userVerification: 'required',
         },
         timeout: 60_000,
@@ -369,7 +373,8 @@ export async function completePreparedPasskeyEnrollment(
 
   const response = cred.response as AuthenticatorAttestationResponse;
   const credentialId = bufferToBase64Url(cred.rawId);
-  const transports = typeof response.getTransports === 'function' ? response.getTransports() : ['internal'];
+  const rawTransports = typeof response.getTransports === 'function' ? response.getTransports() : ['internal'];
+  const transports = Array.from(new Set([...rawTransports, 'internal']));
 
   const extracted = extractAuthDataFromAttestation(response.attestationObject);
   const nativeSpki = typeof response.getPublicKey === 'function' ? response.getPublicKey() : null;
@@ -473,14 +478,14 @@ export async function authenticateWithPasskey(email: string): Promise<void> {
   };
 
   if (!begin.allowCredentials || begin.allowCredentials.length === 0) {
-    throw new Error(
-      'Esta cuenta no tiene dispositivos biométricos registrados. Entra con tu contraseña y activa la biometría en tu panel.',
-    );
+    throw new Error(WEBAUTHN_CROSS_DEVICE_MSG);
   }
 
   const rpId = window.location.hostname;
 
-  // 2. Firma criptográfica hardware del reto con FaceID / Huella / Windows Hello
+  // 2. Firma criptográfica hardware del reto con FaceID / Huella / Windows Hello.
+  // Omitimos restringir transports aquí para que llaves sincronizadas/hybrid o locales
+  // puedan responder sin bloqueo artificial en móvil.
   let assertion: Credential | null;
   try {
     assertion = await navigator.credentials.get({
@@ -490,23 +495,20 @@ export async function authenticateWithPasskey(email: string): Promise<void> {
         allowCredentials: begin.allowCredentials.map((c) => ({
           type: 'public-key' as const,
           id: toArrayBuffer(base64UrlToUint8Array(c.id)),
-          ...(Array.isArray(c.transports) && c.transports.length > 0
-            ? { transports: c.transports as AuthenticatorTransport[] }
-            : {}),
         })),
         userVerification: 'required',
         timeout: 60_000,
       },
     });
   } catch (err) {
-    if (err instanceof DOMException && err.name === 'NotAllowedError') {
-      throw new Error(WEBAUTHN_CANCELLED_MSG);
+    if (err instanceof DOMException) {
+      throw new Error(WEBAUTHN_CROSS_DEVICE_MSG);
     }
     throw err;
   }
 
   if (!(assertion instanceof PublicKeyCredential)) {
-    throw new Error('No se recibió firma biométrica del dispositivo.');
+    throw new Error(WEBAUTHN_CROSS_DEVICE_MSG);
   }
 
   const res = assertion.response as AuthenticatorAssertionResponse;
@@ -544,6 +546,9 @@ export async function authenticateWithPasskey(email: string): Promise<void> {
     error?: { message?: string };
   } | null;
 
+  if (verifyRes.status === 428) {
+    throw new Error(WEBAUTHN_CROSS_DEVICE_MSG);
+  }
   if (!verifyRes.ok || !payload?.ok) {
     throw new Error(payload?.error?.message || 'Firma biométrica inválida. Inicia sesión con tu contraseña.');
   }

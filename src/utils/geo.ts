@@ -46,15 +46,15 @@ export const EXACT_GPS_WARNING =
 
 export const EXACT_GPS_OPTIONS: PositionOptions = {
   enableHighAccuracy: true,
-  timeout: 10000,
   maximumAge: 0,
+  timeout: 15000,
 };
 
 /**
- * ⚖️ V20.0 · Geolocalización EXACTA y VOLUNTARIA (Ley 1581 de 2012):
- *  1. Invoca `navigator.geolocation.getCurrentPosition` directamente con
- *     `{ enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }`.
- *  2. Solo expone `errorCode === 1` cuando el permiso fue realmente denegado.
+ * ⚖️ V25.0 · Geolocalización EXACTA, HARDWARE FORZADO y VOLUNTARIA (Ley 1581 de 2012):
+ *  1. Usa estrictamente `{ enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }`.
+ *  2. Soporta recalibración profunda vía `navigator.geolocation.watchPosition` por unos
+ *     segundos para obligar al chip GPS a entregar la lectura más fresca sin caché.
  *  3. Rechaza lecturas aproximadas (`accuracy > 1500` m) con aviso toast sin bloquear modal.
  *  4. Mantiene las coordenadas exclusivamente en el estado efímero de React (jamás en BD).
  */
@@ -62,17 +62,29 @@ export function useGeolocation() {
   const [pos, setPos] = useState<LatLng | null>(null);
   const [status, setStatus] = useState<GeoStatus>('idle');
   const [locating, setLocating] = useState(false);
+  const [recalibrating, setRecalibrating] = useState(false);
   const [accuracy, setAccuracy] = useState<number | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<number | null>(null);
   const [requestSeq, setRequestSeq] = useState(0);
   const watchIdRef = useRef<number | null>(null);
+  const recalWatchRef = useRef<number | null>(null);
+  const recalTimerRef = useRef<number | null>(null);
 
   const stop = useCallback(() => {
+    if (recalTimerRef.current != null) {
+      window.clearTimeout(recalTimerRef.current);
+      recalTimerRef.current = null;
+    }
+    if (recalWatchRef.current != null && typeof navigator !== 'undefined' && 'geolocation' in navigator) {
+      navigator.geolocation.clearWatch(recalWatchRef.current);
+      recalWatchRef.current = null;
+    }
     if (watchIdRef.current != null && typeof navigator !== 'undefined' && 'geolocation' in navigator) {
       navigator.geolocation.clearWatch(watchIdRef.current);
       watchIdRef.current = null;
     }
+    setRecalibrating(false);
   }, []);
 
   /** Regla de oro: solo adoptamos lecturas con accuracy <= 1500 m. */
@@ -119,7 +131,7 @@ export function useGeolocation() {
           stop();
         }
       },
-      { enableHighAccuracy: true, timeout: 8000, maximumAge: 5_000 },
+      EXACT_GPS_OPTIONS,
     );
   }, [stop]);
 
@@ -185,6 +197,80 @@ export function useGeolocation() {
     setErrorCode(null);
   }, [adoptFix, onError, startWatch]);
 
+  /**
+   * ↻ Recalibración forzada del hardware GPS (NO usa getCurrentPosition):
+   * abre `navigator.geolocation.watchPosition` por 4.5s para descartar caché/Wi-Fi,
+   * conserva la mejor lectura obtenida y luego detiene el watcher limpiamente.
+   */
+  const recalibrate = useCallback(() => {
+    if (typeof navigator === 'undefined' || !('geolocation' in navigator)) {
+      setStatus('denied');
+      setErrorMessage('Este navegador no soporta geolocalización GPS.');
+      return;
+    }
+    if (typeof window !== 'undefined' && !window.isSecureContext) {
+      setStatus('denied');
+      setErrorMessage('El navegador bloqueó el GPS porque la página no está bajo HTTPS seguro.');
+      return;
+    }
+
+    stop();
+    setRecalibrating(true);
+    setErrorMessage(null);
+    setErrorCode(null);
+
+    let bestFix: GeolocationPosition | null = null;
+    let settled = false;
+
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      if (recalTimerRef.current != null) {
+        window.clearTimeout(recalTimerRef.current);
+        recalTimerRef.current = null;
+      }
+      if (recalWatchRef.current != null) {
+        navigator.geolocation.clearWatch(recalWatchRef.current);
+        recalWatchRef.current = null;
+      }
+      setRecalibrating(false);
+
+      if (bestFix) {
+        adoptFix(bestFix);
+        if (bestFix.coords.accuracy <= ACCURACY_LIMIT_M) {
+          startWatch();
+        }
+      } else {
+        setErrorMessage(
+          'No se recibió señal fresca del chip GPS al recalibrar. Acércate a un espacio abierto e intenta de nuevo.',
+        );
+      }
+    };
+
+    recalWatchRef.current = navigator.geolocation.watchPosition(
+      (p) => {
+        if (!bestFix || p.coords.accuracy <= bestFix.coords.accuracy) {
+          bestFix = p;
+        }
+        if (p.coords.accuracy <= ACCURACY_LIMIT_M) {
+          setAccuracy(Math.round(p.coords.accuracy));
+          setPos({ lat: p.coords.latitude, lng: p.coords.longitude });
+          setStatus('active');
+        }
+      },
+      (err) => {
+        if (err.code === 1) {
+          settled = true;
+          stop();
+          onError(err);
+        }
+      },
+      EXACT_GPS_OPTIONS,
+    );
+
+    recalTimerRef.current = window.setTimeout(finish, 4500);
+  }, [adoptFix, onError, startWatch, stop]);
+
   /** Revoca el uso efímero del GPS (Ley 1581 de 2012). */
   const revoke = useCallback(() => {
     stop();
@@ -192,6 +278,7 @@ export function useGeolocation() {
     setAccuracy(null);
     setStatus('idle');
     setLocating(false);
+    setRecalibrating(false);
     setErrorMessage(null);
     setErrorCode(null);
   }, [stop]);
@@ -202,11 +289,13 @@ export function useGeolocation() {
     pos,
     status,
     locating,
+    recalibrating,
     accuracy,
     errorMessage,
     errorCode,
     requestSeq,
     request,
+    recalibrate,
     revoke,
     center: pos ?? GACHETA_CENTER,
   } as const;

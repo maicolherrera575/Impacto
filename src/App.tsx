@@ -20,6 +20,7 @@ import { fetchMyProfile, ensureMyProfile, fetchPublicProfileById, signOut } from
 import { useGeolocation } from './utils/geo';
 import type { LatLng } from './utils/geo';
 import { formatCOP } from './utils/format';
+import { decodeShortUuid } from './utils/shortId';
 import { shareText, shareUrl } from './utils/whatsapp';
 import { loadTickets, patchTicket, removeTicket, saveTicket } from './utils/storage';
 
@@ -202,9 +203,11 @@ export default function App() {
     return () => void supabase.removeChannel(channel);
   }, [refetchRequests]);
 
-  // ── Deep linking viral: ?oferta=UUID ─────────────────────────────────────
+  // ── Deep linking viral: ?o=ID_CORTO o ?oferta=UUID ────────────────────────
   useEffect(() => {
-    const offerId = new URLSearchParams(window.location.search).get('oferta');
+    const params = new URLSearchParams(window.location.search);
+    const rawOffer = params.get('o') || params.get('oferta');
+    const offerId = rawOffer ? decodeShortUuid(rawOffer) : '';
     if (!offerId) return;
     void (async () => {
       try {
@@ -217,10 +220,11 @@ export default function App() {
     })();
   }, []);
 
-  // ── V13 · Deep linking del Perfil Público: ?comercio=UUID ────────────────
-  // Destino oficial de los QR "Perfil Impulso" de los afiches de la agencia IA.
+  // ── V13/V25 · Deep linking del Perfil Público: ?c=ID_CORTO o ?comercio=UUID ─
   useEffect(() => {
-    const merchantId = new URLSearchParams(window.location.search).get('comercio');
+    const params = new URLSearchParams(window.location.search);
+    const rawMerchant = params.get('c') || params.get('comercio');
+    const merchantId = rawMerchant ? decodeShortUuid(rawMerchant) : '';
     if (!merchantId) return;
     void (async () => {
       try {
@@ -517,9 +521,11 @@ export default function App() {
                 geoPos={geo.status === 'active' && geo.pos ? geo.pos : null}
                 geoStatus={geo.status}
                 geoLocating={geo.locating}
+                geoRecalibrating={geo.recalibrating}
                 geoAccuracy={geo.accuracy}
                 geoError={geo.errorMessage}
                 onGeoRequest={handleGeoRequest}
+                onGeoRecalibrate={geo.recalibrate}
                 onGeoRevoke={geo.revoke}
                 onOpenGpsGuide={() => setGpsGuideOpen(true)}
                 recenterToken={recenterToken}

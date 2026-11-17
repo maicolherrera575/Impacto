@@ -914,7 +914,7 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
                   <Fingerprint className="h-4 w-4 text-impulso-mint" /> Acceso con Huella / FaceID
                 </p>
                 <p className="mt-1 text-xs leading-relaxed text-slate-300">
-                  🔒 Tu huella o rostro se vincula de forma segura a <strong className="text-white">ESTE dispositivo</strong>, sin guardar tus datos biométricos en la nube. Si cambias de celular o computador, solo ingresa con tu contraseña y vuelve a vincular tu nuevo equipo aquí.
+                  🔒 Cada celular o computador guarda su propia llave biométrica cifrada. Si abres tu cuenta en un equipo nuevo o el navegador te pide escanear un código QR sin llaves disponibles, entra primero con tu contraseña y toca activar huella en ese equipo.
                 </p>
               </div>
               <span className="shrink-0 rounded-full border border-impulso-emerald/30 bg-impulso-emerald/10 px-2.5 py-1 text-[10px] font-extrabold text-impulso-mint">

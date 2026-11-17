@@ -545,24 +545,25 @@ function Headline({
   const highlight = (): ReactElement => {
     const hl = cleanPosterCopy(texts.highlight);
     if (!hl) return <></>;
-    const cajaInk = contrastTextOn(t.accent, t.accent2);
+    const markerBg = ensureReadableAccent(t.accent2, false);
+    const cajaInk = contrastTextOn(markerBg);
 
     switch (eff) {
       case 'caja':
+        // Fix V25.0: rotulador con backgroundColor sólido puro y texto en alto contraste (sin gradientes ni clip-path)
         return (
           <span
             style={{
               position: 'relative',
               zIndex: 10,
-              backgroundColor: t.accent2,
-              background: `linear-gradient(100deg, ${t.accent}, ${t.accent2})`,
+              backgroundColor: markerBg,
               color: cajaInk,
-              padding: `${2 * s}px ${11 * s}px`,
-              borderRadius: 12 * s,
-              display: 'inline-block',
-              lineHeight: 1.02,
-              marginTop: 2 * s,
-              boxShadow: `0 10px 26px ${t.accent2}55`,
+              padding: `${1.5 * s}px ${9 * s}px`,
+              borderRadius: 6 * s,
+              display: 'inline',
+              boxDecorationBreak: 'clone',
+              WebkitBoxDecorationBreak: 'clone',
+              lineHeight: 1.08,
               fontWeight: 900,
               textShadow: 'none',
             }}
@@ -576,11 +577,11 @@ function Headline({
             style={{
               position: 'relative',
               zIndex: 10,
-              background: 'transparent',
+              backgroundColor: 'transparent',
               color: readableAccent2,
               textShadow: longShadow
                 ? buildLongShadow(s, readableAccent2)
-                : `0 0 ${14 * s}px ${readableAccent}dd, 0 0 ${30 * s}px ${readableAccent2}99, 0 4px ${8 * s}px rgba(0,0,0,0.65)`,
+                : `0 0 ${14 * s}px ${readableAccent}dd, 0 0 ${28 * s}px ${readableAccent2}88, 0 4px ${8 * s}px rgba(0,0,0,0.65)`,
             }}
           >
             {hl}
@@ -592,10 +593,11 @@ function Headline({
             style={{
               position: 'relative',
               zIndex: 10,
-              display: 'inline-block',
-              background: 'transparent',
+              display: 'inline',
+              backgroundColor: 'transparent',
               color: baseInk,
-              boxShadow: `inset 0 -${12 * s}px 0 0 ${t.accent2}88`,
+              borderBottom: `${4.5 * s}px solid ${readableAccent2}`,
+              paddingBottom: 1.5 * s,
             }}
           >
             {hl}
@@ -607,11 +609,9 @@ function Headline({
             style={{
               position: 'relative',
               zIndex: 10,
-              background: 'transparent',
-              color: '#ffffff',
-              WebkitTextStroke: `${3 * s}px #111827`,
-              textShadow: `${4 * s}px ${4 * s}px 0 ${readableAccent2}`,
-              paintOrder: 'stroke fill',
+              backgroundColor: 'transparent',
+              color: readableAccent2,
+              textShadow: `0 ${4 * s}px ${12 * s}px rgba(0,0,0,0.85)`,
             }}
           >
             {hl}
@@ -624,7 +624,7 @@ function Headline({
               position: 'relative',
               zIndex: 10,
               display: 'inline-block',
-              background: 'transparent',
+              backgroundColor: 'transparent',
               borderLeft: `${6 * s}px solid ${readableAccent2}`,
               paddingLeft: `${11 * s}px`,
               color: readableAccent2,
@@ -634,13 +634,13 @@ function Headline({
           </span>
         );
       default:
-        // Color sólido de alto contraste + filete/resplandor sin background-clip (0 cajas sólidas)
+        // Color sólido puro de alto contraste sin gradientes de fondo ni bg-clip-text
         return (
           <span
             style={{
               position: 'relative',
               zIndex: 10,
-              background: 'transparent',
+              backgroundColor: 'transparent',
               color: readableAccent2,
               textShadow: longShadow
                 ? buildLongShadow(s, readableAccent2)
@@ -1218,7 +1218,9 @@ function QrOrganicToken({
   const outerRadius = isCyber ? 0 : (qrStyle === 'sharp' ? 10 : isLuxury ? 20 : 18) * s;
   const innerRadius = isCyber ? 0 : (qrStyle === 'sharp' ? 6 : isLuxury ? 14 : 12) * s;
   const bezelPad = 2 * s;
-  const matrixPad = 1.5 * s;
+  // Quiet zone sólido blanco mínimo equivalente a ~4 módulos: styledQr ya dibuja 4 módulos
+  // blancos dentro del PNG; el padding CSS refuerza un borde blanco puro inalterable.
+  const matrixPad = qrUrl ? Math.max(4, Math.round(size * 0.025)) : Math.max(10, Math.round(size * 0.075));
   const svgSize = Math.max(48, Math.round(size - (bezelPad + matrixPad) * 2));
   const isLight = Boolean(t.light);
   const cut = Math.round(12 * s);
@@ -1293,8 +1295,8 @@ function QrOrganicToken({
           <QRCodeSVG
             value={value}
             size={svgSize}
-            level="H"
-            marginSize={0}
+            level="M"
+            marginSize={4}
             bgColor="#ffffff"
             fgColor={palette.dark}
           />
@@ -1754,8 +1756,8 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
   const priceLabel = texts.cta.trim();
   const isService = brand.promoPrice == null;
 
-  const PHOTO_MAX = (isSquare ? 190 : 335) * s;
-  const dockQrSize = isSquare ? 182 : 186;
+  const PHOTO_MAX = (isSquare ? 158 : 315) * s;
+  const dockQrSize = isSquare ? 202 : 210;
   const resolvedBenefitMode: ResolvedBenefitMode =
     benefitStyle === 'auto' ? (LAYOUT_BENEFIT_MAP[layout] ?? 'bento') : benefitStyle;
   const resolvedDockVariant: Exclude<DockVariant, 'auto'> =
@@ -1955,23 +1957,24 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
     );
   }
 
-  // ═══ PIEZA 3 · INFOGRAFÍA UI SÓLIDA (SIN FOTO · NÚMEROS NEÓN 1, 2, 3) ═══
-  // Diseño UI moderno Dark/Light sólido con números neón gigantes 1, 2, 3 y 3 beneficios.
+  // ═══ PIEZA 3 · INFOGRAFÍA BENTO GRID GLASSMORPHISM (NUMEROS FONDO 01/02/03 OPACITY-10 + ICONOS MASIVOS) ═══
   if (piece === 2) {
-    const isLightUi = Boolean(t.light);
-    const uiBg = isLightUi ? '#f8fafc' : '#090d16';
-    const uiCardBg = isLightUi ? '#ffffff' : '#111827';
-    const uiInk = isLightUi ? '#0f172a' : '#f8fafc';
-    const uiMuted = isLightUi ? '#475569' : '#94a3b8';
-    const uiBorder = isLightUi ? 'rgba(15,23,42,0.1)' : 'rgba(255,255,255,0.1)';
-    const neonNumColor = ensureReadableAccent(t.accent2, isLightUi);
-    const secondaryNeon = ensureReadableAccent(t.accent, isLightUi);
+    const neonNumColor = ensureReadableAccent(t.accent2, false);
+    const secondaryNeon = ensureReadableAccent(t.accent, false);
+    const uiInk = '#f8fafc';
+    const uiMuted = '#cbd5e1';
+    const glassCard: CSSProperties = {
+      background: 'linear-gradient(145deg, rgba(255,255,255,0.085), rgba(255,255,255,0.03))',
+      backdropFilter: 'blur(18px) saturate(140%)',
+      border: '1px solid rgba(255,255,255,0.14)',
+      boxShadow: '0 22px 44px -14px rgba(0,0,0,0.68)',
+    };
 
     const infoItems = [0, 1, 2].map((i) => {
       const b = benefits[i] ?? ['Calidad garantizada de principio a fin', 'Atención directa y sin esperas', 'Ubicación estratégica y despacho ágil'][i];
       const clean = splitBenefit(b).body;
       return {
-        num: String(i + 1),
+        num: `0${i + 1}`,
         title: clean,
         hint: [
           `Respaldo directo de ${cleanPosterCopy(brand.name || 'nuestro equipo')} en cada detalle.`,
@@ -1989,13 +1992,24 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
           height: H,
           flexShrink: 0,
           position: 'relative',
-          background: uiBg,
+          background: 'linear-gradient(155deg, #060a14 0%, #0f172a 54%, #080d1a 100%)',
           color: uiInk,
           fontFamily: boardBodyFont,
           borderRadius: 24 * s,
           overflow: 'hidden',
         }}
       >
+        {/* Capas ambientales sutiles de vidrio esmerilado (sin foto ni fondo blanco plano) */}
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            background:
+              `radial-gradient(420px 260px at 88% 8%, ${t.accent}33, transparent 62%),` +
+              `radial-gradient(400px 260px at 12% 92%, ${t.accent2}2b, transparent 64%)`,
+            pointerEvents: 'none',
+          }}
+        />
         <div
           style={{
             position: 'relative',
@@ -2010,19 +2024,17 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
             gap: 12 * s,
           }}
         >
-          {/* Cabecera UI limpia: logo real o tipografía pura de marca (CERO cubo de iniciales) */}
+          {/* Cabecera Bento Glassmorphism (sin cubo de iniciales) */}
           <div
             style={{
-              background: uiCardBg,
-              border: `1px solid ${uiBorder}`,
-              borderRadius: 18 * s,
+              ...glassCard,
+              borderRadius: 20 * s,
               padding: `${10 * s}px ${16 * s}px`,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
               gap: 12 * s,
               flexShrink: 0,
-              boxShadow: isLightUi ? '0 8px 24px rgba(15,23,42,0.06)' : '0 12px 28px rgba(0,0,0,0.45)',
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 * s, minWidth: 0 }}>
@@ -2035,7 +2047,7 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
                     height: 36 * s,
                     borderRadius: 10 * s,
                     objectFit: 'contain',
-                    background: isLightUi ? '#f1f5f9' : 'rgba(255,255,255,0.06)',
+                    background: 'rgba(255,255,255,0.08)',
                     padding: 3 * s,
                     flexShrink: 0,
                   }}
@@ -2080,9 +2092,9 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
             style={{
               margin: 0,
               fontFamily: `"${boardDisplayFont}", system-ui, sans-serif`,
-              fontSize: (isSquare ? 26 : 32) * s,
+              fontSize: (isSquare ? 26 : 34) * s,
               fontWeight: 900,
-              lineHeight: 1.0,
+              lineHeight: 0.98,
               textTransform: 'uppercase',
               letterSpacing: -0.6 * s,
               color: uiInk,
@@ -2092,7 +2104,7 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
             POR QUÉ ELEGIR <span style={{ color: neonNumColor }}>{cleanPosterCopy(brand.product || brand.name || 'HOY')}</span>
           </p>
 
-          {/* Tres bloques con números neón gigantes 1, 2, 3 */}
+          {/* Bento Grid Glassmorphism: capa de fondo Display 01/02/03 opacity 0.10 + tarjetas sobrepuestas con iconos masivos */}
           <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 10 * s }}>
             {infoItems.map((item, idx) => {
               const rowNeon = idx % 2 === 0 ? neonNumColor : secondaryNeon;
@@ -2101,42 +2113,79 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
                   key={item.num}
                   style={{
                     flex: 1,
-                    background: uiCardBg,
-                    border: `1px solid ${uiBorder}`,
+                    position: 'relative',
+                    overflow: 'hidden',
+                    ...glassCard,
                     borderLeft: `4px solid ${rowNeon}`,
-                    borderRadius: 20 * s,
+                    borderRadius: 22 * s,
                     padding: `${12 * s}px ${16 * s}px`,
                     display: 'flex',
                     alignItems: 'center',
-                    gap: 16 * s,
+                    gap: 15 * s,
                     minHeight: 0,
-                    boxShadow: isLightUi ? '0 8px 20px rgba(15,23,42,0.05)' : `0 10px 26px rgba(0,0,0,0.4), inset 0 0 24px ${rowNeon}0d`,
                   }}
                 >
+                  {/* Número Display gigante en capa de fondo (opacity 0.10) */}
                   <span
+                    aria-hidden="true"
                     style={{
+                      position: 'absolute',
+                      right: 14 * s,
+                      bottom: -14 * s,
                       fontFamily: `"${boardDisplayFont}", system-ui, sans-serif`,
-                      fontSize: (isSquare ? 54 : 66) * s,
+                      fontSize: (isSquare ? 96 : 126) * s,
                       fontWeight: 900,
                       lineHeight: 0.85,
-                      color: rowNeon,
-                      textShadow: isLightUi ? 'none' : `0 0 22px ${rowNeon}66`,
-                      flexShrink: 0,
-                      minWidth: (isSquare ? 36 : 44) * s,
-                      textAlign: 'center',
+                      color: '#ffffff',
+                      opacity: 0.1,
+                      pointerEvents: 'none',
+                      userSelect: 'none',
                     }}
                   >
                     {item.num}
                   </span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ margin: 0, fontSize: (isSquare ? 15 : 17.5) * s, fontWeight: 900, lineHeight: 1.15, color: uiInk }}>
+
+                  {/* Tarjeta sobrepuesta con icono masivo */}
+                  <span
+                    style={{
+                      position: 'relative',
+                      zIndex: 2,
+                      width: (isSquare ? 50 : 62) * s,
+                      height: (isSquare ? 50 : 62) * s,
+                      borderRadius: 18 * s,
+                      background: `linear-gradient(145deg, ${t.accent}, ${t.accent2})`,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                      boxShadow: `0 12px 28px ${t.accent}55`,
+                    }}
+                  >
+                    <GlyphIcon kind={idx} size={(isSquare ? 28 : 34) * s} color={contrastTextOn(t.accent, t.accent2)} />
+                  </span>
+
+                  <div style={{ position: 'relative', zIndex: 2, flex: 1, minWidth: 0 }}>
+                    <span
+                      style={{
+                        display: 'inline-block',
+                        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                        fontSize: 9.5 * s,
+                        fontWeight: 900,
+                        letterSpacing: 1.8 * s,
+                        color: rowNeon,
+                        marginBottom: 2 * s,
+                      }}
+                    >
+                      CLAVE {item.num}
+                    </span>
+                    <p style={{ margin: 0, fontSize: (isSquare ? 15.5 : 18) * s, fontWeight: 900, lineHeight: 1.14, color: uiInk }}>
                       {item.title}
                     </p>
                     <p
                       style={{
                         margin: 0,
                         marginTop: 4 * s,
-                        fontSize: (isSquare ? 11.5 : 12.5) * s,
+                        fontSize: (isSquare ? 11 : 12.5) * s,
                         fontWeight: 600,
                         lineHeight: 1.25,
                         color: uiMuted,
@@ -2159,7 +2208,7 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
-              borderTop: `1px solid ${uiBorder}`,
+              borderTop: '1px solid rgba(255,255,255,0.12)',
               paddingTop: 10 * s,
               flexShrink: 0,
             }}
@@ -2176,10 +2225,10 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
     );
   }
 
-  // ═══ PIEZA 4 · CIERRE DE CONVERSIÓN (LOGO MASIVO + QR MASIVO + CTA DIRECTO · CERO TEXTOS LARGOS) ═══
+  // ═══ PIEZA 4 · CIERRE DE CONVERSIÓN (LOGO MASIVO + QR MASIVO >= 400PX + CTA DIRECTO · CERO TEXTOS LARGOS) ═══
   if (piece === 3) {
-    // QR masivo siempre >= 350x350px reales en exportación tanto en 1:1 como en 9:16
-    const qrMasivo = isSquare ? 226 : Math.round(H * 0.48);
+    // QR masivo siempre >= 400x400px reales en exportación tanto en 1:1 como en 9:16
+    const qrMasivo = isSquare ? 228 : Math.round(H * 0.48);
     const accentInk = ensureReadableAccent(t.accent2, Boolean(t.light));
     const waFormatted = (brand.phoneDisplay || 'WhatsApp Directo').replace(/^[^\p{L}\p{N}+]+/u, '').trim();
 
@@ -2338,7 +2387,7 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
   let body: ReactElement;
   switch (layout) {
     case 'magazine': {
-      // Editorial Full-Bleed: Flexbox vertical estricto que protege al sujeto arriba y evita todo choque con titular o QR
+      // Editorial Full-Bleed: foto al 100% con degradado orgánico profundo abajo (from-slate-900 to-transparent) sin tapar el sujeto principal
       body = (
         <div style={{ position: 'relative', width: '100%', height: '100%', borderRadius: 24 * s, overflow: 'hidden' }}>
           <div style={{ position: 'absolute', inset: 0 }}>
@@ -2349,7 +2398,7 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
               position: 'absolute',
               inset: 0,
               background:
-                'linear-gradient(180deg, rgba(6,8,14,0.28) 0%, rgba(6,8,14,0.04) 24%, rgba(6,8,14,0.58) 46%, rgba(6,8,14,0.92) 76%, rgba(6,8,14,0.98) 100%)',
+                'linear-gradient(to top, #0f172a 0%, rgba(15,23,42,0.92) 34%, rgba(15,23,42,0.52) 56%, rgba(15,23,42,0.12) 78%, transparent 100%)',
             }}
           />
           <div
@@ -2363,7 +2412,7 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
               display: 'flex',
               flexDirection: 'column',
               justifyContent: 'space-between',
-              gap: 10 * s,
+              gap: 8 * s,
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
@@ -2371,8 +2420,8 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
               {priceOverlay && <PricePill brand={brand} t={t} s={s} />}
             </div>
             <div style={{ flex: 1, minHeight: isSquare ? 8 * s : 110 * s }} />
-            <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 8 * s }}>
-              <Headline texts={texts} t={{ ...t, light: false, text: '#ffffff' }} s={s} size={isSquare ? 42 : 48} align="left" styleId={fontStyle} scale={hs} fullWidth />
+            <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 7 * s }}>
+              <Headline texts={texts} t={{ ...t, light: false, text: '#ffffff' }} s={s} size={isSquare ? 38 : 48} align="left" styleId={fontStyle} scale={hs} fullWidth />
               <SubHead text={texts.sub} t={t} s={s} align="left" color="rgba(255,255,255,0.9)" />
               {showBenefits && benefits.length > 0 && (
                 <BenefitsShowcase items={benefits} t={{ ...t, light: false, text: '#ffffff' }} s={s} mode={benefitStyle === 'auto' ? 'editorial' : resolvedBenefitMode} align="left" />
@@ -2406,7 +2455,7 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
       // Corte Diagonal Fraccionado Flexbox: banda fotográfica superior separada estrictamente de titular + QR
       body = (
         <div style={{ position: 'relative', width: '100%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 8 * s }}>
-          <div style={{ position: 'relative', marginLeft: -pad, marginRight: -pad, marginTop: -pad, height: isSquare ? 132 : 272, flexShrink: 0, overflow: 'visible' }}>
+          <div style={{ position: 'relative', marginLeft: -pad, marginRight: -pad, marginTop: -pad, height: isSquare ? 104 : 258, flexShrink: 0, overflow: 'visible' }}>
             <div
               style={{
                 width: '100%',
@@ -2417,7 +2466,7 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
               }}
             >
               <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
-              <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(6,8,14,0.34), transparent 36%, rgba(6,8,14,0.48) 100%)' }} />
+              <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(15,23,42,0.34), transparent 38%, rgba(15,23,42,0.52) 100%)' }} />
             </div>
             <div style={{ position: 'absolute', top: pad, left: pad, right: pad, display: 'flex', justifyContent: 'space-between', alignItems: 'center', zIndex: 3 }}>
               <Badge text={badge} t={t} s={s} align="left" />
@@ -2442,7 +2491,7 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
             )}
           </div>
           <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 6 * s, zIndex: 4 }}>
-            <Headline texts={texts} t={t} s={s} size={isSquare ? 38 : 44} align="left" styleId={fontStyle} scale={hs} />
+            <Headline texts={texts} t={t} s={s} size={isSquare ? 36 : 44} align="left" styleId={fontStyle} scale={hs} />
             {contentBlocks('left')}
             {masterDock}
           </div>
@@ -3062,7 +3111,7 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
     }
 
     case 'immersive': {
-      // V22 · Tipografía Inmersiva Flexbox: protege área focal superior de la foto y evita todo cruce entre titular, eco y QR
+      // V25 · Tipografía Inmersiva sin mixBlendMode: degradado orgánico inferior Slate-900 a transparente
       const blendWord = (cleanPosterCopy(brand.product || brand.name || 'IMPULSO').split(/\s+/)[0] || 'OFERTA').toUpperCase();
       body = (
         <div style={{ position: 'relative', width: '100%', height: '100%', borderRadius: 24 * s, overflow: 'hidden' }}>
@@ -3074,10 +3123,10 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
               position: 'absolute',
               inset: 0,
               background:
-                'linear-gradient(180deg, rgba(6,8,14,0.34) 0%, rgba(6,8,14,0.12) 28%, rgba(6,8,14,0.64) 52%, rgba(6,8,14,0.95) 82%, rgba(6,8,14,0.98) 100%)',
+                'linear-gradient(to top, #0f172a 0%, rgba(15,23,42,0.92) 34%, rgba(15,23,42,0.52) 56%, rgba(15,23,42,0.14) 78%, transparent 100%)',
             }}
           />
-          {/* Capa tipográfica inmersiva interactuando con la fotografía */}
+          {/* Eco tipográfico translúcido seguro en exportación sin mixBlendMode */}
           <p
             aria-hidden="true"
             style={{
@@ -3092,9 +3141,7 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
               fontWeight: 900,
               letterSpacing: -3 * s,
               lineHeight: 0.85,
-              color: '#ffffff',
-              opacity: 0.22,
-              mixBlendMode: 'overlay',
+              color: 'rgba(255,255,255,0.08)',
               transform: 'rotate(-4deg)',
               whiteSpace: 'nowrap',
               pointerEvents: 'none',
@@ -3113,7 +3160,7 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
               display: 'flex',
               flexDirection: 'column',
               justifyContent: 'space-between',
-              gap: 10 * s,
+              gap: 8 * s,
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
@@ -3121,8 +3168,8 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
               {priceOverlay && <PricePill brand={brand} t={t} s={s} />}
             </div>
             <div style={{ flex: 1, minHeight: isSquare ? 8 * s : 110 * s }} />
-            <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 8 * s }}>
-              <Headline texts={texts} t={{ ...t, light: false, text: '#ffffff' }} s={s} size={isSquare ? 42 : 50} align="left" styleId={fontStyle} scale={hs} fullWidth longShadow />
+            <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 7 * s }}>
+              <Headline texts={texts} t={{ ...t, light: false, text: '#ffffff' }} s={s} size={isSquare ? 38 : 50} align="left" styleId={fontStyle} scale={hs} fullWidth longShadow />
               <SubHead text={texts.sub} t={t} s={s} align="left" color="rgba(255,255,255,0.9)" />
               {showBenefits && benefits.length > 0 && (
                 <BenefitsShowcase

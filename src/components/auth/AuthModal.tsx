@@ -7,7 +7,12 @@ import { ImpulsoLogo } from '../ui/ImpulsoLogo';
 import { useToast } from '../ui/Toast';
 import { friendlyError } from '../../services/supabase';
 import { ensureSignedInAfterSignUp, signIn, signOut, signUpMerchant, validateInviteCode } from '../../services/profile.service';
-import { authenticateWithPasskey, isWebAuthnSupported, WEBAUTHN_CANCELLED_MSG } from '../../services/WebAuthnService';
+import {
+  authenticateWithPasskey,
+  isWebAuthnSupported,
+  WEBAUTHN_CANCELLED_MSG,
+  WEBAUTHN_CROSS_DEVICE_MSG,
+} from '../../services/WebAuthnService';
 import { cx } from '../../utils/format';
 
 interface AuthModalProps {
@@ -56,8 +61,13 @@ export function AuthModal({ open, onClose, onAuthed, onOpenLegal }: AuthModalPro
       onClose();
     } catch (err) {
       const msg = friendlyError(err);
-      if (msg === WEBAUTHN_CANCELLED_MSG || /cancel/i.test(msg)) {
-        toast.info(WEBAUTHN_CANCELLED_MSG);
+      if (
+        msg === WEBAUTHN_CROSS_DEVICE_MSG ||
+        msg === WEBAUTHN_CANCELLED_MSG ||
+        /cancel|NotAllowed|no hay llaves|equipo nuevo|dispositivo/i.test(msg)
+      ) {
+        setErrorMsg(WEBAUTHN_CROSS_DEVICE_MSG);
+        toast.info('Ingresa con tu contraseña para continuar o vincular este dispositivo.');
       } else {
         setErrorMsg(msg);
       }
@@ -299,7 +309,7 @@ export function AuthModal({ open, onClose, onAuthed, onOpenLegal }: AuthModalPro
               <Loader2 className="h-5 w-5 animate-spin" />
             ) : mode === 'login' ? (
               <>
-                <LogIn className="h-5 w-5" /> Entrar
+                <LogIn className="h-5 w-5" /> Ingresar con Contraseña
               </>
             ) : (
               <>
