@@ -1019,18 +1019,18 @@ Recibirás la ESTRATEGIA de la campaña (rubro, promesa de valor, tema y layout)
    "slide3_cta": "llamado a la acción urgente con gatillo de escasez"
  },
  "whatsappStatusSequence": {
-   "status1": "Estado de WhatsApp de la mañana: curiosidad o problema (máx 2 líneas)",
-   "status2": "texto que acompaña la imagen de la oferta: revelación + precio o servicio (máx 3 líneas)",
-   "status3": "Estado de la tarde/noche: escasez + prueba social + 👉 link"
+   "status1": "Estado de WhatsApp de la mañana usando *negrita* y _cursiva_ nativas (máx 3 líneas)",
+   "status2": "Estado del mediodía con *precio o beneficio clave* en negrita y _llamado sutil_ en cursiva (máx 4 líneas)",
+   "status3": "Estado de cierre de tarde/noche con *urgencia/escasez* + _garantía_ + 👉 link"
  },
  "socialMediaCopy": {
-   "pas": "fórmula PAS (Problema - Agitación - Solución) para Facebook/Instagram del municipio, máx 5 líneas, con emojis",
-   "aida": "fórmula AIDA flash (Atención - Interés - Deseo - Acción) para grupos de WhatsApp y clasificados, máx 5 líneas, con emojis"
+   "pas": "copy completo para Instagram/Facebook con fórmula PAS, SALTOS DE LÍNEA LIMPIOS entre párrafos, y una nube de 6 a 10 #Hashtags relevantes al final (municipio, rubro y producto)",
+   "aida": "copy optimizado EXCLUSIVAMENTE para WhatsApp usando sintaxis real (*negrita*, _cursiva_), saltos limpios y llamado directo al chat"
  },
  "videoReelScript": {
-   "t0_3": "segundos 0-3: plano visual exacto y frase gancho hablada",
-   "t3_10": "segundos 3-10: demostración del producto o servicio + beneficio",
-   "t10_15": "segundos 10-15: llamado a la acción mostrando dirección y WhatsApp"
+   "t0_3": "segundos 0-3 (GANCHO VISUAL + FRASE EXACTA PARA LEER A CÁMARA EN TELEPROMPTER)",
+   "t3_10": "segundos 3-10 (DEMOSTRACIÓN + BENEFICIO PRINCIPAL PARA LEER EN TELEPROMPTER)",
+   "t10_15": "segundos 10-15 (CIERRE URGENTE + UBICACIÓN + LLAMADO A WHATSAPP PARA TELEPROMPTER)"
  },
  "salesClosingTemplates": {
    "priceReply": "respuesta lista cuando el cliente pregunta ¿precio?: da el precio o invita a cotizar y ofrece combo/domicilio",
@@ -1679,6 +1679,16 @@ export function synthesizeCampaign(input: CampaignInput, art: ArtDirection): Mar
   const b2 = rotate(niche.benefits, seed + 4);
   const hook = niche.hook;
 
+  const hashtags = [
+    `#${place.replace(/\s+/g, '')}`,
+    '#Guavio',
+    '#Cundinamarca',
+    '#ComprasLocales',
+    '#ApoyaLoNuestro',
+    `#${brand.replace(/[^\p{L}\p{N}]/gu, '').slice(0, 18) || 'NegocioLocal'}`,
+    '#PromocionHoy',
+  ].join(' ');
+
   return {
     industryType: art.industryType,
     themeId: art.themeId,
@@ -1690,9 +1700,9 @@ export function synthesizeCampaign(input: CampaignInput, art: ArtDirection): Mar
     // 🎯 V21 · Cero emojis en el afiche: el motor sintético limpia los
     // pictográficos de nicho (los íconos los dibuja el sistema vectorial).
     benefits: [stripPictographics(b0), stripPictographics(b1), stripPictographics(b2)],
-    cta: isService ? '💬 Agenda hoy por WhatsApp' : '👉 Pide el tuyo HOY por WhatsApp',
+    cta: isService ? 'Agenda hoy por WhatsApp' : 'Pide el tuyo HOY por WhatsApp',
     priceLabel: isService
-      ? input.priceLabel.trim() || `💬 ${art.productTitle} · Cotiza sin compromiso`
+      ? input.priceLabel.trim() || `${art.productTitle} · Cotiza sin compromiso`
       : null,
     imagePromptEn: art.imagePromptEn,
     visualHooks: {
@@ -1703,18 +1713,18 @@ export function synthesizeCampaign(input: CampaignInput, art: ArtDirection): Mar
       slide3_cta: `Últimos cupos de hoy 👉 Escríbenos al WhatsApp de ${brand}`,
     },
     whatsappStatusSequence: {
-      status1: `🔥 HOY sí hay forma de conseguir ${product.toLowerCase()} como es debido. ${brand} en ${place} lo tiene listo para ti 👀 Escribe ya y pregunta por la promoción del día: te respondemos en minutos`,
-      status2: `${plain} ${highlight}${price}${normalTxt}\n✅ ${b0.replace(/^[^\p{L}\p{N}]+/u, '')}\n✅ ${b2.replace(/^[^\p{L}\p{N}]+/u, '')}\n📍 ${addr}`,
-      status3: `⏰ Últimas horas con esta promo de ${brand} en ${place}.\n${b1.replace(/^[^\p{L}\p{N}]+/u, '')} — y la gente ya está escribiendo 📲\n👉 Escríbenos antes que se acabe`,
+      status1: `🔥 *HOY en ${brand} (${place}):* ${product}${price}.\n_${hook.charAt(0).toUpperCase()}${hook.slice(1)}._\n📲 Escríbenos ahora y pregunta por tu cupo`,
+      status2: `*${plain.toUpperCase()} ${highlight.toUpperCase()}*${price}${normalTxt}\n\n✅ *${b0.replace(/^[^\p{L}\p{N}]+/u, '')}*\n✅ *${b2.replace(/^[^\p{L}\p{N}]+/u, '')}*\n\n📍 _${addr}_`,
+      status3: `⏳ *Últimas horas hoy en ${brand}* (${place}).\n_${b1.replace(/^[^\p{L}\p{N}]+/u, '')}_ — escribe ya antes que se acabe 📲`,
     },
     socialMediaCopy: {
-      pas: `😤 Problema: buscar buen ${product.toLowerCase()} en ${place} termina en decepciones.\n🔥 Agitación: pierdes tiempo, plata y paciencia con mediocridades.\n✅ Solución: ${brand}. ${hook.charAt(0).toUpperCase()}${hook.slice(1)} — ${b0.replace(/^[^\p{L}\p{N}]+/u, '').toLowerCase()}.\n📍 ${addr} · ${isService ? 'Cotiza hoy' : 'Pide hoy'} 👉 WhatsApp`,
-      aida: `⚡ ATENCIÓN: ${plain} ${highlight}${price}${normalTxt}.\n💡 INTERÉS: ${hook.charAt(0).toUpperCase()}${hook.slice(1)}.\n❤️ DESEO: ${b1.replace(/^[^\p{L}\p{N}]+/u, '')}.\n👉 ACCIÓN: escribe HOY al WhatsApp de ${brand} · 📍 ${addr}`,
+      pas: `✨ ${plain} ${highlight}${price}${normalTxt}\n\n${hook.charAt(0).toUpperCase()}${hook.slice(1)} en *${brand}*.\n\n• ${b0.replace(/^[^\p{L}\p{N}]+/u, '')}\n• ${b1.replace(/^[^\p{L}\p{N}]+/u, '')}\n• ${b2.replace(/^[^\p{L}\p{N}]+/u, '')}\n\n📍 ${addr} · ${place}\n📲 ${isService ? 'Cotiza hoy sin costo por WhatsApp' : 'Aparta el tuyo HOY por WhatsApp'}\n\n${hashtags}`,
+      aida: `⚡ *${plain.toUpperCase()} ${highlight.toUpperCase()}*${price}${normalTxt}\n\n_${hook.charAt(0).toUpperCase()}${hook.slice(1)}._\n✅ *${b0.replace(/^[^\p{L}\p{N}]+/u, '')}*\n✅ *${b1.replace(/^[^\p{L}\p{N}]+/u, '')}*\n\n📍 ${addr}\n👉 *Escríbenos AHORA a WhatsApp* y aparta hoy mismo`,
     },
     videoReelScript: {
-      t0_3: `Plano cercano del ${product.toLowerCase()} con luz cálida. Voz: "¿Buscas ${product.toLowerCase()} de verdad en ${place}?"`,
-      t3_10: `Demostración: mostramos ${b0.replace(/^[^\p{L}\p{N}]+/u, '').toLowerCase()} y ${b2.replace(/^[^\p{L}\p{N}]+/u, '').toLowerCase()}. Voz: "Esto hace la diferencia y aquí lo comprobas."`,
-      t10_15: `Voz: "${plain} ${highlight}. Escríbenos hoy, ${addr}. WhatsApp en pantalla 👉" + logo de ${brand}`,
+      t0_3: `[PRIMER PLANO] "¿Buscas ${product.toLowerCase()} de verdad en ${place}? Mira esto que llegó hoy a ${brand}…"`,
+      t3_10: `[MUESTRA EL PRODUCTO] "En ${brand} tienes ${b0.replace(/^[^\p{L}\p{N}]+/u, '').toLowerCase()} y ${b2.replace(/^[^\p{L}\p{N}]+/u, '').toLowerCase()}${price}."`,
+      t10_15: `[CIERRE A CÁMARA] "${plain} ${highlight}. Escríbenos ya al WhatsApp de ${brand} o encuéntranos en ${addr}."`,
     },
     salesClosingTemplates: {
       priceReply: isService
@@ -1727,10 +1737,10 @@ export function synthesizeCampaign(input: CampaignInput, art: ArtDirection): Mar
     waLine2Msg: niche.wa[1],
     waLine3Msg: niche.wa[2],
     dispatchVersions: [
-      `${plain} ${highlight}${price}${normalTxt} ✨\n${hook.charAt(0).toUpperCase()}${hook.slice(1)}: eso garantiza ${brand}.\n✅ ${b0}\n✅ ${b2}\n📍 ${addr} · ${place}\n👉 Escríbenos: WhatsApp`,
-      `🚀 ${product}${price} en ${place}.\n${b1}\n${b2}\nCupos de hoy limitados — escribe YA 👉 WhatsApp`,
-      `👀 ¿Ya conociste ${brand}?\n${b0.replace(/^[^\p{L}\p{N}]+/u, '')} y atención de primera.\n${isService ? 'Cotiza sin compromiso' : 'Pide a domicilio'} 🛵\n📍 ${addr} · 👉 WhatsApp`,
-      `🔥 RECOMENDADO EN ${place.toUpperCase()}: ${product}${price}${normalTxt}.\n${b2}\n📍 ${addr}\nEscríbenos ahora y asegúrate el tuyo 👉 WhatsApp`,
+      `*${plain} ${highlight}*${price}${normalTxt}\n_${hook.charAt(0).toUpperCase()}${hook.slice(1)} en ${brand}._\n✅ ${b0}\n✅ ${b2}\n📍 ${addr} · *Pide por WhatsApp*`,
+      `🚀 *${product}*${price} en _${place}_.\n${b1}\n${b2}\n⏳ *Cupos limitados hoy* — escribe YA 👉 WhatsApp`,
+      `👀 ¿Ya conociste *${brand}*?\n_${b0.replace(/^[^\p{L}\p{N}]+/u, '')}_ y atención de primera.\n📍 ${addr} · 👉 *Escríbenos*`,
+      `🔥 *RECOMENDADO EN ${place.toUpperCase()}:* ${product}${price}${normalTxt}.\n_${b2}_\n📍 ${addr} · 👉 *WhatsApp directo*`,
     ],
   };
 }

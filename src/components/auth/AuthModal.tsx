@@ -6,7 +6,7 @@ import { ModalShell } from '../ui/ModalShell';
 import { useToast } from '../ui/Toast';
 import { friendlyError } from '../../services/supabase';
 import { ensureSignedInAfterSignUp, signIn, signOut, signUpMerchant, validateInviteCode } from '../../services/profile.service';
-import { authenticateWithPasskey, isWebAuthnSupported } from '../../services/WebAuthnService';
+import { authenticateWithPasskey, isWebAuthnSupported, WEBAUTHN_CANCELLED_MSG } from '../../services/WebAuthnService';
 import { cx } from '../../utils/format';
 
 interface AuthModalProps {
@@ -54,7 +54,12 @@ export function AuthModal({ open, onClose, onAuthed, onOpenLegal }: AuthModalPro
       onAuthed();
       onClose();
     } catch (err) {
-      setErrorMsg(friendlyError(err));
+      const msg = friendlyError(err);
+      if (msg === WEBAUTHN_CANCELLED_MSG || /cancel/i.test(msg)) {
+        toast.info(WEBAUTHN_CANCELLED_MSG);
+      } else {
+        setErrorMsg(msg);
+      }
     } finally {
       setLoading(false);
     }
@@ -137,7 +142,12 @@ export function AuthModal({ open, onClose, onAuthed, onOpenLegal }: AuthModalPro
         }
       }
     } catch (err) {
-      setErrorMsg(friendlyError(err));
+      const msg = friendlyError(err);
+      if (msg === WEBAUTHN_CANCELLED_MSG || /cancel/i.test(msg)) {
+        toast.info(WEBAUTHN_CANCELLED_MSG);
+      } else {
+        setErrorMsg(msg);
+      }
     } finally {
       setLoading(false);
     }

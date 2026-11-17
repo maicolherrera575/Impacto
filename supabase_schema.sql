@@ -1219,8 +1219,8 @@ begin
   if p_reason not in ('no_existe', 'precio_enganoso', 'cerrado', 'estafa', 'otro') then
     raise exception 'Motivo de reporte inválido';
   end if;
-  if v_detail is null or char_length(v_detail) < 12 then
-    raise exception 'DETALLE_REQUERIDO: explica brevemente lo ocurrido (mínimo 12 caracteres) para evitar reportes falsos o por envidia';
+  if v_detail is null or char_length(v_detail) < 12 or v_detail ~ '(.)\1{5,}' then
+    raise exception 'DETALLE_REQUERIDO: explica brevemente lo ocurrido (mínimo 12 caracteres reales sin spam) para evitar reportes falsos o por envidia';
   end if;
 
   select * into v_offer from public.offers where id = p_offer_id for update;

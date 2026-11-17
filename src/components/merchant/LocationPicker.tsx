@@ -8,7 +8,7 @@ import { useToast } from '../ui/Toast';
 import type { Profile } from '../../types';
 import { updateProfileLocation } from '../../services/profile.service';
 import { friendlyError } from '../../services/supabase';
-import { GACHETA_CENTER, centroDeMunicipio } from '../../utils/geo';
+import { ACCURACY_LIMIT_M, EXACT_GPS_OPTIONS, EXACT_GPS_WARNING, GACHETA_CENTER, centroDeMunicipio } from '../../utils/geo';
 
 interface LocationPickerProps {
   open: boolean;
@@ -107,26 +107,24 @@ export function LocationPicker({ open, onClose, profile, onProfileChange }: Loca
     navigator.geolocation.getCurrentPosition(
       (p) => {
         setLocating(false);
-        if (p.coords.accuracy > 1000) {
-          setGpsWarning(
-            `Tu navegador entregó una señal aproximada (±${Math.round(p.coords.accuracy)} m). Ajusta el pin manualmente en el mapa o activa "Ubicación exacta".`,
-          );
-          toast.info('Señal aproximada detectada: ajusta el pin manualmente en tu cuadra');
+        if (p.coords.accuracy > ACCURACY_LIMIT_M) {
+          setGpsWarning(EXACT_GPS_WARNING);
+          toast.info(EXACT_GPS_WARNING);
           return;
         }
         setLat(p.coords.latitude);
         setLng(p.coords.longitude);
-        toast.success(`📍 GPS exacto (±${Math.round(p.coords.accuracy)} m). Ajusta el pin si hace falta.`);
+        toast.success(`📍 GPS exacto (±${Math.round(p.coords.accuracy)} m). Arrastra el pin si hace falta.`);
       },
       (err) => {
         setLocating(false);
         const msg =
-          err.code === err.PERMISSION_DENIED
+          err.code === 1
             ? 'Permiso de ubicación bloqueado. Actívalo en el candado 🔒 del navegador o toca el mapa manualmente.'
             : 'No pudimos obtener señal GPS exacta ahora. Toca o arrastra el pin en el mapa hasta tu local.';
         setErrorMsg(msg);
       },
-      { enableHighAccuracy: true, timeout: 10_000, maximumAge: 0 },
+      EXACT_GPS_OPTIONS,
     );
   }
 

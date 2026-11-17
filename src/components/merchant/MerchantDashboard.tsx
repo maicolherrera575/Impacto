@@ -40,6 +40,7 @@ import {
   PASSKEY_LINKED_SUCCESS_MSG,
   revokePasskey,
   verifyPasswordAndPreparePasskey,
+  WEBAUTHN_CANCELLED_MSG,
 } from '../../services/WebAuthnService';
 import type { PasskeyDevice, PreparedPasskeyEnrollment, WebAuthnServerMode } from '../../services/WebAuthnService';
 import { sha256Hex } from '../../utils/hash';
@@ -129,7 +130,7 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
     void refreshPasskeys();
   }, [refreshPasskeys]);
 
-  async function finalizePreparedPasskey(prepared: PreparedPasskeyEnrollment) {
+  async function finalizePreparedPasskey(prepared: PreparedPasskeyEnrollment, isManualRetry = false) {
     setPasskeyBusy(true);
     setVaultError('');
     try {
@@ -142,10 +143,17 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
       await refreshPasskeys();
     } catch (err) {
       if (err instanceof Error && err.message === 'GESTURE_OR_CANCELLED') {
-        setPreparedPasskey(prepared);
-        setVaultError(
-          'Contraseña confirmada ✅. Toca el botón verde "Escanear Huella / FaceID ahora" para abrir el lector biométrico sin demora del navegador.',
-        );
+        if (isManualRetry) {
+          setPreparedPasskey(null);
+          setVaultPwdPrompt(false);
+          setVaultPassword('');
+          toast.info(WEBAUTHN_CANCELLED_MSG);
+        } else {
+          setPreparedPasskey(prepared);
+          setVaultError(
+            'Contraseña confirmada ✅. Toca el botón verde "Escanear Huella ahora" para abrir el lector biométrico.',
+          );
+        }
       } else {
         setPreparedPasskey(null);
         const msg = friendlyError(err);
@@ -905,9 +913,8 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
                 <p className="flex items-center gap-1.5 text-sm font-bold text-white">
                   <Fingerprint className="h-4 w-4 text-impulso-mint" /> Acceso con Huella / FaceID
                 </p>
-                <p className="mt-1 text-xs leading-relaxed text-slate-400">
-                  Vincula la clave criptográfica de este celular o PC. Si cambias de equipo, el acceso biométrico queda
-                  bloqueado hasta que entres con contraseña y registres el nuevo.
+                <p className="mt-1 text-xs leading-relaxed text-slate-300">
+                  🔒 Tu huella o rostro se vincula de forma segura a <strong className="text-white">ESTE dispositivo</strong>, sin guardar tus datos biométricos en la nube. Si cambias de celular o computador, solo ingresa con tu contraseña y vuelve a vincular tu nuevo equipo aquí.
                 </p>
               </div>
               <span className="shrink-0 rounded-full border border-impulso-emerald/30 bg-impulso-emerald/10 px-2.5 py-1 text-[10px] font-extrabold text-impulso-mint">
@@ -974,6 +981,7 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
                               setVaultPwdPrompt(false);
                               setVaultPassword('');
                               setVaultError('');
+                              toast.info(WEBAUTHN_CANCELLED_MSG);
                             }}
                             className="pressable rounded-xl border border-white/10 py-2.5 text-xs font-bold text-slate-400"
                           >
@@ -982,7 +990,7 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
                           <button
                             type="button"
                             disabled={passkeyBusy}
-                            onClick={() => void finalizePreparedPasskey(preparedPasskey)}
+                            onClick={() => void finalizePreparedPasskey(preparedPasskey, true)}
                             className="pressable flex items-center justify-center gap-1.5 rounded-xl bg-impulso-emerald py-2.5 text-xs font-extrabold text-slate-950 disabled:opacity-50"
                           >
                             {passkeyBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Fingerprint className="h-3.5 w-3.5" />}

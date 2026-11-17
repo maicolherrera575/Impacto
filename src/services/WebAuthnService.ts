@@ -261,6 +261,8 @@ export interface PreparedPasskeyEnrollment {
 export const PASSKEY_LINKED_SUCCESS_MSG =
   'Huella vinculada exitosamente a este dispositivo. Si cambias de equipo, inicia sesión con tu contraseña para vincular el nuevo.';
 
+export const WEBAUTHN_CANCELLED_MSG = 'Autenticación cancelada. Puedes seguir usando tu contraseña.';
+
 // ── Validación de contraseña previa + registro WebAuthn (navigator.credentials.create) ───
 
 /**
@@ -498,9 +500,7 @@ export async function authenticateWithPasskey(email: string): Promise<void> {
     });
   } catch (err) {
     if (err instanceof DOMException && err.name === 'NotAllowedError') {
-      throw new Error(
-        'Este celular no tiene vinculada la llave biométrica de tu cuenta (o cancelaste la huella). Si cambiaste de celular, entra con tu contraseña y registra este dispositivo.',
-      );
+      throw new Error(WEBAUTHN_CANCELLED_MSG);
     }
     throw err;
   }

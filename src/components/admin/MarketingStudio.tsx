@@ -42,7 +42,7 @@ import {
   AFFICHE_THEMES,
   AFFICHE_TYPOS,
 } from './AfficheArtboard';
-import type { AfficheFormat, AfficheLayout, AffichePiece, AfficheProps, BenefitPresentation } from './AfficheArtboard';
+import type { AfficheFormat, AfficheLayout, AffichePiece, AfficheProps, BenefitPresentation, DockVariant } from './AfficheArtboard';
 import { useToast } from '../ui/Toast';
 import { cx, formatCOP } from '../../utils/format';
 import { waLink } from '../../utils/whatsapp';
@@ -241,10 +241,10 @@ const QR_MODES: Array<{ id: QrMode; icon: string; title: string; hint: string }>
 
 /** Leyenda del QR + indicador de la pieza 4 según el destino elegido. */
 const QR_META: Record<QrMode, { label: string; hint: string }> = {
-  wa: { label: '📱 ESCANEA EL QR', hint: 'Escanea para ir a nuestro WhatsApp' },
-  perfil: { label: '📍 ESCANEA: VER LOCAL, MAPA Y OFERTAS', hint: 'Escanea para ver nuestra ubicación y ofertas en Impulso' },
-  oferta: { label: '⚡ ESCANEA Y APARTA TU CUPO', hint: 'Escanea y aparta tu cupo al instante en Impulso' },
-  externo: { label: '🌐 ESCANEA: VISITA NUESTRO ENLACE', hint: 'Escanea para visitar nuestra página o Instagram oficial' },
+  wa: { label: 'Escanea y Cotiza', hint: 'Escanea para ir directo a nuestro WhatsApp' },
+  perfil: { label: 'Ver Perfil y Ofertas', hint: 'Escanea para ver nuestra ubicación y ofertas en Impulso' },
+  oferta: { label: 'Aparta tu Cupo Hoy', hint: 'Escanea y aparta tu cupo al instante en Impulso' },
+  externo: { label: 'Visita Nuestro Enlace', hint: 'Escanea para visitar nuestra página o Instagram oficial' },
 };
 
 /** V14 · Redes sociales objetivo del lanzador en 1 clic. */
@@ -326,9 +326,10 @@ interface MktDraft {
   fontIdx?: number;
   /** 🔍 V18: escala del titular guardada en el borrador (0.8–1.5). */
   headlineScale?: number;
-  /** 🎨 V19: estilo dinámico del QR y presentación no repetitiva de beneficios. */
+  /** 🎨 V19/V21: estilo dinámico del QR, presentación de beneficios y geometría del dock. */
   qrStyle?: QrStyle;
   benefitStyle?: BenefitPresentation;
+  dockVariant?: DockVariant;
   socialMode?: SocialMode;
   igFormat?: 'feed' | 'historia';
 }
@@ -439,6 +440,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
   const [qrMode, setQrMode] = useState<QrMode>('wa');
   const [qrStyle, setQrStyle] = useState<QrStyle>('rounded');
   const [benefitStyle, setBenefitStyle] = useState<BenefitPresentation>('auto');
+  const [dockVariant, setDockVariant] = useState<DockVariant>('auto');
   const [customWaGreeting, setCustomWaGreeting] = useState('');
   const [externalUrl, setExternalUrl] = useState('');
 
@@ -450,7 +452,8 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
   /** Refs de los 2 artboards dedicados al lanzador (story 9:16 y square 1:1). */
   const socialRefs = useRef<{ story: HTMLDivElement | null; square: HTMLDivElement | null }>({ story: null, square: null });
 
-  // ── V20 · VARIACIÓN INFINITA GARANTIZADA: jamás repetir tema, layout, fuente, beneficios, QR o foto ──
+  // ── V21 · HIPER-VARIABILIDAD COHERENTE: alterna entre 3 arquetipos distintos y nunca repite ──
+  const lastStyleGroupRef = useRef<0 | 1 | 2>(0);
   const lastThemeIdxRef = useRef(themeIdx);
   const lastLayoutIdxRef = useRef<Layout>(layout);
   const lastFontIdxRef = useRef(fontIdx);
@@ -543,6 +546,9 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     if (d.benefitStyle === 'auto' || d.benefitStyle === 'badges' || d.benefitStyle === 'bento' || d.benefitStyle === 'editorial' || d.benefitStyle === 'ribbons') {
       setBenefitStyle(d.benefitStyle);
     }
+    if (d.dockVariant === 'auto' || d.dockVariant === 'corner' || d.dockVariant === 'centered' || d.dockVariant === 'glass') {
+      setDockVariant(d.dockVariant);
+    }
     if (d.socialMode === 'wa' || d.socialMode === 'ig' || d.socialMode === 'fb' || d.socialMode === 'tt') setSocialMode(d.socialMode);
     if (d.igFormat === 'feed' || d.igFormat === 'historia') setIgFormat(d.igFormat);
     draftReadyRef.current = true;
@@ -581,6 +587,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       qrMode,
       qrStyle,
       benefitStyle,
+      dockVariant,
       customWaGreeting,
       externalUrl,
       customPhoto,
@@ -591,7 +598,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       socialMode,
       igFormat,
     });
-  }, [mode, merchantId, offerId, extName, extSlogan, extProduct, extNormalPrice, extPromoPrice, extAddress, extUrl, lines, briefText, priceMode, focus, detectedCategory, texts, themeIdx, format, layout, piece, badgeMode, badgeCustom, showPrice, showBenefits, showQr, qrMode, qrStyle, benefitStyle, customWaGreeting, externalUrl, customPhoto, photoZoom, photoPosY, fontIdx, headlineScale, socialMode, igFormat]);
+  }, [mode, merchantId, offerId, extName, extSlogan, extProduct, extNormalPrice, extPromoPrice, extAddress, extUrl, lines, briefText, priceMode, focus, detectedCategory, texts, themeIdx, format, layout, piece, badgeMode, badgeCustom, showPrice, showBenefits, showQr, qrMode, qrStyle, benefitStyle, dockVariant, customWaGreeting, externalUrl, customPhoto, photoZoom, photoPosY, fontIdx, headlineScale, socialMode, igFormat]);
 
   /** 🧹 Empieza el estudio desde cero (borra el autoguardado). */
   function clearAllDraft(): void {
@@ -611,7 +618,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     setPriceMode('precio');
     setFocus('remate');
     setDetectedCategory('');
-    setTexts({ plain: '', highlight: '', sub: '', benefits: ['', '', ''], cta: '', priceLabel: '💬 Cotiza gratis por WhatsApp' });
+    setTexts({ plain: '', highlight: '', sub: '', benefits: ['', '', ''], cta: '', priceLabel: 'Cotiza sin costo · WhatsApp' });
     setThemeIdx(1);
     setFormat('story');
     setLayout('bento');
@@ -624,13 +631,14 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     setQrMode('wa');
     setQrStyle('rounded');
     setBenefitStyle('auto');
+    setDockVariant('auto');
     setCustomWaGreeting('');
     setExternalUrl('');
     setCustomPhoto(null);
     setPhotoZoom(1);
     setPhotoPosY(0.5);
     setFontIdx(0);
-    setHeadlineScale(1.15);
+    setHeadlineScale(1.2);
     setSocialMode('wa');
     setIgFormat('feed');
     setCampaign(null);
@@ -779,16 +787,32 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
 
   const primaryLink = lineLinks[0] || brand.url;
 
-  // ── V13 · Destino del QR según el selector (WhatsApp / Perfil / Oferta / Externo) ──
+  // ── V21.0 · Orquestación total del destino del Código QR ──
+  const PUBLIC_APP_URL = 'https://impacto-tawny.vercel.app/';
   const qrTarget = useMemo<string>(() => {
-    const origin = `${window.location.origin}${window.location.pathname}`;
-    if (qrMode === 'perfil' && mode === 'plataforma' && merchantId) return `${origin}?comercio=${merchantId}`;
-    if (qrMode === 'oferta' && offerId) return `${origin}?oferta=${offerId}`;
-    if (qrMode === 'externo') return externalUrl.trim() || primaryLink;
-    // wa (default): wa.me de la Línea 1 con el mensaje inicial editable.
-    const num = lines[0].number.trim() || (mode === 'plataforma' ? merchants.find((m) => m.id === merchantId)?.whatsapp ?? '' : (/wa\.me\/(\d+)/.exec(extUrl)?.[1] ?? ''));
+    const publicBase =
+      window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+        ? PUBLIC_APP_URL
+        : `${window.location.origin}${window.location.pathname}`;
+    if (qrMode === 'perfil') {
+      return `${publicBase}?comercio=${merchantId || 'catalogo'}`;
+    }
+    if (qrMode === 'oferta') {
+      return `${publicBase}?oferta=${offerId || 'activa'}`;
+    }
+    if (qrMode === 'externo') {
+      const rawUrl = externalUrl.trim();
+      if (rawUrl) return /^https?:\/\//i.test(rawUrl) ? rawUrl : `https://${rawUrl}`;
+      return primaryLink || PUBLIC_APP_URL;
+    }
+    // WhatsApp: https://wa.me/57[NUMERO]?text=[MENSAJE_IA]
+    const num =
+      lines[0].number.trim() ||
+      (mode === 'plataforma'
+        ? merchants.find((m) => m.id === merchantId)?.whatsapp ?? ''
+        : (/wa\.me\/(\d+)/.exec(extUrl)?.[1] ?? ''));
     if (num) return waLink(normalizePhone(num), fillMessage(customWaGreeting || lines[0].message, brand));
-    return primaryLink || `${window.location.origin}`;
+    return primaryLink || PUBLIC_APP_URL;
   }, [qrMode, mode, merchantId, offerId, externalUrl, lines, customWaGreeting, brand, primaryLink, merchants, extUrl]);
 
   /** Leyenda del QR + indicador de destino para la pieza 4. */
@@ -876,6 +900,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     fontStyle: AFFICHE_TYPOS[fontIdx]?.id,
     headlineScale,
     benefitStyle,
+    dockVariant,
     brand: {
       name: brand.name,
       slogan: dockSlogan,
@@ -978,52 +1003,12 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       setDetectedCategory(art.categoryLabel);
       const bizName = brand.name.trim() || art.brandName;
       const product = brand.product.trim() || art.productTitle;
-      // ── V20.0 · VARIACIÓN INFINITA POR SEMILLA ALEATORIA (PROHIBIDO REPETIR):
-      // cada clic asigna nueva arquitectura, paleta/textura, emparejamiento
-      // tipográfico, estilo de beneficios y QR completamente distintos. ──
-      const seedMix = Math.random();
-      let ti = AFFICHE_THEMES.findIndex((x) => x.id === art.themeId);
-      if (ti < 0 || seedMix > 0.35) {
-        const themePool = AFFICHE_THEMES.map((_, idx) => idx).filter((idx) => idx !== lastThemeIdxRef.current);
-        ti = themePool[Math.floor(Math.random() * themePool.length)] ?? 0;
-      } else if (AFFICHE_THEMES.length > 1 && ti === lastThemeIdxRef.current) {
-        const skip = 1 + Math.floor(Math.random() * (AFFICHE_THEMES.length - 1));
-        ti = (ti + skip) % AFFICHE_THEMES.length;
-      }
-      setThemeIdx(ti);
-      lastThemeIdxRef.current = ti;
-
-      const eliteDynamicLayouts: Layout[] = [
-        'diagx', 'orbits', 'bleed', 'magazine', 'float', 'bento3d', 'zen', 'diamond',
-        'diagonal', 'split', 'portal', 'hud', 'menu', 'arc', 'polaroid', 'swiss',
-        'cyber', 'vip', 'retail', 'eco', 'cinema', 'flash', 'resort', 'bento',
-      ];
-      const validLayoutIds = AFFICHE_LAYOUTS.map((l) => l.id);
-      let nextLayout: Layout = validLayoutIds.includes(art.layoutId as Layout)
-        ? (art.layoutId as Layout)
-        : eliteDynamicLayouts[Math.floor(Math.random() * eliteDynamicLayouts.length)];
-      if (nextLayout === lastLayoutIdxRef.current || Math.random() > 0.45) {
-        const layoutPool = eliteDynamicLayouts.filter((id) => id !== lastLayoutIdxRef.current);
-        nextLayout = layoutPool[Math.floor(Math.random() * layoutPool.length)] ?? validLayoutIds[0];
-      }
-      setLayout(nextLayout);
-      lastLayoutIdxRef.current = nextLayout;
-
-      const fontPool = AFFICHE_TYPOS.map((_, idx) => idx).filter((idx) => idx !== lastFontIdxRef.current);
-      const nextFontIdx = fontPool[Math.floor(Math.random() * fontPool.length)] ?? 0;
-      setFontIdx(nextFontIdx);
-      lastFontIdxRef.current = nextFontIdx;
-
-      const benefitModes: Array<Exclude<BenefitPresentation, 'auto'>> = ['badges', 'bento', 'editorial', 'ribbons'];
-      const benefitPool = benefitModes.filter((m) => m !== lastBenefitStyleRef.current);
-      const nextBenefit = benefitPool[Math.floor(Math.random() * benefitPool.length)] ?? 'editorial';
-      setBenefitStyle(nextBenefit);
-      lastBenefitStyleRef.current = nextBenefit;
-
-      const qrPool = QR_STYLES.filter((q) => q.id !== lastQrStyleRef.current);
-      const nextQr = qrPool[Math.floor(Math.random() * qrPool.length)] ?? QR_STYLES[0];
-      setQrStyle(nextQr.id);
-      lastQrStyleRef.current = nextQr.id;
+      // ── V21.0 · HIPER-VARIABILIDAD COHERENTE POR ARQUETIPOS (PROHIBIDO REPETIR):
+      // Alterna obligatoriamente entre Estilo 1 (Asimétrico Neón + QR esquina),
+      // Estilo 2 (Suizo Mármol Serif + QR centrado) y Estilo 3 (Editorial Full-Bleed + QR cristal).
+      const picked = applyHyperVariability();
+      const ti = picked.themeIdx;
+      const nextLayout = picked.layout;
 
       // ── Auto-imagen paso 1: foto HD real NUEVA del BANCO COMERCIAL (V13:
       // garantizada distinta a la foto anterior) ──
@@ -1107,7 +1092,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
         toast.info('⚡ IA saturada: campaña generada por el motor sintético local (100% completa)');
       }
       const themeLabel = ti >= 0 ? AFFICHE_THEMES[ti].label : art.themeId;
-      toast.success(`✨ ¡Campaña única lista! Tema ${themeLabel} + layout ${art.layoutId} aplicados`);
+      toast.success(`✨ ¡${picked.styleLabel}! Tema ${themeLabel} + layout ${nextLayout.toUpperCase()} aplicados`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'No se pudo generar la campaña');
     } finally {
@@ -1200,34 +1185,96 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     }
   }
 
-  /** 🎲 V11/V20 · Sorpréndeme: cambia fondo + arquitectura + tipografía + beneficios + QR,
-   *  SIEMPRE evitando el diseño actual, y trae una foto NUEVA del banco HD. */
+  /**
+   * 🧬 V21.0 · Motor de Hiper-Variabilidad Coherente:
+   * Enlaza Layout + Emparejamiento Tipográfico + Paleta/Textura + Posición de QR + Beneficios
+   * en 3 arquetipos élite irrepetibles (jamás permite dos generaciones consecutivas similares).
+   */
+  function applyHyperVariability(): { themeIdx: number; layout: Layout; styleLabel: string } {
+    const groups: Array<{
+      id: 0 | 1 | 2;
+      styleLabel: string;
+      layouts: Layout[];
+      themeIds: string[];
+      fontIndices: number[];
+      dockVariant: Exclude<DockVariant, 'auto'>;
+      benefits: Array<Exclude<BenefitPresentation, 'auto'>>;
+    }> = [
+      {
+        id: 0,
+        styleLabel: 'Estilo 1 · Neón Asimétrico',
+        layouts: ['diagx', 'split', 'diagonal', 'bento3d', 'cyber'],
+        themeIds: ['cyber', 'aurora', 'oceano', 'carbon'],
+        fontIndices: [0, 3, 5], // Display gruesas: Bebas+Montserrat, Anton+Outfit, Archivo+Montserrat
+        dockVariant: 'corner',
+        benefits: ['ribbons', 'bento'],
+      },
+      {
+        id: 1,
+        styleLabel: 'Estilo 2 · Suizo & Mármol Serif',
+        layouts: ['swiss', 'zen', 'vip', 'arc', 'clinic'],
+        themeIds: ['marble', 'clinic', 'slate', 'arena'],
+        fontIndices: [1, 6], // Serif elegante / Suiza: Playfair+Outfit, Bebas+Space
+        dockVariant: 'centered',
+        benefits: ['editorial', 'bento'],
+      },
+      {
+        id: 2,
+        styleLabel: 'Estilo 3 · Editorial Full-Bleed',
+        layouts: ['magazine', 'bleed', 'orbits', 'float', 'portal'],
+        themeIds: ['obsidian', 'emerald', 'wood', 'terracotta', 'vino', 'kraft'],
+        fontIndices: [2, 4, 7], // Sans-Serif limpias: Space+Jakarta, Montserrat+Jakarta, Archivo+Outfit
+        dockVariant: 'glass',
+        benefits: ['badges', 'editorial'],
+      },
+    ];
+
+    const availableGroups = groups.filter((g) => g.id !== lastStyleGroupRef.current);
+    const chosenGroup = availableGroups[Math.floor(Math.random() * availableGroups.length)] ?? groups[0];
+    lastStyleGroupRef.current = chosenGroup.id;
+
+    const layoutPool = chosenGroup.layouts.filter((id) => id !== lastLayoutIdxRef.current);
+    const nextLayout = layoutPool[Math.floor(Math.random() * layoutPool.length)] ?? chosenGroup.layouts[0];
+    setLayout(nextLayout);
+    lastLayoutIdxRef.current = nextLayout;
+
+    const themeCandidates = AFFICHE_THEMES
+      .map((t, idx) => ({ id: t.id, idx }))
+      .filter((x) => chosenGroup.themeIds.includes(x.id) && x.idx !== lastThemeIdxRef.current);
+    const fallbackThemes = AFFICHE_THEMES.map((_, idx) => ({ idx })).filter((x) => x.idx !== lastThemeIdxRef.current);
+    const pickedTheme =
+      themeCandidates[Math.floor(Math.random() * themeCandidates.length)] ??
+      fallbackThemes[Math.floor(Math.random() * fallbackThemes.length)] ??
+      { idx: 0 };
+    setThemeIdx(pickedTheme.idx);
+    lastThemeIdxRef.current = pickedTheme.idx;
+
+    const fontPool = chosenGroup.fontIndices.filter((idx) => idx !== lastFontIdxRef.current && idx < AFFICHE_TYPOS.length);
+    const nextFont =
+      fontPool[Math.floor(Math.random() * fontPool.length)] ??
+      chosenGroup.fontIndices[0] ??
+      0;
+    setFontIdx(nextFont);
+    lastFontIdxRef.current = nextFont;
+
+    const benefitPool = chosenGroup.benefits.filter((m) => m !== lastBenefitStyleRef.current);
+    const nextBenefit = benefitPool[Math.floor(Math.random() * benefitPool.length)] ?? chosenGroup.benefits[0];
+    setBenefitStyle(nextBenefit);
+    lastBenefitStyleRef.current = nextBenefit;
+
+    setDockVariant(chosenGroup.dockVariant);
+
+    const qrPool = QR_STYLES.filter((q) => q.id !== lastQrStyleRef.current);
+    const nextQr = qrPool[Math.floor(Math.random() * qrPool.length)] ?? QR_STYLES[0];
+    setQrStyle(nextQr.id);
+    lastQrStyleRef.current = nextQr.id;
+
+    return { themeIdx: pickedTheme.idx, layout: nextLayout, styleLabel: chosenGroup.styleLabel };
+  }
+
+  /** 🎲 V11/V21 · Sorpréndeme: dispara un arquetipo visual distinto al actual + foto nueva HD. */
   function surpriseDesign(): void {
-    let ni = themeIdx;
-    while (AFFICHE_THEMES.length > 1 && ni === lastThemeIdxRef.current) ni = Math.floor(Math.random() * AFFICHE_THEMES.length);
-    setThemeIdx(ni);
-    lastThemeIdxRef.current = ni;
-    const others = AFFICHE_LAYOUTS.filter((l) => l.id !== lastLayoutIdxRef.current);
-    const nl = others[Math.floor(Math.random() * others.length)];
-    if (nl) {
-      setLayout(nl.id);
-      lastLayoutIdxRef.current = nl.id;
-    }
-    const fontPool = AFFICHE_TYPOS.map((_, idx) => idx).filter((idx) => idx !== lastFontIdxRef.current);
-    const nf = fontPool[Math.floor(Math.random() * fontPool.length)] ?? 0;
-    setFontIdx(nf);
-    lastFontIdxRef.current = nf;
-    const benefitModes: Array<Exclude<BenefitPresentation, 'auto'>> = ['badges', 'bento', 'editorial', 'ribbons'];
-    const nb = benefitModes.filter((m) => m !== lastBenefitStyleRef.current)[Math.floor(Math.random() * 3)] ?? 'editorial';
-    setBenefitStyle(nb);
-    lastBenefitStyleRef.current = nb;
-    const otherQrs = QR_STYLES.filter((q) => q.id !== lastQrStyleRef.current);
-    const nq = otherQrs[Math.floor(Math.random() * otherQrs.length)];
-    if (nq) {
-      setQrStyle(nq.id);
-      lastQrStyleRef.current = nq.id;
-    }
-    // Foto nueva del banco, GARANTIZADA distinta a la anterior (V13).
+    const picked = applyHyperVariability();
     void loadBankPhotoFresh(
       briefText.trim() || `${brand.name} ${brand.slogan} ${brand.product}`,
       lastPhotoUrlRef.current,
@@ -1237,8 +1284,8 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
         setCustomPhoto(p);
       }
     });
-    const themeName = AFFICHE_THEMES[ni].label.split(' ').slice(1).join(' ');
-    toast.success(`🎲 Nueva propuesta completa: ${themeName} + ${nl ? nl.label.split(' ').slice(1).join(' ') : layout}`);
+    const themeName = AFFICHE_THEMES[picked.themeIdx]?.label.split(' ').slice(1).join(' ') ?? '';
+    toast.success(`🎲 ${picked.styleLabel}: ${themeName} + ${picked.layout.toUpperCase()}`);
   }
 
   async function copyText(text: string, key: string, label: string): Promise<void> {
@@ -1378,10 +1425,32 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     return cats.flatMap((c) => PHOTO_BANK[c] ?? []);
   }, [galleryTab, briefText, brand.name, brand.slogan, brand.product]);
 
-  /** Cambia de red social y auto-adapta el lienzo al formato de esa red. */
+  /** Cambia de red social y sincroniza automáticamente formato de lienzo + pestaña de textos. */
   function selectSocial(m: SocialMode): void {
     setSocialMode(m);
     setFormat(m === 'wa' || m === 'tt' || (m === 'ig' && igFormat === 'historia') ? 'story' : 'square');
+    setCopyTab(m === 'wa' ? 'estados' : m === 'tt' ? 'video' : 'post');
+  }
+
+  /** 📲 V21.0 · Botón inteligente "Copiar y Enviar a WhatsApp" (Web Share + fallback wa.me). */
+  async function copyAndSendWhatsApp(text: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      /* continuar al canal de envío aunque falle portapapeles */
+    }
+    const nav = navigator as Navigator & { share?: (d: { title?: string; text?: string }) => Promise<void> };
+    if (nav.share) {
+      try {
+        await nav.share({ title: brand.name || 'Impulso', text });
+        toast.success('📲 ¡Texto copiado y compartido en WhatsApp!');
+        return;
+      } catch {
+        /* usuario cerró compartir: abrir enlace wa.me abajo */
+      }
+    }
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
+    toast.success('📲 Texto copiado y listo para enviar por WhatsApp');
   }
 
   /** Alterna Post Feed 1:1 ↔ Historia 9:16 en Instagram (y el lienzo sigue). */
@@ -1467,8 +1536,10 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       `📍 ${brand.address || brand.municipality || 'Gachetá'}`,
       `📲 Escríbenos ya por WhatsApp: ${primaryLink}`,
       `🏪 Verifica el local en Impulso: ${profileUrl}`,
+      '',
+      igHashtags,
     ].join('\n');
-  }, [T, brand, primaryLink, mode, merchantId]);
+  }, [T, brand, primaryLink, mode, merchantId, igHashtags]);
 
   /** 🟢 V18 · Secuencia de 3 Estados de WhatsApp derivada del titular/marca:
    *  siempre lista desde el primer segundo (la IA la pisa si ya se generó). */
@@ -1884,7 +1955,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
 
         {/* 🎯 V13 · Selector de destino del Código QR y del enlace del afiche */}
         <div className={cardCls}>
-          <p className="text-xs font-extrabold text-white">🎯 ¿A dónde debe llevar el Código QR y el enlace del afiche?</p>
+          <p className="text-xs font-extrabold text-white">🎯 ¿A dónde debe llevar el Código QR?</p>
           <div className="space-y-1.5">
             {QR_MODES.map((m) => (
               <button
@@ -1922,20 +1993,19 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
             </div>
           )}
           {qrMode === 'perfil' && (
-            mode === 'plataforma' && merchantId ? (
-              <p className="rounded-xl bg-impulso-emerald/10 px-3 py-2 text-[10px] font-bold text-impulso-mint">
-                📍 ESCANEA: VER LOCAL, MAPA Y OFERTAS → el QR abre el Perfil Oficial del comercio en Impulso.
-              </p>
-            ) : (
-              <p className="rounded-xl border border-impulso-gold/30 bg-impulso-gold/5 px-3 py-2 text-[10px] font-semibold text-amber-200/90">
-                El destino Perfil requiere un comercio registrado: elige uno en "Comercio registrado" o usa WhatsApp/Externo.
-              </p>
-            )
+            <p className="rounded-xl bg-impulso-emerald/10 px-3 py-2 text-[10px] font-bold text-impulso-mint">
+              📍 Leyenda en afiche: «Ver Perfil y Ofertas» · dirige al comercio en Impulso (?comercio=ID).
+            </p>
+          )}
+          {qrMode === 'wa' && (
+            <p className="rounded-xl bg-impulso-emerald/10 px-3 py-2 text-[10px] font-bold text-impulso-mint">
+              💬 Leyenda en afiche: «Escanea y Cotiza» · dirige a WhatsApp con el mensaje prellenado de la IA.
+            </p>
           )}
           {qrMode === 'oferta' && (
             offerId ? (
               <p className="rounded-xl bg-impulso-emerald/10 px-3 py-2 text-[10px] font-bold text-impulso-mint">
-                ⚡ ESCANEA Y APARTA TU CUPO → el QR abre la reserva rápida de la oferta elegida.
+                ⚡ Leyenda en afiche: «Aparta tu Cupo Hoy» · el QR abre la reserva rápida de la oferta elegida.
               </p>
             ) : (
               <p className="rounded-xl border border-impulso-gold/30 bg-impulso-gold/5 px-3 py-2 text-[10px] font-semibold text-amber-200/90">
@@ -2307,8 +2377,140 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
         </div>
       </div>
 
-      {/* ═══ COLUMNA DERECHA: textos, copywriting y WhatsApp ═══ */}
+      {/* ═══ COLUMNA DERECHA: textos, red social objetivo y WhatsApp ═══ */}
       <div className="space-y-3 lg:col-span-4 lg:max-h-[calc(92dvh-9.5rem)] lg:overflow-y-auto lg:pr-1.5 lg:pb-24 overscroll-contain">
+        {/* 📱 V21.0 · Selector Reactivo por Red Social en Columna Derecha */}
+        <div className={cardCls}>
+          <p className="text-xs font-extrabold text-white">📱 ¿Para qué Red Social es esta campaña?</p>
+          <div className="grid grid-cols-3 gap-1.5">
+            {(
+              [
+                ['wa', '🟢 WhatsApp', '*Negrita* y _cursiva_'],
+                ['ig', '📸 Instagram / FB', 'Saltos + #Hashtags'],
+                ['tt', '🎵 TikTok / Reels', 'Teleprompter 15s'],
+              ] as const
+            ).map(([id, label, hint]) => {
+              const active = id === 'ig' ? socialMode === 'ig' || socialMode === 'fb' : socialMode === id;
+              return (
+                <button
+                  key={id}
+                  onClick={() => selectSocial(id)}
+                  className={cx(
+                    'pressable rounded-xl border px-2 py-2 text-left text-[10px] font-extrabold transition',
+                    active
+                      ? 'border-impulso-emerald/60 bg-impulso-emerald/15 text-impulso-mint'
+                      : 'border-white/10 bg-slate-950/40 text-slate-400',
+                  )}
+                >
+                  {label}
+                  <span className="mt-0.5 block font-semibold opacity-70">{hint}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {socialMode === 'wa' && (
+            <div className="space-y-2 rounded-2xl border border-[#25D366]/30 bg-[#25D366]/[0.07] p-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[10px] font-extrabold uppercase tracking-wider text-[#25D366]">
+                  💬 Copy nativo WhatsApp (*negrita* · _cursiva_)
+                </p>
+              </div>
+              <p className="whitespace-pre-wrap rounded-xl bg-slate-950/60 p-2.5 text-xs font-medium leading-relaxed text-slate-200">
+                {campaign?.socialMediaCopy.aida || waSocialText}
+              </p>
+              <button
+                onClick={() => void copyAndSendWhatsApp(campaign?.socialMediaCopy.aida || waSocialText)}
+                className="pressable flex w-full items-center justify-center gap-2 rounded-xl bg-[#25D366] py-2.5 text-xs font-extrabold text-slate-950"
+              >
+                <Send className="h-3.5 w-3.5" /> Copiar y Enviar a WhatsApp
+              </button>
+            </div>
+          )}
+
+          {(socialMode === 'ig' || socialMode === 'fb') && (
+            <div className="space-y-2 rounded-2xl border border-impulso-gold/30 bg-impulso-gold/[0.06] p-3">
+              <div className="flex flex-wrap items-center justify-between gap-1.5">
+                <p className="text-[10px] font-extrabold uppercase tracking-wider text-impulso-gold">
+                  📸 Copy con párrafos y nube de hashtags
+                </p>
+                <div className="flex gap-1">
+                  <button
+                    onClick={() => selectSocial('ig')}
+                    className={cx(
+                      'rounded-lg px-2 py-0.5 text-[9px] font-extrabold',
+                      socialMode === 'ig' ? 'bg-impulso-gold/25 text-impulso-gold' : 'text-slate-400',
+                    )}
+                  >
+                    Instagram
+                  </button>
+                  <button
+                    onClick={() => selectSocial('fb')}
+                    className={cx(
+                      'rounded-lg px-2 py-0.5 text-[9px] font-extrabold',
+                      socialMode === 'fb' ? 'bg-impulso-gold/25 text-impulso-gold' : 'text-slate-400',
+                    )}
+                  >
+                    Facebook
+                  </button>
+                </div>
+              </div>
+              <p className="whitespace-pre-wrap rounded-xl bg-slate-950/60 p-2.5 text-xs font-medium leading-relaxed text-slate-200">
+                {socialMode === 'fb'
+                  ? fbPostText
+                  : campaign?.socialMediaCopy.pas
+                    ? campaign.socialMediaCopy.pas.includes('#')
+                      ? campaign.socialMediaCopy.pas
+                      : `${campaign.socialMediaCopy.pas}\n\n${igHashtags}`
+                    : igCaption}
+              </p>
+              <button
+                onClick={() =>
+                  void copyText(
+                    socialMode === 'fb'
+                      ? fbPostText
+                      : campaign?.socialMediaCopy.pas
+                        ? campaign.socialMediaCopy.pas.includes('#')
+                          ? campaign.socialMediaCopy.pas
+                          : `${campaign.socialMediaCopy.pas}\n\n${igHashtags}`
+                        : igCaption,
+                    'social-igfb',
+                    socialMode === 'fb' ? 'Post de Facebook' : 'Copy Instagram + Hashtags',
+                  )
+                }
+                className="pressable flex w-full items-center justify-center gap-2 rounded-xl border border-impulso-gold/50 bg-impulso-gold/15 py-2.5 text-xs font-extrabold text-impulso-gold"
+              >
+                <Copy className="h-3.5 w-3.5" /> Copiar texto + hashtags
+              </button>
+            </div>
+          )}
+
+          {socialMode === 'tt' && (
+            <div className="space-y-2.5 rounded-2xl border border-impulso-emerald/40 bg-slate-950/80 p-3.5">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[11px] font-extrabold uppercase tracking-wider text-impulso-mint">
+                  🎬 Guion de 15 Segundos · Modo Teleprompter
+                </p>
+                <button
+                  onClick={() => setTeleprompterOpen(true)}
+                  className="pressable rounded-lg border border-impulso-emerald/50 bg-impulso-emerald/15 px-2.5 py-1 text-[10px] font-extrabold text-impulso-mint"
+                >
+                  📺 Pantalla completa
+                </button>
+              </div>
+              <p className="whitespace-pre-wrap text-base font-extrabold leading-relaxed text-white">
+                {ttScript}
+              </p>
+              <button
+                onClick={() => void copyText(ttScript, 'tt-teleprompter', 'Guion de 15s')}
+                className="pressable flex w-full items-center justify-center gap-2 rounded-xl border border-white/15 bg-slate-900 py-2 text-xs font-extrabold text-slate-200"
+              >
+                <Copy className="h-3.5 w-3.5" /> Copiar guion completo
+              </button>
+            </div>
+          )}
+        </div>
+
         {/* Editor de textos */}
         <div className={cardCls}>
           <p className="text-xs font-extrabold text-white">✍️ Editor de textos del afiche</p>

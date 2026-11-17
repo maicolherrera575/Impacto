@@ -41,7 +41,9 @@ export function ReportModal({ offer, busy, onClose, onConfirm }: ReportModalProp
   const [detail, setDetail] = useState('');
 
   const detailClean = detail.trim();
-  const canSubmit = reason != null && !busy && detailClean.length >= 12;
+  const hasSpamRepeat = /(.)\1{4,}/.test(detailClean);
+  const wordCount = detailClean.split(/\s+/).filter((w) => w.length >= 2).length;
+  const canSubmit = reason != null && !busy && detailClean.length >= 12 && !hasSpamRepeat && wordCount >= 3;
 
   function confirm() {
     if (!canSubmit || reason == null) return;
@@ -108,9 +110,13 @@ export function ReportModal({ offer, busy, onClose, onConfirm }: ReportModalProp
             aria-label="Explicación de la denuncia"
           />
           <p className="mt-1 text-right text-[10px] font-semibold text-slate-500">
-            {detailClean.length < 12
-              ? `Faltan ${12 - detailClean.length} caracteres mínimos`
-              : `${detailClean.length}/500 caracteres · Listo para auditoría`}
+            {hasSpamRepeat
+              ? 'Evita repetir caracteres; describe hechos reales y concretos.'
+              : detailClean.length < 12
+                ? `Faltan ${12 - detailClean.length} caracteres mínimos`
+                : wordCount < 3
+                  ? 'Escribe al menos 3 palabras explicando lo ocurrido.'
+                  : `${detailClean.length}/500 caracteres · Listo para auditoría`}
           </p>
         </div>
 
