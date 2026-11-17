@@ -273,7 +273,7 @@ export async function verifyPasswordAndPreparePasskey(
   currentPassword: string,
 ): Promise<PreparedPasskeyEnrollment> {
   if (!isWebAuthnSupported()) {
-    throw new Error('Este navegador o conexión no soporta biometría WebAuthn (requiere HTTPS).');
+    throw new Error('Este navegador o conexión no soporta desbloqueo biométrico seguro (requiere conexión cifrada HTTPS).');
   }
   if (!currentPassword || currentPassword.length < 6) {
     throw new Error('Escribe tu contraseña actual (mínimo 6 caracteres) para validar tu identidad.');
@@ -452,7 +452,7 @@ export async function registerDevicePasskey(options: {
 
 export async function authenticateWithPasskey(email: string): Promise<void> {
   if (!isWebAuthnSupported()) {
-    throw new Error('Este navegador o conexión no soporta biometría WebAuthn (requiere HTTPS).');
+    throw new Error('Este navegador o conexión no soporta desbloqueo biométrico seguro (requiere conexión cifrada HTTPS).');
   }
 
   const cleanEmail = email.trim().toLowerCase();

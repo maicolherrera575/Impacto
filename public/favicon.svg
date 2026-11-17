@@ -1,31 +1,22 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
   <defs>
     <linearGradient id="imp-fav-bg" x1="6" y1="6" x2="58" y2="58" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#0E2034" />
-      <stop offset="1" stop-color="#070D19" />
+      <stop offset="0" stop-color="#0E1B30" />
+      <stop offset="1" stop-color="#050914" />
     </linearGradient>
-    <linearGradient id="imp-fav-grad" x1="12" y1="48" x2="52" y2="14" gradientUnits="userSpaceOnUse">
+    <linearGradient id="imp-fav-grad" x1="12" y1="52" x2="52" y2="12" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#10B981" />
-      <stop offset="0.55" stop-color="#34D399" />
       <stop offset="1" stop-color="#22D3EE" />
     </linearGradient>
   </defs>
   <rect width="64" height="64" rx="16" fill="url(#imp-fav-bg)" />
-  <rect x="1.5" y="1.5" width="61" height="61" rx="14.5" stroke="url(#imp-fav-grad)" stroke-opacity="0.38" stroke-width="1.5" />
+  <circle cx="32" cy="32" r="19" stroke="url(#imp-fav-grad)" stroke-opacity="0.3" stroke-width="2" />
   <path
-    d="M23 18C29.5 13.6 38.2 14.2 44.2 19.4C50.2 24.6 51.8 33 48.6 40.2"
-    stroke="#22D3EE"
-    stroke-opacity="0.55"
-    stroke-width="2.4"
-    stroke-linecap="round"
-  />
-  <path
-    d="M14 46L24.8 35.2L31.8 41.4L46.2 21.8"
+    d="M18.6 18.6A19 19 0 0 1 45.4 18.6"
     stroke="url(#imp-fav-grad)"
-    stroke-width="4.8"
+    stroke-width="3.2"
     stroke-linecap="round"
-    stroke-linejoin="round"
   />
-  <path d="M36.4 20.8H47V31.4" stroke="#22D3EE" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round" />
-  <circle cx="47" cy="20.8" r="3.4" fill="#A5F3FC" />
+  <rect x="28.4" y="28" width="7.2" height="19" rx="3.6" fill="#FFFFFF" />
+  <circle cx="32" cy="19.5" r="4.6" fill="url(#imp-fav-grad)" />
 </svg>

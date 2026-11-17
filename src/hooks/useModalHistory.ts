@@ -53,7 +53,7 @@ export function useModalHistory(open: boolean, onClose: () => void): void {
       window.history.state && typeof window.history.state === 'object'
         ? (window.history.state as Record<string, unknown>)
         : {};
-    window.history.pushState({ ...currentState, __impulsoModal: token }, '');
+    window.history.pushState({ ...currentState, modalOpen: true, __impulsoModal: token }, '');
 
     return () => {
       if (closedByPop.has(token)) {

@@ -131,7 +131,6 @@ const AFFICHE_LAYOUTS: Array<{ id: Layout; label: string; hint: string }> = [
 // 🎯 V21 · Estética de agencia: sellos SIN emojis (el afiche dibuja su
 // propia iconografía vectorial; el sello es tipografía pura).
 const BADGE_PRESETS: Array<{ id: string; label: string }> = [
-  { id: 'calidad', label: 'CALIDAD GARANTIZADA' },
   { id: 'tiempo', label: 'OFERTA POR TIEMPO LIMITADO' },
   { id: 'especialidad', label: 'ESPECIALIDAD DE LA CASA' },
   { id: 'verificado', label: 'NEGOCIO VERIFICADO' },
@@ -436,7 +435,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
   const [format, setFormat] = useState<Format>('story');
   const [layout, setLayout] = useState<Layout>('bento');
   const [piece, setPiece] = useState<Piece>(0);
-  const [badgeMode, setBadgeMode] = useState<string>('calidad');
+  const [badgeMode, setBadgeMode] = useState<string>('dynamic');
   const [badgeCustom, setBadgeCustom] = useState('');
   const [showPrice, setShowPrice] = useState(true);
   const [showBenefits, setShowBenefits] = useState(true);
@@ -542,7 +541,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     if (d.format === 'story' || d.format === 'square') setFormat(d.format);
     if (AFFICHE_LAYOUTS.some((l) => l.id === d.layout)) setLayout(d.layout as Layout);
     if (d.piece === 0 || d.piece === 1 || d.piece === 2 || d.piece === 3) setPiece(d.piece);
-    if (typeof d.badgeMode === 'string') setBadgeMode(d.badgeMode);
+    if (typeof d.badgeMode === 'string') setBadgeMode(d.badgeMode === 'calidad' ? 'dynamic' : d.badgeMode);
     if (typeof d.badgeCustom === 'string') setBadgeCustom(sanitizeLegacy(d.badgeCustom));
     if (typeof d.showPrice === 'boolean') setShowPrice(d.showPrice);
     if (typeof d.showBenefits === 'boolean') setShowBenefits(d.showBenefits);
@@ -644,7 +643,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     setFormat('story');
     setLayout('bento');
     setPiece(0);
-    setBadgeMode('calidad');
+    setBadgeMode('dynamic');
     setBadgeCustom('');
     setShowPrice(true);
     setShowBenefits(true);
@@ -773,9 +772,18 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
   /** Sello resuelto: preset, custom u oculto. */
   const badge = useMemo<string>(() => {
     if (badgeMode === 'none') return '';
+    if (badgeMode === 'dynamic') {
+      return (
+        campaign?.dynamicTagline?.trim() ||
+        campaign?.badgeText?.trim() ||
+        detectedCategory.trim().toUpperCase() ||
+        brand.slogan.trim().toUpperCase() ||
+        'ESPECIALIDAD LOCAL'
+      );
+    }
     if (badgeMode === 'custom') return badgeCustom.trim();
     return BADGE_PRESETS.find((b) => b.id === badgeMode)?.label ?? '';
-  }, [badgeMode, badgeCustom]);
+  }, [badgeMode, badgeCustom, campaign, detectedCategory, brand.slogan]);
 
   /** V12: el dock muestra SIEMPRE la categoría detectada del brief +
    *  ubicación (ej: "MARKETING DIGITAL & VENTAS · GACHETÁ") — jamás la
@@ -1097,8 +1105,9 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
         cta: normSpaces(res.cta),
         priceLabel: res.priceLabel ?? prev.priceLabel,
       }));
-      setBadgeCustom(normSpaces(res.badgeText));
-      setBadgeMode('custom');
+      const bTag = normSpaces(res.dynamicTagline || res.badgeText);
+      if (bTag) setBadgeCustom(bTag);
+      setBadgeMode('dynamic');
       // V11: los 3 mensajes de WhatsApp de las líneas los redacta la IA
       // a la medida del giro real (ventas / domicilios / planes).
       setLines((prev) =>
@@ -1491,9 +1500,10 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
         cta: normSpaces(res.cta) || prev.cta,
         priceLabel: res.priceLabel ?? prev.priceLabel,
       }));
-      if (res.badgeText) {
-        setBadgeCustom(normSpaces(res.badgeText));
-        setBadgeMode('custom');
+      const bTag = normSpaces(res.dynamicTagline || res.badgeText);
+      if (bTag) {
+        setBadgeCustom(bTag);
+        setBadgeMode('dynamic');
       }
 
       // Intenta foto IA a medida en segundo plano solo si no hay foto propia bloqueada
@@ -1713,7 +1723,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     ].join('\n');
   }, [T, brand, primaryLink]);
 
-  /** 📸 15 hashtags estratégicos del municipio + rubro + producto. */
+  /** 📸 8 hashtags estratégicos del municipio + rubro + producto. */
   const igHashtags = useMemo(() => {
     const words = (src: string): string[] =>
       src
@@ -1721,32 +1731,31 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
         .replace(/[^a-záéíóúñü\s]/gi, '')
         .split(/\s+/)
         .filter((w) => w.length > 3)
-        .slice(0, 4)
+        .slice(0, 3)
         .map((w) => `#${w.charAt(0).toUpperCase()}${w.slice(1)}`);
     const base = [
       `#${(brand.municipality || 'Gachetá').replace(/\s+/g, '')}`,
       '#Guavio',
       '#Cundinamarca',
-      '#Colombia',
       ...words(detectedCategory),
       ...words(brand.product),
       '#ComprasLocales',
       '#ApoyaLoNuestro',
-      '#EmprendimientoLocal',
       '#OfertasHoy',
       '#NegocioLocal',
+      '#Colombia',
       '#PromoDelDia',
     ];
-    return [...new Set(base)].slice(0, 15).join(' ');
+    return [...new Set(base)].slice(0, 8).join(' ');
   }, [detectedCategory, brand.product, brand.municipality]);
 
-  /** 📸 Descripción de Instagram con hashtags. */
+  /** 📸 Descripción de Instagram con emojis persuasivos y 8 hashtags al final. */
   const igCaption = useMemo(
     () =>
       [
-        `${brand.emoji} ${`${T.plain} ${T.highlight}`.trim()}`,
-        T.sub.trim(),
-        T.cta.trim(),
+        `🔥 ${brand.emoji} *${`${T.plain} ${T.highlight}`.trim()}*`,
+        `✨ ${T.sub.trim()}`,
+        `👉 ${T.cta.trim()}`,
         `📍 ${brand.address || brand.municipality || 'Gachetá'} · 💬 ${brand.phoneDisplay || 'Escríbenos por DM'}`,
         '',
         igHashtags,
@@ -1791,21 +1800,21 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     const wa = brand.phoneDisplay || 'nuestro WhatsApp';
     return {
       status1: `🚨 ${hookUp}\n${ben[0] || T.sub.trim() || 'Disponible hoy en tu municipio'}\n📍 ${brand.address || brand.municipality || 'Gachetá'}`,
-      status2: `👀 ¿Ya lo viste?\n${brand.product || hookUp}${price}\n${ben.slice(0, 2).map((b) => `✅ ${b}`).join('\n') || '✅ Calidad garantizada'}\n🔗 ${primaryLink}`,
+      status2: `👀 ¿Ya lo viste?\n${brand.product || hookUp}${price}\n${ben.slice(0, 2).map((b) => `✅ ${b}`).join('\n') || '✅ Atención inmediata'}\n🔗 ${primaryLink}`,
       status3: `⏳ ¡Últimas unidades!\n${hookUp}\n💬 Escríbeme AHORA y te lo aparto 👉 *${wa}*`,
     };
   }, [T, brand, primaryLink]);
 
-  /** 🎬 V23 · Guion TikTok de 15 s con indicaciones exactas de cámara + texto. */
+  /** 🎬 V24 · Guion nativo TikTok 15 s (Hook visual 0-3s, cuerpo rápido, CTA directo). */
   const videoShots = useMemo(() => {
     const hook = `${T.plain} ${T.highlight}`.trim();
     const price = brand.promoPrice != null ? ` Hoy por solo ${formatCOP(brand.promoPrice)}` : '';
     const ben = T.benefits.filter(Boolean);
     const wa = brand.phoneDisplay || 'el WhatsApp del anuncio';
     return {
-      s1: `[Cámara: Primer plano dinámico del producto] Texto: "¿Ya viste esto en ${brand.name || 'nuestro local'}? ${hook || 'Promoción de hoy'}"`,
-      s2: `[Cámara: Plano medio mostrando detalles y calidad] Texto: "Llévate ${brand.product || hook || 'esta promoción'}${price} con ${ben[0] || T.sub.trim() || 'calidad garantizada'}"`,
-      s3: `[Cámara: Toma abierta del local o logo señalando el link] Texto: "Escríbenos al ${wa} y encuéntranos en ${brand.address || brand.municipality || 'Gachetá'}"`,
+      s1: `[Cámara: Hook visual rápido 0-3s entrando directo al producto en uso] Texto: "¡Espera 3 segundos! Si buscas ${brand.product || 'esto'} en ${brand.municipality || 'tu municipio'}, mira ${brand.name || 'esto'}…"`,
+      s2: `[Cámara: Cortes ágiles mostrando beneficios reales en acción] Texto: "${hook || brand.product}${price}: ${ben[0] || T.sub.trim() || 'atención inmediata'}"`,
+      s3: `[Cámara: Cierre directo señalando QR y enlace en perfil] Texto: "Toca el enlace o escribe YA al ${wa} (${brand.address || brand.municipality || 'Gachetá'})"`,
     };
   }, [T, brand]);
 
@@ -1930,7 +1939,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
             </p>
             <p className="mt-1.5 max-w-4xl text-[11px] leading-relaxed text-slate-400">
               Motor de diseño editorial HTML a 1080p: extracción automática de paleta desde el logo, 30 composiciones
-              orgánicas y asimétricas en vivo, QR de alta joyería y lanzador multired con IA — 0 bytes en base de datos.
+              orgánicas y asimétricas en vivo, QR de alta joyería y lanzador multired con IA — guardado local en tu dispositivo.
             </p>
           </div>
           <button
@@ -2497,6 +2506,15 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
           </div>
           <p className={labelCls}>Sello superior (badge)</p>
           <div className="grid grid-cols-2 gap-1.5">
+            <button
+              onClick={() => setBadgeMode('dynamic')}
+              className={cx(
+                'pressable rounded-lg border px-2 py-1.5 text-[10px] font-bold transition',
+                badgeMode === 'dynamic' ? 'border-impulso-emerald/60 bg-impulso-emerald/15 text-impulso-mint' : 'border-white/10 bg-slate-950/40 text-slate-400',
+              )}
+            >
+              ✨ Dinámico (del brief)
+            </button>
             <button
               onClick={() => setBadgeMode('none')}
               className={cx(

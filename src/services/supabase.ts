@@ -42,7 +42,8 @@ const ERROR_MAP: Array<[RegExp, Replacement]> = [
   [/User already registered|already been registered/i, 'Este correo ya está registrado. Inicia sesión.'],
   [/Password should be at least/i, 'La contraseña debe tener al menos 6 caracteres'],
   [/Email not confirmed/i, 'Confirma tu correo con el enlace que te enviamos'],
-  [/JWT|token/i, 'Tu sesión expiró. Vuelve a iniciar sesión.'],
+  [/JWT|token|AuthSession|AuthApiError|invalid_grant/i, 'Tu sesión de acceso seguro venció. Inicia sesión nuevamente.'],
+  [/supabase|postgres|postgrest/i, 'Error temporal de conexión segura. Intenta de nuevo en unos segundos.'],
   [/row-level security|permission denied/i, 'No tienes permiso para esta acción'],
   [/duplicate key/i, 'Este registro ya existe'],
 ];

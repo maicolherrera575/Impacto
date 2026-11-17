@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import jsQR from 'jsqr';
 import { Camera, Loader2, X } from 'lucide-react';
+import { useModalHistory } from '../../hooks/useModalHistory';
 
 interface QrScannerProps {
   open: boolean;
@@ -17,6 +18,7 @@ interface QrScannerProps {
  * Apagado limpio del stream y de cada frame al cerrar (cero fugas).
  */
 export function QrScanner({ open, onScan, onClose, hint }: QrScannerProps) {
+  useModalHistory(open, onClose);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const rafRef = useRef<number | null>(null);

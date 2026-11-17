@@ -197,8 +197,8 @@ export async function generateStyledQrDataUrl(options: StyledQrOptions): Promise
   const n = qr.modules.size;
   const data = qr.modules.data;
 
-  // Quiet zone ajustado estrictamente (1.25 módulos — cero parches blancos gigantes)
-  const quiet = 1.25;
+  // Quiet zone ajustado estrictamente (0.3 módulos ≈ <= 4px reales — cero marcos blancos excesivos)
+  const quiet = 0.3;
   const totalCells = n + quiet * 2;
   const cell = size / totalCells;
   const offset = quiet * cell;
@@ -213,11 +213,13 @@ export async function generateStyledQrDataUrl(options: StyledQrOptions): Promise
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, size, size);
 
-  // Zona central reservada (~20% de la matriz, 100% segura bajo ECC H 30%)
+  // Carga opcional del logo del negocio ANTES de renderizar módulos:
+  // si no hay logo real, matriz 100% pura sin cubo feo de iniciales en el centro.
+  const logoImg = options.logoUrl ? await loadCorsImage(options.logoUrl) : null;
   const centerIdx = n / 2;
-  const clearRadiusCells = n * 0.145;
+  const clearRadiusCells = logoImg ? n * 0.145 : 0;
 
-  // 1. Dibujar módulos de datos (saltando ojos y centro reservado)
+  // 1. Dibujar módulos de datos (saltando ojos y, solo si hay logo real, el centro reservado)
   if (style === 'luxury') {
     const grad = ctx.createLinearGradient(0, 0, size, size);
     grad.addColorStop(0, options.brandColors ? palette.eye : '#9a6b06');
@@ -238,8 +240,10 @@ export async function generateStyledQrDataUrl(options: StyledQrOptions): Promise
       if (!data[r * n + c]) continue;
       if (isInFinderPattern(r, c, n)) continue;
 
-      const dist = Math.hypot(r + 0.5 - centerIdx, c + 0.5 - centerIdx);
-      if (dist < clearRadiusCells) continue;
+      if (clearRadiusCells > 0) {
+        const dist = Math.hypot(r + 0.5 - centerIdx, c + 0.5 - centerIdx);
+        if (dist < clearRadiusCells) continue;
+      }
 
       const x = offset + c * cell;
       const y = offset + r * cell;
@@ -269,24 +273,23 @@ export async function generateStyledQrDataUrl(options: StyledQrOptions): Promise
   drawFinderEye(ctx, offset + (n - 7) * cell, offset, cell, style, activeEyeColor, palette.dark);
   drawFinderEye(ctx, offset, offset + (n - 7) * cell, cell, style, activeEyeColor, palette.dark);
 
-  // 3. Insignia central (logo del negocio o monograma tipográfico)
-  const badgeSize = clearRadiusCells * 2 * cell * 0.88;
-  const bx = size / 2 - badgeSize / 2;
-  const by = size / 2 - badgeSize / 2;
-  const bRad =
-    style === 'dots' || style === 'luxury'
-      ? badgeSize / 2
-      : style === 'cyber' || style === 'sharp'
-        ? badgeSize * 0.12
-        : badgeSize * 0.28;
-
-  // Halo blanco de separación para garantizar contraste
-  ctx.fillStyle = '#ffffff';
-  drawRoundedRect(ctx, bx - cell * 0.35, by - cell * 0.35, badgeSize + cell * 0.7, badgeSize + cell * 0.7, bRad + cell * 0.25);
-  ctx.fill();
-
-  const logoImg = options.logoUrl ? await loadCorsImage(options.logoUrl) : null;
+  // 3. Insignia central EXCLUSIVAMENTE cuando el comercio subió un logo real
   if (logoImg) {
+    const badgeSize = clearRadiusCells * 2 * cell * 0.88;
+    const bx = size / 2 - badgeSize / 2;
+    const by = size / 2 - badgeSize / 2;
+    const bRad =
+      style === 'dots' || style === 'luxury'
+        ? badgeSize / 2
+        : style === 'cyber' || style === 'sharp'
+          ? badgeSize * 0.12
+          : badgeSize * 0.28;
+
+    // Halo blanco de separación para garantizar contraste
+    ctx.fillStyle = '#ffffff';
+    drawRoundedRect(ctx, bx - cell * 0.35, by - cell * 0.35, badgeSize + cell * 0.7, badgeSize + cell * 0.7, bRad + cell * 0.25);
+    ctx.fill();
+
     ctx.save();
     drawRoundedRect(ctx, bx, by, badgeSize, badgeSize, bRad);
     ctx.clip();
@@ -297,22 +300,6 @@ export async function generateStyledQrDataUrl(options: StyledQrOptions): Promise
     ctx.lineWidth = Math.max(2, cell * 0.22);
     drawRoundedRect(ctx, bx, by, badgeSize, badgeSize, bRad);
     ctx.stroke();
-  } else {
-    ctx.fillStyle = palette.badgeBg;
-    drawRoundedRect(ctx, bx, by, badgeSize, badgeSize, bRad);
-    ctx.fill();
-
-    ctx.strokeStyle = palette.eye;
-    ctx.lineWidth = Math.max(2, cell * 0.18);
-    drawRoundedRect(ctx, bx, by, badgeSize, badgeSize, bRad);
-    ctx.stroke();
-
-    const initials = extractInitials(options.businessName ?? 'Impulso');
-    ctx.fillStyle = palette.badgeText;
-    ctx.font = `900 ${Math.round(badgeSize * 0.44)}px Inter, system-ui, sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(initials, size / 2, size / 2 + badgeSize * 0.03);
   }
 
   return canvas.toDataURL('image/png');

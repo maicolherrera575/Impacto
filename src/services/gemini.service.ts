@@ -787,6 +787,8 @@ export interface ArtDirection {
   productTitle: string;
   /** Rubro/categoría COMERCIAL visible deducida del brief (NUNCA genérica). */
   categoryLabel: string;
+  /** Tagline / sello superior corto (3-5 palabras) generado dinámicamente del brief. */
+  dynamicTagline: string;
   valueProposition: string;
   imagePromptEn: string;
 }
@@ -797,8 +799,10 @@ export interface MarketingCampaign {
   layoutId: string;
   /** Promesa comercial de alto calibre (reescritura del brief por la IA). */
   valueProposition: string;
-  /** Sello superior sugerido para el afiche (ej: "💎 ALTA PRECISIÓN"). */
+  /** Sello superior sugerido para el afiche generado dinámicamente del brief. */
   badgeText: string;
+  /** Tagline dinámico generado directamente del brief del negocio. */
+  dynamicTagline: string;
   /** Titular de agencia a dos tonos (blanco + palabras clave en acento). */
   headline: CampaignHeadline;
   sub: string;
@@ -906,6 +910,7 @@ Analizarás el brief y definirás la ESTRATEGIA VISUAL y COMERCIAL. Devuelve ÚN
  "brand_name": "nombre comercial corto y potente del negocio (1 a 3 palabras): si el brief ya lo da, devuélvelo limpio; si NO lo da, crea uno creíble y memorable para el giro deducido. PROHIBIDO usar la palabra 'Impulso'",
  "product_title": "título del servicio o producto estrella DEDUCIDO del brief (máx 6 palabras, reescrito con vocabulario de agencia, no literal)",
  "category_label": "rubro/categoría COMERCIAL y VISIBLE del afiche en español (2 a 5 palabras, específico del giro, ej: 'Marketing Digital & Ventas', 'Comida Rápida Casera', 'Odontología Moderna', 'Insumos Agropecuarios'). PROHIBIDO genéricos tipo 'Servicios' o 'Comercio'",
+ "dynamic_tagline": "tagline o sello superior CORTO en MAYÚSCULAS (2 a 4 palabras, SIN emojis) que resuma la esencia o ventaja única del brief (ej: 'VENTAS QUE ESCALAN', 'SABOR DE LA REGIÓN', 'DESPACHO EN MINUTOS'). PROHIBIDO clichés genéricos como 'CRECE CON EXPERTOS' o 'CALIDAD GARANTIZADA'",
  "theme_id": uno de [wood, marble, cyber, kraft, ember, emerald, obsidian, clinic, terracotta, pop, aurora, slate, arena, vino, oceano, carbon]. Varía entre las 4 familias estéticas (Neón Cyber: cyber/aurora/oceano; Editorial Minimalista: marble/clinic/slate/arena; Rústico Gourmet: wood/kraft/ember/terracotta/emerald; Lujo Dorado: obsidian/vino/pop) según el brief y NUNCA repitas el anterior.
  "layout_id": uno de [bento, magazine, diagonal, polaroid, arc, portal, swiss, split, brutal, vip, cyber, rustic, retail, eco, cinema, float, hud, resort, menu, clinic, agro, diamond, flash, bento3d, diagx, orbits, bleed, zen, immersive, collage]. Prioriza composiciones orgánicas y asimétricas (immersive, collage, diagx, orbits, bleed, magazine, float, bento3d, zen, diamond, diagonal, split, portal) y NUNCA repitas el anterior.
  "value_proposition": "la promesa comercial de alto calibre del negocio: transforma la idea básica del brief en un beneficio concreto, específico y creíble. PROHIBIDO copiar frases literales del brief: reescríbelas con vocabulario de agencia senior",
@@ -920,12 +925,13 @@ const ART_SCHEMA: Record<string, unknown> = {
     brand_name: { type: SchemaType.STRING },
     product_title: { type: SchemaType.STRING },
     category_label: { type: SchemaType.STRING },
+    dynamic_tagline: { type: SchemaType.STRING },
     theme_id: { type: SchemaType.STRING, format: 'enum', enum: [...THEME_IDS] },
     layout_id: { type: SchemaType.STRING, format: 'enum', enum: [...LAYOUT_IDS] },
     value_proposition: { type: SchemaType.STRING },
     image_prompt_en: { type: SchemaType.STRING },
   },
-  required: ['industry_type', 'brand_name', 'product_title', 'category_label', 'theme_id', 'layout_id', 'value_proposition', 'image_prompt_en'],
+  required: ['industry_type', 'brand_name', 'product_title', 'category_label', 'dynamic_tagline', 'theme_id', 'layout_id', 'value_proposition', 'image_prompt_en'],
 };
 
 /** Nombres de marca de reserva por rubro (solo si la IA omite brand_name). */
@@ -992,6 +998,10 @@ export async function generateArtDirection(input: CampaignInput): Promise<ArtDir
     brandName: normSpaces(raw.brand_name) || input.businessName.trim() || INDUSTRY_NAMES[industry],
     productTitle: normSpaces(raw.product_title) || input.product.trim() || INDUSTRY_NAMES[industry],
     categoryLabel: normSpaces(raw.category_label) || INDUSTRY_CATEGORY_LABELS[industry],
+    dynamicTagline:
+      stripPictographics(normSpaces(raw.dynamic_tagline)).toUpperCase() ||
+      normSpaces(raw.category_label).toUpperCase() ||
+      INDUSTRY_CATEGORY_LABELS[industry].toUpperCase(),
     themeId: THEME_IDS.includes(raw.theme_id as (typeof THEME_IDS)[number])
       ? (raw.theme_id as string)
       : INDUSTRY_ART[industry].themeId,
@@ -1013,7 +1023,8 @@ export async function generateArtDirection(input: CampaignInput): Promise<ArtDir
 const COPY_SYSTEM_PROMPT = `Eres el Copywriter Senior y Director Creativo de una agencia de publicidad experta en municipios rurales de Colombia (Gachetá, Cundinamarca).
 Recibirás la ESTRATEGIA de la campaña (rubro, promesa de valor, tema y layout) y los datos del negocio. Escribes la campaña completa. Devuelve ÚNICAMENTE un JSON con esta estructura exacta:
 {
- "badge_text": "sello superior ESPECÍFICO del giro: máximo 4 palabras en MAYÚSCULAS, SIN emojis ni iconos (el diseño dibuja su propio icono vectorial de agencia). Ej: 'IMPULSA TUS VENTAS', 'ALTA PRECISIÓN', 'SABOR ARTESANAL'",
+ "badge_text": "sello superior ESPECÍFICO y DINÁMICO deducido del brief: máximo 4 palabras en MAYÚSCULAS, SIN emojis ni clichés ('CRECE CON EXPERTOS' prohibido). Ej: 'VENTAS QUE ESCALAN', 'ALTA PRECISIÓN', 'SABOR ARTESANAL'",
+ "dynamic_tagline": "tagline corto (2 a 4 palabras en MAYÚSCULAS, SIN emojis) derivado directo del brief para la cabecera del afiche",
  "headline": {
    "plain": "3 a 6 palabras IMPACTANTES que irán en blanco, SIEMPRE separadas por espacios correctos (ej: 'Multiplica tus clientes y')",
    "highlight": "3 a 5 palabras de cierre poderoso con espacios correctos, irán resaltadas en el color de acento (ej: 'domina las redes hoy')"
@@ -1035,13 +1046,13 @@ Recibirás la ESTRATEGIA de la campaña (rubro, promesa de valor, tema y layout)
    "status3": "Estado de cierre de tarde/noche con *urgencia/escasez* + _garantía_ + 👉 link"
  },
  "socialMediaCopy": {
-   "pas": "copy completo y persuasivo para Instagram/Facebook con fórmula PAS, SALTOS DE LÍNEA LIMPIOS entre párrafos, y una nube de 6 a 10 #Hashtags locales (ej: #Gachetá, #Guavio, municipio del negocio, rubro y producto) al final",
-   "aida": "copy optimizado EXCLUSIVAMENTE para WhatsApp usando sintaxis real (*negrita*, _cursiva_), saltos limpios y llamado directo al chat"
+   "pas": "copy completo y persuasivo para Instagram/Facebook con fórmula PAS, emojis limpios y persuasivos, SALTOS DE LÍNEA LIMPIOS entre párrafos, y EXACTAMENTE 8 #Hashtags estratégicos (municipio, rubro y producto) al final",
+   "aida": "copy optimizado EXCLUSIVAMENTE para WhatsApp usando sintaxis real (*negrita* y _cursiva_), saltos limpios y llamado directo al chat"
  },
  "videoReelScript": {
-   "t0_3": "EXACTAMENTE con formato '[Cámara: indicación visual/plano de cámara] Texto: \"frase exacta de gancho para decir a cámara\"' (segundos 0-3)",
-   "t3_10": "EXACTAMENTE con formato '[Cámara: indicación visual mostrando producto/servicio] Texto: \"demostración y beneficio clave\"' (segundos 3-10)",
-   "t10_15": "EXACTAMENTE con formato '[Cámara: plano final del local/logo/contacto] Texto: \"cierre urgente con ubicación y llamado a WhatsApp\"' (segundos 10-15)"
+   "t0_3": "Hook nativo TikTok 0-3s EXACTAMENTE con formato '[Cámara: plano visual de alto impacto que detiene el scroll] Texto: \"frase gancho directa a cámara\"'",
+   "t3_10": "Cuerpo rápido TikTok 3-10s EXACTAMENTE con formato '[Cámara: cortes dinámicos mostrando producto/servicio real en acción] Texto: \"beneficio clave y prueba rápida\"'",
+   "t10_15": "CTA directo TikTok 10-15s EXACTAMENTE con formato '[Cámara: plano del local/QR señalando enlace en perfil] Texto: \"llamado directo a WhatsApp o enlace hoy\"'"
  },
  "salesClosingTemplates": {
    "priceReply": "respuesta lista cuando el cliente pregunta ¿precio?: da el precio o invita a cotizar y ofrece combo/domicilio",
@@ -1106,13 +1117,17 @@ function normalizeCampaign(raw: Partial<MarketingCampaign> & Record<string, unkn
     : [];
   const prod = input.product.trim() || 'su promoción';
   const biz = input.businessName.trim() || 'el negocio';
+  const rawBadge = stripPictographics(normSpaces(raw.badge_text));
+  const rawTagline = stripPictographics(normSpaces(raw.dynamic_tagline));
+  const fallbackTagline = art.dynamicTagline || art.categoryLabel.toUpperCase() || (input.municipality ? `${input.municipality.toUpperCase()}` : 'OFERTA DIRECTA');
 
   return {
     industryType: art.industryType,
     themeId: art.themeId,
     layoutId: art.layoutId,
     valueProposition: art.valueProposition,
-    badgeText: stripPictographics(normSpaces(raw.badge_text)) || (input.municipality ? `${input.municipality.toUpperCase()}` : 'NEGOCIO DESTACADO'),
+    badgeText: rawBadge || fallbackTagline,
+    dynamicTagline: rawTagline || rawBadge || fallbackTagline,
     headline: { plain, highlight },
     sub: normSpaces(raw.sub) || art.valueProposition,
     benefits,
@@ -1156,6 +1171,7 @@ const CAMPAIGN_SCHEMA: Record<string, unknown> = {
   type: SchemaType.OBJECT,
   properties: {
     badge_text: { type: SchemaType.STRING },
+    dynamic_tagline: { type: SchemaType.STRING },
     headline: {
       type: SchemaType.OBJECT,
       properties: { plain: { type: SchemaType.STRING }, highlight: { type: SchemaType.STRING } },
@@ -1205,7 +1221,7 @@ const CAMPAIGN_SCHEMA: Record<string, unknown> = {
     wa_line3_msg: { type: SchemaType.STRING },
     dispatch_versions: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
   },
-  required: ['badge_text', 'headline', 'sub', 'benefits', 'cta', 'visualHooks', 'whatsappStatusSequence', 'socialMediaCopy', 'videoReelScript', 'salesClosingTemplates', 'wa_line1_msg', 'wa_line2_msg', 'wa_line3_msg', 'dispatch_versions'],
+  required: ['badge_text', 'dynamic_tagline', 'headline', 'sub', 'benefits', 'cta', 'visualHooks', 'whatsappStatusSequence', 'socialMediaCopy', 'videoReelScript', 'salesClosingTemplates', 'wa_line1_msg', 'wa_line2_msg', 'wa_line3_msg', 'dispatch_versions'],
 };
 
 /**
@@ -1218,6 +1234,7 @@ export async function generateCampaignCopy(input: CampaignInput, art: ArtDirecti
     `ESTRATEGIA DE LA PASADA 1 (úsala como eje de TODO el copy):`,
     `· Rubro detectado: ${art.industryType}`,
     `· Categoría visible del afiche: ${art.categoryLabel}`,
+    `· Tagline dinámico del brief: ${art.dynamicTagline}`,
     `· Nombre de marca: ${art.brandName}`,
     `· Producto/servicio estrella deducido: ${art.productTitle}`,
     `· Promesa de valor central: ${art.valueProposition}`,
@@ -1279,7 +1296,7 @@ const NICHES: Niche[] = [
       ['Más ventas cada mes', 'con publicidad experta'],
     ],
     subs: ['Estrategia, diseño y pauta publicitaria hecha por expertos', 'Convertimos tu WhatsApp en una máquina de ventas'],
-    badges: ['🚀 IMPULSA TUS VENTAS', '📈 CRECE CON EXPERTOS'],
+    badges: ['IMPULSA TUS VENTAS', 'ESTRATEGIA DIGITAL'],
     benefits: ['📈 Más clientes cada semana', '🎯 Publicidad dirigida a tu gente', '📱 Redes profesionales que venden', '🕒 Ahorra horas de trabajo', '💬 Soporte y asesoría directa', '📊 Reportes claros de resultados'],
     wa: ['¡Hola! Vi su publicidad de marketing digital y quiero impulsar las ventas de mi negocio 🙌 ¿Me brindan una asesoría?', '¡Hola! Quiero cotizar el plan de publicidad para mi negocio 📱 ¿Me cuentan precios?', '¡Hola! Me interesan los planes especiales y alianzas de la agencia 🚀 ¿Me dan más detalles?'],
     hook: 'un negocio que se ve profesional vende el doble',
@@ -1651,11 +1668,14 @@ export function synthesizeArtDirection(
   const pickedLayout =
     candidateLayouts[Math.floor(Math.random() * candidateLayouts.length)] || niche.layout;
 
+  const dynamicBadge = stripPictographics(rotate(niche.badges, Math.floor(seed / 11))).toUpperCase() || rotate(niche.labels, Math.floor(seed / 7)).toUpperCase();
+
   return {
     industryType: industry,
     brandName: input.businessName.trim() || rotate(niche.names, seed),
     productTitle: input.product.trim() || rotate(niche.products, seed),
     categoryLabel: rotate(niche.labels, Math.floor(seed / 7)),
+    dynamicTagline: dynamicBadge,
     themeId: pickedTheme,
     layoutId: pickedLayout,
     valueProposition: rotate(niche.subs, Math.floor(seed / 3)),
@@ -1690,22 +1710,31 @@ export function synthesizeCampaign(input: CampaignInput, art: ArtDirection): Mar
   const b2 = rotate(niche.benefits, seed + 4);
   const hook = niche.hook;
 
-  const hashtags = [
-    `#${place.replace(/\s+/g, '')}`,
+  const cleanTag = (raw: string, fallback: string): string => {
+    const t = raw.replace(/[^\p{L}\p{N}]/gu, '').slice(0, 18);
+    return `#${t || fallback}`;
+  };
+  const hashtagsList = [
+    cleanTag(place, 'Gacheta'),
     '#Guavio',
     '#Cundinamarca',
+    '#Colombia',
+    cleanTag(art.categoryLabel.split(/\s+/)[0] || '', 'NegocioLocal'),
+    cleanTag(product.split(/\s+/)[0] || '', 'Promocion'),
+    cleanTag(brand, 'OfertaHoy'),
     '#ComprasLocales',
     '#ApoyaLoNuestro',
-    `#${brand.replace(/[^\p{L}\p{N}]/gu, '').slice(0, 18) || 'NegocioLocal'}`,
-    '#PromocionHoy',
-  ].join(' ');
+  ];
+  const hashtags = [...new Set(hashtagsList)].slice(0, 8).join(' ');
+  const resolvedBadge = stripPictographics(art.dynamicTagline || rotate(niche.badges, Math.floor(seed / 11))).toUpperCase() || art.categoryLabel.toUpperCase();
 
   return {
     industryType: art.industryType,
     themeId: art.themeId,
     layoutId: art.layoutId,
     valueProposition: art.valueProposition,
-    badgeText: stripPictographics(rotate(niche.badges, Math.floor(seed / 11))) || 'NEGOCIO DESTACADO',
+    badgeText: resolvedBadge,
+    dynamicTagline: resolvedBadge,
     headline: { plain, highlight },
     sub: rotate(niche.subs, Math.floor(seed / 5)),
     // 🎯 V21 · Cero emojis en el afiche: el motor sintético limpia los
@@ -1729,13 +1758,13 @@ export function synthesizeCampaign(input: CampaignInput, art: ArtDirection): Mar
       status3: `⏳ *Últimas horas hoy en ${brand}* (${place}).\n_${b1.replace(/^[^\p{L}\p{N}]+/u, '')}_ — escribe ya antes que se acabe 📲`,
     },
     socialMediaCopy: {
-      pas: `✨ ${plain} ${highlight}${price}${normalTxt}\n\n${hook.charAt(0).toUpperCase()}${hook.slice(1)} en *${brand}*.\n\n• ${b0.replace(/^[^\p{L}\p{N}]+/u, '')}\n• ${b1.replace(/^[^\p{L}\p{N}]+/u, '')}\n• ${b2.replace(/^[^\p{L}\p{N}]+/u, '')}\n\n📍 ${addr} · ${place}\n📲 ${isService ? 'Cotiza hoy sin costo por WhatsApp' : 'Aparta el tuyo HOY por WhatsApp'}\n\n${hashtags}`,
-      aida: `⚡ *${plain.toUpperCase()} ${highlight.toUpperCase()}*${price}${normalTxt}\n\n_${hook.charAt(0).toUpperCase()}${hook.slice(1)}._\n✅ *${b0.replace(/^[^\p{L}\p{N}]+/u, '')}*\n✅ *${b1.replace(/^[^\p{L}\p{N}]+/u, '')}*\n\n📍 ${addr}\n👉 *Escríbenos AHORA a WhatsApp* y aparta hoy mismo`,
+      pas: `✨ ${plain} ${highlight}${price}${normalTxt}\n\n${hook.charAt(0).toUpperCase()}${hook.slice(1)} en ${brand}.\n\n✅ ${b0.replace(/^[^\p{L}\p{N}]+/u, '')}\n✅ ${b1.replace(/^[^\p{L}\p{N}]+/u, '')}\n✅ ${b2.replace(/^[^\p{L}\p{N}]+/u, '')}\n\n📍 ${addr} · ${place}\n📲 ${isService ? 'Cotiza hoy sin costo por WhatsApp' : 'Aparta el tuyo HOY por WhatsApp'}\n\n${hashtags}`,
+      aida: `⚡ *${plain.toUpperCase()} ${highlight.toUpperCase()}*${price}${normalTxt}\n\n_${hook.charAt(0).toUpperCase()}${hook.slice(1)}._\n✅ *${b0.replace(/^[^\p{L}\p{N}]+/u, '')}*\n✅ *${b1.replace(/^[^\p{L}\p{N}]+/u, '')}*\n\n📍 _${addr}_\n👉 *Escríbenos AHORA a WhatsApp* y aparta hoy mismo`,
     },
     videoReelScript: {
-      t0_3: `[Cámara: Primer plano dinámico del producto con buena luz] Texto: "¿Buscas ${product.toLowerCase()} de verdad en ${place}? Mira esto que llegó hoy a ${brand}…"`,
-      t3_10: `[Cámara: Plano medio mostrando textura, detalle y uso] Texto: "En ${brand} tienes ${b0.replace(/^[^\p{L}\p{N}]+/u, '').toLowerCase()} y ${b2.replace(/^[^\p{L}\p{N}]+/u, '').toLowerCase()}${price}."`,
-      t10_15: `[Cámara: Cierre frente al local o señalando el enlace abajo] Texto: "${plain} ${highlight}. Escríbenos ya al WhatsApp de ${brand} o encuéntranos en ${addr}."`,
+      t0_3: `[Cámara: Hook visual rápido 0-3s acercándose al ${product.toLowerCase()} en acción] Texto: "¡Para un segundo! Si estás en ${place}, esto de ${brand} te interesa…"`,
+      t3_10: `[Cámara: Cortes ágiles de 1.5s mostrando textura, uso real y entrega] Texto: "Tienes ${b0.replace(/^[^\p{L}\p{N}]+/u, '').toLowerCase()} y ${b2.replace(/^[^\p{L}\p{N}]+/u, '').toLowerCase()}${price}."`,
+      t10_15: `[Cámara: Toma directa del negocio y QR señalando el perfil] Texto: "${plain} ${highlight}. Escríbenos YA al WhatsApp del perfil o visítanos en ${addr}."`,
     },
     salesClosingTemplates: {
       priceReply: isService
