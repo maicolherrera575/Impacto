@@ -518,7 +518,6 @@ export default function App() {
               <RequestsTab
                 requests={requests}
                 municipality={municipality}
-                geoPos={geo.status === 'active' && geo.pos ? geo.pos : null}
                 onCreated={() => void refetchRequests()}
               />
             )}
@@ -594,7 +593,6 @@ export default function App() {
       {/* Modales globales */}
       <OfferDetailModal
         offer={selectedOffer}
-        geoPos={geo.status === 'active' && geo.pos ? geo.pos : null}
         onClose={() => setSelectedOffer(null)}
         onReserved={handleReserved}
         onViewTickets={() => {

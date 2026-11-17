@@ -109,9 +109,9 @@ export function RadarTab({
             <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
               <button
                 onClick={grantGpsConsent}
-                className="pressable rounded-xl bg-impulso-emerald py-2.5 text-xs font-extrabold text-slate-950"
+                className="pressable rounded-xl bg-impulso-emerald py-2.5 text-xs font-extrabold text-slate-950 shadow-glow"
               >
-                📍 Activar mi ubicación ahora
+                📍 Encontrar ofertas exactas cerca de mí
               </button>
               <button
                 onClick={skipGps}
@@ -121,6 +121,19 @@ export function RadarTab({
               </button>
             </div>
           </div>
+        )}
+        {/* V20 · Si dijo "sin GPS", siempre queda un botón discreto para reactivar */}
+        {gpsDeniedLocal && !geoPos && (
+          <button
+            onClick={() => {
+              localStorage.removeItem('impulso_gps_consent');
+              setGpsDeniedLocal(false);
+              onGeoRequest();
+            }}
+            className="pressable mt-3 flex w-full items-center justify-center gap-1.5 rounded-2xl border border-impulso-emerald/30 bg-impulso-emerald/10 py-2.5 text-xs font-extrabold text-impulso-mint"
+          >
+            📍 Encontrar ofertas exactas cerca de mí
+          </button>
         )}
 
         {/* Búsqueda instantánea */}

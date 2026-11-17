@@ -281,12 +281,65 @@ function ht(plain: string, highlight: string): AfficheTexts {
   return { plain, highlight, sub: '', benefits: [], cta: '', hook: '' };
 }
 
-/** Separa el emoji inicial de un beneficio (icono grande + texto). */
+/** 🎯 V20 · Estética de agencia: separa el emoji inicial de un beneficio y
+ *  ELIMINA cualquier emoji genérico del cuerpo (✅ ✨ ⭐ 🥇…). El icono lo
+ *  dibuja el sistema con SVG vectorial (GlyphIcon), nunca un emoji. */
 function splitBenefit(b: string): { icon: string; body: string } {
-  const m = /^\p{Extended_Pictographic}/u.exec(b.trim());
-  const icon = m ? m[0] : '✅';
-  const body = m ? b.trim().slice(icon.length).trim() : b.trim();
+  const m = /^\p{Extended_Pictographic}[\uFE0F\u200D]?/u.exec(b.trim());
+  const icon = m ? m[0] : '';
+  const raw = m ? b.trim().slice(icon.length).trim() : b.trim();
+  // Limpia cualquier pictográfico restante dentro del texto (espacios dobles incluidos)
+  const body = raw.replace(/\p{Extended_Pictographic}[\uFE0F\u200D]?/gu, '').replace(/\s{2,}/g, ' ').trim();
   return { icon, body };
+}
+
+/** 🎯 V20 · Iconografía vectorial minimalista de agencia: 4 glifos SVG puros
+ *  (check, rayo, pin, escudo) que reemplazan los emojis genéricos en todo
+ *  el afiche. Se tintan con el acento del tema. */
+function GlyphIcon({ kind, size, color }: { kind: number; size: number; color: string }) {
+  const k = kind % 4;
+  const common = {
+    width: size,
+    height: size,
+    viewBox: '0 0 24 24',
+    fill: 'none' as const,
+    stroke: color,
+    strokeWidth: 2.4,
+    strokeLinecap: 'round' as const,
+    strokeLinejoin: 'round' as const,
+  };
+  if (k === 0) {
+    // Check doble de verificación
+    return (
+      <svg {...common} aria-hidden>
+        <path d="M2.5 12.5l5 5L19 6" />
+      </svg>
+    );
+  }
+  if (k === 1) {
+    // Rayo de velocidad
+    return (
+      <svg {...common} aria-hidden>
+        <path d="M13 2L4.5 13.5H11L10 22l8.5-11.5H12L13 2z" />
+      </svg>
+    );
+  }
+  if (k === 2) {
+    // Pin de ubicación
+    return (
+      <svg {...common} aria-hidden>
+        <path d="M12 21s7-5.5 7-11a7 7 0 10-14 0c0 5.5 7 11 7 11z" />
+        <circle cx="12" cy="10" r="2.6" />
+      </svg>
+    );
+  }
+  // Escudo de confianza
+  return (
+    <svg {...common} aria-hidden>
+      <path d="M12 2.5l8 3v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10v-6l8-3z" />
+      <path d="M8.6 12l2.4 2.4 4.4-4.8" />
+    </svg>
+  );
 }
 
 /** Foto con recorte, zoom y posición vertical (100% nítida, sin overlays). */
@@ -535,7 +588,7 @@ function BenefitCards({ items, t, s }: { items: string[]; t: AfficheTheme; s: nu
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 * s }}>
       {items.slice(0, 3).map((b, i) => {
-        const { icon, body } = splitBenefit(b);
+        const { body } = splitBenefit(b);
         return (
           <div
             key={i}
@@ -549,7 +602,7 @@ function BenefitCards({ items, t, s }: { items: string[]; t: AfficheTheme; s: nu
                 : `0 6px 18px rgba(0,0,0,0.35), inset 0 0 0 1px ${t.accent2}33`,
             }}
           >
-            {/* 💡 V19 · Icono brillante en caja con gradiente luminoso */}
+            {/* 🎯 V20 · Icono VECTORIAL minimalista en caja con gradiente luminoso (cero emojis) */}
             <span
               style={{
                 width: 40 * s, height: 40 * s, flexShrink: 0,
@@ -558,13 +611,12 @@ function BenefitCards({ items, t, s }: { items: string[]; t: AfficheTheme; s: nu
                 border: '1px solid rgba(255,255,255,0.35)',
                 boxShadow: 'inset 0 2px 5px rgba(255,255,255,0.35), 0 4px 12px rgba(0,0,0,0.30)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 24 * s, lineHeight: 1,
               }}
             >
-              {icon}
+              <GlyphIcon kind={i} size={20 * s} color={t.accent2} />
             </span>
             <span style={{ flex: 1, fontSize: 19.5 * s, fontWeight: 800, color: t.text, lineHeight: 1.18 }}>{body}</span>
-            <span style={{ fontSize: 19 * s, color: t.accent2, fontWeight: 900, lineHeight: 1, textShadow: t.light ? 'none' : `0 0 ${10 * s}px ${t.accent2}` }}>✓</span>
+            <GlyphIcon kind={0} size={18 * s} color={t.accent2} />
           </div>
         );
       })}
@@ -794,9 +846,11 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
   const PHOTO_MAX = 400 * s;
 
   // Tamaños del dock según la pieza (piezas 2/3 tienen QR dedicado).
-  // V19: CÓDIGO QR PROTAGONISTA — 190px en lienzo (=380px en el PNG 1080p).
-  const dockQrSize = 190 * s;
-  const dockHeight = 222 * s;
+  // 🎯 V20 · QR PROTAGONISTA con mínimo 320px REALES en la exportación 1080p:
+  // story (s=1): 190px lienzo = 380px PNG · square (s=0.58): 276px escalados
+  // = 160px lienzo = 320px PNG. El marco blanco puro garantiza el escaneo.
+  const dockQrSize = (format === 'square' ? 276 : 190) * s;
+  const dockHeight = (format === 'square' ? 330 : 230) * s;
 
   const photoBlock = (extra?: CSSProperties): React.ReactElement => (
     <div
@@ -840,9 +894,9 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
   // ═══ comparativa ❌/✅ + barra de acción con QR grande) ═══
   if (piece === 1) {
     const qr2 = 96 * s; // 192×192px en el PNG 1080p
-    const bA = splitBenefit(benefits[0] ?? '🥇 Calidad garantizada');
-    const bB = splitBenefit(benefits[1] ?? '⚡ Atención inmediata');
-    const bC = splitBenefit(benefits[2] ?? '📍 Cerca de ti');
+    const bA = splitBenefit(benefits[0] ?? 'Calidad garantizada');
+    const bB = splitBenefit(benefits[1] ?? 'Atención inmediata');
+    const bC = splitBenefit(benefits[2] ?? 'Cerca de ti');
     const bubbleCls = (tilt: number): CSSProperties => ({
       flex: 1, minWidth: 0,
       background: 'rgba(255,255,255,0.95)', color: '#0f172a',
@@ -885,7 +939,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
             }}
           >
             <p style={{ margin: 0, fontSize: 11.5 * s, fontWeight: 900, letterSpacing: 0.6, textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              🚨 Atención {(brand.municipality || 'Gachetá').toUpperCase()} · Lo más buscado hoy
+              Atención {(brand.municipality || 'Gachetá').toUpperCase()} · Lo más buscado hoy
             </p>
           </div>
           {/* Pregunta / gancho polémico colosal */}
@@ -910,14 +964,14 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
               </div>
             )}
           </div>
-          {/* 2 burbujas flotantes tipo notificación de redes sociales */}
+          {/* 2 burbujas flotantes tipo notificación de redes sociales (🎯 V20: iconos vectoriales) */}
           <div style={{ display: 'flex', gap: 8 * s, flexShrink: 0 }}>
             <div style={bubbleCls(-2)}>
-              <span style={{ fontSize: 14 * s, lineHeight: 1 }}>💬</span>
+              <GlyphIcon kind={3} size={14 * s} color="#0f766e" />
               <span style={{ fontSize: 10.5 * s, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>+100 clientes satisfechos</span>
             </div>
             <div style={bubbleCls(2)}>
-              <span style={{ fontSize: 14 * s, lineHeight: 1 }}>⭐</span>
+              <GlyphIcon kind={0} size={14 * s} color="#b45309" />
               <span style={{ fontSize: 10.5 * s, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Calificación 5.0 en atención</span>
             </div>
           </div>
@@ -1040,15 +1094,15 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
               </div>
             </div>
           </div>
-          {/* Cinta de garantía de satisfacción */}
-          <Sticker text="🛡️ GARANTÍA DE SATISFACCIÓN O TE DEVOLVEMOS TU PLATA" s={s} bg={t.accent2} color={t.light ? '#ffffff' : '#0b0f18'} rotate={-1.5} />
-          {/* 💎 V19 · GRILLA MODULAR 2×2: 4 cajas de cristal iluminadas con
-              numeración 01–04, iconos gigantes y métricas de confianza */}
+          {/* Cinta de garantía de satisfacción (🎯 V20 · sin emojis genéricos) */}
+          <Sticker text="GARANTÍA DE SATISFACCIÓN O TE DEVOLVEMOS TU PLATA" s={s} bg={t.accent2} color={t.light ? '#ffffff' : '#0b0f18'} rotate={-1.5} />
+          {/* 💎 V19/V20 · GRILLA MODULAR 2×2: 4 cajas de cristal iluminadas con
+              numeración 01–04, iconos VECTORIALES y métricas de confianza */}
           <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr 1fr', gap: 9 * s }}>
             {[0, 1, 2, 3].map((i) => {
-              const b = benefits[i] ?? ['🥇 Calidad garantizada', '⚡ Atención inmediata', '📍 Cerca de ti', '🤝 Trato personalizado'][i] ?? '';
-              const { icon, body } = splitBenefit(b);
-              const metric = ['⚡ Atención Inmediata', '⭐ 100% Garantizado', '🛡️ Servicio Verificado', '📍 AQUÍ MISMO'][i];
+              const b = benefits[i] ?? ['Calidad garantizada', 'Atención inmediata', 'Cerca de ti', 'Trato personalizado'][i] ?? '';
+              const { body } = splitBenefit(b);
+              const metric = ['Atención inmediata', '100% garantizado', 'Servicio verificado', 'Aquí mismo'][i];
               return (
                 <div
                   key={i}
@@ -1081,10 +1135,9 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
                       border: '1px solid rgba(255,255,255,0.35)',
                       boxShadow: 'inset 0 2px 5px rgba(255,255,255,0.35), 0 4px 10px rgba(0,0,0,0.30)',
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: 19 * s, lineHeight: 1,
                     }}
                   >
-                    {icon}
+                    <GlyphIcon kind={i} size={18 * s} color={t.accent2} />
                   </span>
                   <p style={{ margin: 0, fontSize: 13.5 * s, fontWeight: 900, color: t.text, lineHeight: 1.15, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
                     {body}
@@ -1781,12 +1834,14 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
           {showBenefits && benefits.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 7 * s }}>
               {benefits.slice(0, 3).map((b, i) => {
-                const { icon, body: txt } = splitBenefit(b);
+                const { body: txt } = splitBenefit(b);
                 return (
                   <div key={i} style={{ background: 'rgba(255,255,255,0.96)', color: '#0f172a', borderRadius: 999, padding: `${8 * s}px ${14 * s}px`, display: 'flex', alignItems: 'center', gap: 10 * s, boxShadow: '0 4px 14px rgba(15,23,42,0.22)' }}>
-                    <span style={{ fontSize: 17 * s, lineHeight: 1 }}>{icon}</span>
+                    <GlyphIcon kind={i} size={17 * s} color="#0369a1" />
                     <span style={{ flex: 1, fontSize: 13.5 * s, fontWeight: 800, lineHeight: 1.2 }}>{txt}</span>
-                    <span style={{ width: 20 * s, height: 20 * s, borderRadius: '50%', background: 'linear-gradient(160deg, #38bdf8, #0369a1)', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11 * s, fontWeight: 900 }}>✓</span>
+                    <span style={{ width: 20 * s, height: 20 * s, borderRadius: '50%', background: 'linear-gradient(160deg, #38bdf8, #0369a1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <GlyphIcon kind={0} size={11 * s} color="#ffffff" />
+                    </span>
                   </div>
                 );
               })}
@@ -1863,12 +1918,12 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 * s }}>
               <div style={{ flex: 1, ...g.card, borderRadius: 16 * s, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6 * s, padding: 10 * s }}>
-                <span style={{ fontSize: 30 * s, lineHeight: 1 }}>{splitBenefit(benefits[0] ?? '🥇 Calidad garantizada').icon}</span>
-                <span style={{ fontSize: 12.5 * s, fontWeight: 900, color: t.text, textAlign: 'center', lineHeight: 1.2, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{splitBenefit(benefits[0] ?? '🥇 Calidad garantizada').body}</span>
+                <GlyphIcon kind={0} size={26 * s} color={t.accent2} />
+                <span style={{ fontSize: 12.5 * s, fontWeight: 900, color: t.text, textAlign: 'center', lineHeight: 1.2, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{splitBenefit(benefits[0] ?? 'Calidad garantizada').body}</span>
               </div>
               <div style={{ flex: 1, ...g.card, borderRadius: 16 * s, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6 * s, padding: 10 * s }}>
-                <span style={{ fontSize: 30 * s, lineHeight: 1 }}>{splitBenefit(benefits[1] ?? '⚡ Atención inmediata').icon}</span>
-                <span style={{ fontSize: 12.5 * s, fontWeight: 900, color: t.text, textAlign: 'center', lineHeight: 1.2, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{splitBenefit(benefits[1] ?? '⚡ Atención inmediata').body}</span>
+                <GlyphIcon kind={1} size={26 * s} color={t.accent2} />
+                <span style={{ fontSize: 12.5 * s, fontWeight: 900, color: t.text, textAlign: 'center', lineHeight: 1.2, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{splitBenefit(benefits[1] ?? 'Atención inmediata').body}</span>
               </div>
             </div>
           </div>

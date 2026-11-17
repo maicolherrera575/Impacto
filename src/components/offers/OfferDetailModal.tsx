@@ -1,14 +1,13 @@
 import { useEffect, useState } from 'react';
-import { Loader2, MessageCircle, Minus, Navigation, PartyPopper, Plus, ShieldCheck, Star } from 'lucide-react';
+import { Loader2, MessageCircle, Minus, Navigation, PartyPopper, Plus, ShieldCheck, Star, Wallet } from 'lucide-react';
 import type { Offer, Ticket } from '../../types';
 import { categoryMeta } from '../../types';
 import { ModalShell } from '../ui/ModalShell';
 import { useToast } from '../ui/Toast';
 import { reserveOffer } from '../../services/reservations.service';
 import { incrementViews } from '../../services/offers.service';
-import { friendlyError } from '../../services/supabase';
+import { supabase, friendlyError } from '../../services/supabase';
 import { countdownText, cx, formatCOP, ratingAvg } from '../../utils/format';
-import type { LatLng } from '../../utils/geo';
 import { useTick } from '../../hooks/useTick';
 import { openWhatsApp } from '../../utils/whatsapp';
 import { deliveryMeta } from '../../types';
@@ -17,8 +16,6 @@ type Step = 'detail' | 'form' | 'success';
 
 interface OfferDetailModalProps {
   offer: Offer | null;
-  /** GPS activo del dispositivo (null si no lo compartió): se envía en silencio al reservar. */
-  geoPos?: LatLng | null;
   onClose: () => void;
   /** Registra el ticket en el dispositivo y en el estado de la app. */
   onReserved: (ticket: Ticket) => void;
@@ -34,7 +31,7 @@ const STEPS: Record<Step, string> = { detail: 'La oferta', form: 'Apartar', succ
  * llegar desde un enlace compartido (?oferta=UUID) y permite apartar
  * en segundos sin registro.
  */
-export function OfferDetailModal({ offer, geoPos, onClose, onReserved, onViewTickets, onOpenMerchant }: OfferDetailModalProps) {
+export function OfferDetailModal({ offer, onClose, onReserved, onViewTickets, onOpenMerchant }: OfferDetailModalProps) {
   const toast = useToast();
   const now = useTick(1000);
   const [step, setStep] = useState<Step>('detail');
@@ -46,6 +43,8 @@ export function OfferDetailModal({ offer, geoPos, onClose, onReserved, onViewTic
   const [ticket, setTicket] = useState<Ticket | null>(null);
   /** ⚠️ V18 · Error DENTRO del modal (nunca detrás, invisible). */
   const [errorMsg, setErrorMsg] = useState('');
+  /** 💳 V20 · Canales de pago DIRECTO del comercio (Nequi/Daviplata/efectivo). */
+  const [payChannels, setPayChannels] = useState<string[]>([]);
 
   useEffect(() => {
     if (offer) {
@@ -57,6 +56,32 @@ export function OfferDetailModal({ offer, geoPos, onClose, onReserved, onViewTic
       incrementViews(offer.id);
     }
   }, [offer]);
+
+  /** 💳 V20 · Muestra los métodos de pago del COMERCIO: el cliente paga
+   *  directo a él al recibir el pedido — Impulso jamás retiene el dinero. */
+  useEffect(() => {
+    if (step !== 'success' || !offer?.merchant?.id) return;
+    let alive = true;
+    supabase
+      .from('payment_methods')
+      .select('method_type, account_number')
+      .eq('merchant_id', offer.merchant.id)
+      .eq('is_active', true)
+      .then(({ data }) => {
+        if (!alive) return;
+        const rows = (data ?? []) as unknown as Array<{ method_type: string; account_number: string }>;
+        setPayChannels(
+          rows.map((r) =>
+            r.method_type === 'efectivo'
+              ? '💵 Efectivo al momento de la entrega'
+              : `${r.method_type === 'nequi' ? '📱 Nequi' : r.method_type === 'daviplata' ? '📱 Daviplata' : '🏦 Bancolombia'} ${r.account_number}`,
+          ),
+        );
+      });
+    return () => {
+      alive = false;
+    };
+  }, [step, offer]);
 
   if (!offer) return null;
 
@@ -84,8 +109,10 @@ export function OfferDetailModal({ offer, geoPos, onClose, onReserved, onViewTic
         customerPhone: phone.trim(),
         quantity,
         customerNote: note.trim(),
-        clientLat: geoPos?.lat ?? null,
-        clientLng: geoPos?.lng ?? null,
+        // ⚖️ V20 · Ley 1581: las coordenadas del cliente JAMÁS se envían al
+        // servidor. La distancia se calcula solo en su dispositivo.
+        clientLat: null,
+        clientLng: null,
       });
       const t: Ticket = {
         reservationId: result.reservation.id,
@@ -348,6 +375,15 @@ export function OfferDetailModal({ offer, geoPos, onClose, onReserved, onViewTic
                 'Confirmar mi apartado 🎟️'
               )}
             </button>
+
+            {/* ⚖️ V20 · Ley 1480 / modelo de negocio: transparencia de pago directa */}
+            <div className="mt-3 flex items-start gap-2 rounded-2xl border border-impulso-gold/30 bg-impulso-gold/10 p-3">
+              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-impulso-gold" />
+              <p className="text-[11px] font-semibold leading-relaxed text-impulso-gold/95">
+                Impulso es un portal de conexión. Pagarás el valor directamente al comerciante al momento de la
+                entrega. La plataforma no retiene tu dinero.
+              </p>
+            </div>
           </div>
         )}
 
@@ -386,6 +422,25 @@ export function OfferDetailModal({ offer, geoPos, onClose, onReserved, onViewTic
                 🎟️ Mis apartados
               </button>
             </div>
+
+            {/* 💳 V20 · Canales de pago del comercio: pago directo, sin intermediación */}
+            {payChannels.length > 0 && (
+              <div className="mt-4 rounded-3xl border border-impulso-emerald/25 bg-impulso-emerald/5 p-4 text-left">
+                <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-impulso-mint">
+                  <Wallet className="h-3.5 w-3.5" /> Paga directo a {ticket.merchantName} al recibir
+                </p>
+                <ul className="mt-2 space-y-1">
+                  {payChannels.map((c, i) => (
+                    <li key={i} className="truncate text-sm font-bold text-white">
+                      {c}
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-2 text-[10px] leading-relaxed text-slate-400">
+                  Impulso no retiene tu dinero: la transacción es directamente entre tú y el comercio.
+                </p>
+              </div>
+            )}
           </div>
         )}
       </div>

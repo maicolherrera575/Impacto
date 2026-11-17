@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { Loader2, LogIn, UserPlus, X } from 'lucide-react';
+import { Fingerprint, Loader2, LogIn, UserPlus, X } from 'lucide-react';
 import type { Category } from '../../types';
 import { CATEGORIES, MUNICIPIOS } from '../../types';
 import { ModalShell } from '../ui/ModalShell';
 import { useToast } from '../ui/Toast';
-import { friendlyError } from '../../services/supabase';
+import { friendlyError, supabase } from '../../services/supabase';
 import { ensureSignedInAfterSignUp, signIn, signOut, signUpMerchant, validateInviteCode } from '../../services/profile.service';
 import { cx } from '../../utils/format';
 
@@ -36,6 +36,41 @@ export function AuthModal({ open, onClose, onAuthed, onOpenLegal }: AuthModalPro
   const [errorMsg, setErrorMsg] = useState('');
   const emailOk = /.+@.+\..+/.test(email.trim());
   const passOk = password.length >= 6;
+
+  /** 🫆 V20 · Soporte base de autenticación biométrica (Passkeys / WebAuthn).
+   *  Detección de capacidad: el botón aparece solo si la librería de Supabase
+   *  y el navegador del dispositivo lo soportan (huella / FaceID / Windows Hello). */
+  const webAuthnApi = supabase.auth as unknown as {
+    signInWithWebAuthn?: (options: { email: string }) => Promise<{ error: { message: string } | null }>;
+  };
+  const passkeyAvailable =
+    typeof webAuthnApi.signInWithWebAuthn === 'function' &&
+    typeof window !== 'undefined' &&
+    typeof window.PublicKeyCredential !== 'undefined';
+
+  /** 🫆 V20 · Inicio de sesión biométrico: el navegador ejecuta la ceremonia
+   *  WebAuthn (huella/FaceID) y Supabase entrega la sesión directamente. */
+  async function passkeyLogin() {
+    setErrorMsg('');
+    if (!emailOk) {
+      setErrorMsg('Escribe tu correo para entrar con tu huella / FaceID');
+      return;
+    }
+    setLoading(true);
+    try {
+      const fn = webAuthnApi.signInWithWebAuthn;
+      if (!fn) throw new Error('La autenticación biométrica aún no está disponible en este dispositivo');
+      const { error } = await fn({ email: email.trim() });
+      if (error) throw new Error(error.message);
+      toast.success('¡Bienvenido de vuelta! 👋');
+      onAuthed();
+      onClose();
+    } catch (err) {
+      setErrorMsg(friendlyError(err));
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function submit() {
     setErrorMsg('');
@@ -270,6 +305,18 @@ export function AuthModal({ open, onClose, onAuthed, onOpenLegal }: AuthModalPro
               </>
             )}
           </button>
+
+          {/* 🫆 V20 · Botón biométrico (Passkeys): solo si el dispositivo lo soporta */}
+          {mode === 'login' && passkeyAvailable && (
+            <button
+              onClick={() => void passkeyLogin()}
+              disabled={loading}
+              className="pressable flex w-full items-center justify-center gap-2 rounded-2xl border border-white/15 bg-slate-950/40 py-3 text-sm font-bold text-slate-200 disabled:opacity-60"
+            >
+              <Fingerprint className="h-4.5 w-4.5 text-impulso-mint" />
+              Entrar con huella / FaceID
+            </button>
+          )}
         </div>
       </div>
     </ModalShell>

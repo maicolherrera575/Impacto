@@ -95,6 +95,8 @@ export interface Profile {
   lng: number | null;
   credits: number;
   is_verified: boolean;
+  /** 🪪 V20 · Estado del blindaje KYB (none | pending | approved | rejected). */
+  kyb_status?: string | null;
   is_active: boolean;
   is_suspended: boolean;
   logo_thumb: string | null;

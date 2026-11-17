@@ -13,6 +13,7 @@ import {
   MapPin,
   MessageCircle,
   RefreshCw,
+  ShieldCheck,
   Trash2,
   Undo2,
 } from 'lucide-react';
@@ -29,7 +30,8 @@ import {
 } from '../../services/reservations.service';
 import { friendlyError, supabase } from '../../services/supabase';
 import { compressImageToMicroWebP, compressionSummary } from '../../services/imageCompressor';
-import { updateMyProfile } from '../../services/profile.service';
+import { submitKybVerification, updateMyProfile } from '../../services/profile.service';
+import { sha256Hex } from '../../utils/hash';
 import {
   deleteMyPaymentMethod,
   fetchMerchantPaymentMethods,
@@ -77,6 +79,10 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
   const [nitInput, setNitInput] = useState(profile.nit_or_cedula ?? '');
   const [socialInput, setSocialInput] = useState(profile.social_or_maps_link ?? '');
   const [trustBusy, setTrustBusy] = useState(false);
+  /** 🪪 V20 · Blindaje KYB: cédula/RUT + foto del establecimiento (WebP ≤ 100 KB). */
+  const [kybDoc, setKybDoc] = useState<string | null>(null);
+  const [kybFace, setKybFace] = useState<string | null>(null);
+  const [kybBusy, setKybBusy] = useState(false);
   /** 💳 V16 · Métodos de pago del comercio (Nequi/Daviplata/Bancolombia/efectivo). */
   const [payMethods, setPayMethods] = useState<PaymentMethod[]>([]);
   const [payType, setPayType] = useState<PaymentType>('nequi');
@@ -319,6 +325,45 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
       toast.error(friendlyError(err));
     } finally {
       setTrustBusy(false);
+    }
+  }
+
+  /** 🪪 V20 · Blindaje KYB: comprime cada imagen a WebP ≤ 100 KB (canvas en
+   *  el navegador, máximo 800px) y calcula su huella SHA-256 antes de enviar. */
+  const pickKybImage = useCallback(
+    async (file: File | undefined, slot: 'doc' | 'face') => {
+      if (!file) return;
+      try {
+        const webp = await compressImageToMicroWebP(file, 800, 0.6);
+        if (slot === 'doc') setKybDoc(webp);
+        else setKybFace(webp);
+        toast.success(`🪪 Imagen optimizada: de ${Math.round(file.size / 1024)} KB a ${Math.round(webp.length * 0.75 / 1024)} KB`);
+      } catch (err) {
+        toast.error(friendlyError(err));
+      }
+    },
+    [toast],
+  );
+
+  /** 🪪 V20 · Envía el expediente: hash SHA-256 de cada imagen + RPC security
+   *  definer. El administrador lo audita visualmente desde el Súper Panel. */
+  async function submitKyb() {
+    if (!kybDoc || !kybFace) {
+      toast.error('Sube tu documento (cédula/RUT) y la foto del establecimiento o de ti');
+      return;
+    }
+    setKybBusy(true);
+    try {
+      const [docHash, faceHash] = await Promise.all([sha256Hex(kybDoc), sha256Hex(kybFace)]);
+      await submitKybVerification({ docImage: kybDoc, faceImage: kybFace, docHash, faceHash });
+      onProfileChange({ ...profile, kyb_status: 'pending' });
+      toast.success('🪪 Verificación enviada: el administrador auditará tus documentos');
+      setKybDoc(null);
+      setKybFace(null);
+    } catch (err) {
+      toast.error(friendlyError(err));
+    } finally {
+      setKybBusy(false);
     }
   }
 
@@ -779,6 +824,75 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
               className="pressable flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-impulso-emerald to-teal-600 py-3 text-sm font-extrabold text-white disabled:opacity-60"
             >
               {trustBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : '💾'} Guardar datos de confianza
+            </button>
+          </div>
+
+          {/* 🪪 V20 · Verificación de identidad estricta (KYB): cédula + foto */}
+          <div className="mt-4 rounded-2xl border border-impulso-gold/25 bg-impulso-gold/5 p-3">
+            <p className="flex items-center gap-1.5 text-sm font-bold text-impulso-gold">
+              <ShieldCheck className="h-4 w-4" /> Verificación de identidad estricta
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-slate-400">
+              Sube la imagen de tu <span className="font-bold text-slate-200">cédula o RUT</span> y una{' '}
+              <span className="font-bold text-slate-200">foto real de tu establecimiento</span> (o de ti). Se comprimen
+              en tu celular a WebP ≤ 100 KB y el administrador las audita antes de darte la insignia de verificado.
+            </p>
+            {profile.kyb_status === 'pending' && (
+              <p className="mt-2 rounded-xl border border-impulso-gold/30 bg-impulso-gold/10 px-3 py-2 text-xs font-bold text-impulso-gold">
+                ⏳ Tu verificación está en revisión por el administrador
+              </p>
+            )}
+            {profile.kyb_status === 'approved' && (
+              <p className="mt-2 rounded-xl border border-impulso-emerald/30 bg-impulso-emerald/10 px-3 py-2 text-xs font-bold text-impulso-mint">
+                ✅ Identidad verificada: ya tienes la insignia de confianza
+              </p>
+            )}
+            {profile.kyb_status === 'rejected' && (
+              <p className="mt-2 rounded-xl border border-impulso-rose/30 bg-impulso-rose/10 px-3 py-2 text-xs font-bold text-impulso-rose">
+                Tu verificación fue rechazada: vuelve a enviar imágenes claras y legibles
+              </p>
+            )}
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <label className="pressable flex cursor-pointer flex-col items-center gap-1.5 rounded-xl border border-white/10 bg-slate-950/40 px-2 py-3 text-center text-xs font-bold text-slate-300">
+                {kybDoc ? (
+                  <img src={kybDoc} alt="Documento" className="h-14 w-full rounded-lg object-cover" />
+                ) : (
+                  <>
+                    <span className="text-lg">🪪</span>
+                    Cédula / RUT
+                  </>
+                )}
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => void pickKybImage(e.target.files?.[0], 'doc')}
+                />
+              </label>
+              <label className="pressable flex cursor-pointer flex-col items-center gap-1.5 rounded-xl border border-white/10 bg-slate-950/40 px-2 py-3 text-center text-xs font-bold text-slate-300">
+                {kybFace ? (
+                  <img src={kybFace} alt="Establecimiento" className="h-14 w-full rounded-lg object-cover" />
+                ) : (
+                  <>
+                    <span className="text-lg">🏪</span>
+                    Foto del local
+                  </>
+                )}
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => void pickKybImage(e.target.files?.[0], 'face')}
+                />
+              </label>
+            </div>
+            <button
+              onClick={() => void submitKyb()}
+              disabled={kybBusy || profile.kyb_status === 'pending'}
+              className="pressable mt-2 flex w-full items-center justify-center gap-2 rounded-2xl border border-impulso-gold/40 bg-impulso-gold/10 py-2.5 text-sm font-extrabold text-impulso-gold disabled:opacity-50"
+            >
+              {kybBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+              {profile.kyb_status === 'pending' ? 'En revisión…' : 'Enviar a verificación'}
             </button>
           </div>
         </section>

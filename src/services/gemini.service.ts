@@ -24,10 +24,16 @@ Responde ÚNICAMENTE con el objeto JSON.`;
 // llave privada. DESARROLLO local: usa el SDK con VITE_GEMINI_API_KEY; si no
 // existe, intenta /api/gemini (útil con `vercel dev`).
 
-/** V11: cadena de modelos con reintento automático. Si 2.5-flash devuelve
- *  429/503/404 (cuota o indisponibilidad) se reintenta AL INSTANTE con los
- *  modelos más ligeros para que la respuesta JAMÁS se pierda. */
-const MODEL_CHAIN = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'] as const;
+/** V20: cadena de modelos con reintento automático. SIEMPRE se intenta
+ *  primero el mejor modelo disponible (2.5-flash); si devuelve 429/503/404
+ *  (cuota o indisponibilidad) cae al instante a los siguientes (flash-lite →
+ *  2.0 → 1.5) para que la respuesta JAMÁS se pierda y la app siempre funcione. */
+const MODEL_CHAIN = [
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite',
+  'gemini-2.0-flash',
+  'gemini-1.5-flash',
+] as const;
 const MODEL_ID = MODEL_CHAIN[0];
 
 /** HTTP codes que justifican reintentar con el siguiente modelo de la cadena. */

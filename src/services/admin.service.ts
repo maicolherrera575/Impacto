@@ -67,6 +67,46 @@ export async function adminDeleteOffer(offerId: string): Promise<void> {
   void data;
 }
 
+/** 🪪 V20 · Expediente KYB pendiente de auditoría visual del administrador. */
+export interface KybVerification {
+  merchant_id: string;
+  doc_image: string;
+  face_image: string;
+  doc_hash: string;
+  face_hash: string;
+  status: string;
+  submitted_at: string;
+}
+
+/** Expedientes KYB en estado 'pending' (la RLS solo los deja ver el admin). */
+export async function fetchKybPending(): Promise<KybVerification[]> {
+  const { data, error } = await supabase
+    .from('kyb_verifications')
+    .select('merchant_id, doc_image, face_image, doc_hash, face_hash, status, submitted_at')
+    .eq('status', 'pending')
+    .order('submitted_at', { ascending: true })
+    .limit(20);
+  if (error) throw error;
+  return (data ?? []) as unknown as KybVerification[];
+}
+
+/** Aprueba (is_verified=true) o rechaza (libera las imágenes) un expediente KYB. */
+export async function reviewKyb(merchantId: string, approve: boolean): Promise<void> {
+  const { error } = await supabase.rpc('admin_kyb_review_rpc', {
+    p_merchant_id: merchantId,
+    p_approve: approve,
+  });
+  if (error) throw error;
+}
+
+/** 🧹 V20 · Optimización extrema de la BD gratuita: ofertas vencidas hace
+ *  más de 30 días fuera + comprobantes resueltos con su miniatura liberada. */
+export async function cleanupExpiredData(): Promise<{ offers_deleted: number; receipts_cleared: number }> {
+  const { data, error } = await supabase.rpc('cleanup_expired_data_rpc');
+  if (error) throw error;
+  return data as unknown as { offers_deleted: number; receipts_cleared: number };
+}
+
 /** Purga TODAS las ofertas vencidas para mantener la base liviana (admin). */
 export async function adminCleanupExpired(): Promise<number> {
   const { data, error } = await supabase.rpc('admin_cleanup_expired_rpc');

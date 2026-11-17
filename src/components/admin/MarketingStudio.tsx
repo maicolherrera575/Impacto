@@ -772,13 +772,26 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
 
   // Foto efectiva (subida/IA/banco) con fallback a la del comercio.
   const effectivePhoto = customPhoto ?? brand.photo;
+  /** 🎲 V20 · Semilla aleatoria: cambia en CADA generación para que las fotos
+   *  del banco salgan barajadas — visuales 100% distintos en cada intento. */
+  const [photoSeed, setPhotoSeed] = useState(0);
 
-  /** 🖼️ V19 · CUATRO FOTOGRAFÍAS DIFERENTES del rubro (una por pieza):
-   *  la maestra (subida/IA/banco) + 3 tomas distintas del banco fotográfico.
-   *  Así la campaña multi-diseño jamás repite la misma imagen. */
+  /** 🖼️ V19/V20 · CUATRO FOTOGRAFÍAS DIFERENTES del rubro (una por pieza):
+   *  la maestra (subida/IA/banco) + 3 tomas distintas barajadas del banco con
+   *  la semilla de la campaña. Nunca repite la misma combinación. */
   const piecePhotos = useMemo<string[]>(() => {
     const cat = guessPhotoCategory(briefText.trim() || `${brand.name} ${brand.slogan} ${brand.product}`);
-    const bank = PHOTO_BANK[cat] ?? [];
+    const bank = [...(PHOTO_BANK[cat] ?? [])];
+    // Fisher-Yates determinista con la semilla de la campaña actual
+    let seed = photoSeed + 1;
+    const rand = (): number => {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      return seed / 2147483648;
+    };
+    for (let i = bank.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(rand() * (i + 1));
+      [bank[i], bank[j]] = [bank[j], bank[i]];
+    }
     const out: string[] = [effectivePhoto ?? ''];
     for (const u of bank) {
       if (out.length >= 4) break;
@@ -787,7 +800,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     // Si el banco no alcanza para 4, completamos repitiendo la maestra
     while (out.length < 4) out.push(effectivePhoto ?? '');
     return out;
-  }, [effectivePhoto, briefText, brand.name, brand.slogan, brand.product]);
+  }, [effectivePhoto, briefText, brand.name, brand.slogan, brand.product, photoSeed]);
 
   // QR codificado localmente (0 bytes en la base de datos) — se muestra como
   // <img> dataURL en el artboard: captura limpia, sin tainting del canvas.
@@ -872,6 +885,9 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       return;
     }
     setGenerating(true);
+    // 🎲 V20 · Nueva semilla → fotos del banco barajadas: cada campaña sale
+    // con visuales completamente distintos a la anterior.
+    setPhotoSeed((v) => v + 1);
     const genId = ++photoGenRef.current;
     const merchantCategory = merchants.find((m) => m.id === merchantId)?.category;
     const lastArt = campaign;

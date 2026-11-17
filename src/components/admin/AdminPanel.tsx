@@ -20,14 +20,17 @@ import {
   adminCleanupExpired,
   adminDeleteOffer,
   adminUnblockClient,
+  cleanupExpiredData,
   fetchAdminStatsRpc,
   fetchBlockedClients,
+  fetchKybPending,
   fetchMerchants,
   fetchRecentReports,
   fetchRecentReservations,
   manageMerchant,
+  reviewKyb,
 } from '../../services/admin.service';
-import type { AdminStats, BlockedClient, ForensicReservation, OfferReport } from '../../services/admin.service';
+import type { AdminStats, BlockedClient, ForensicReservation, KybVerification, OfferReport } from '../../services/admin.service';
 import {
   fetchCreditOrders,
   fetchPaymentConfig,
@@ -78,6 +81,9 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
   const [blocked, setBlocked] = useState<BlockedClient[]>([]);
   /** 🚩 Reportes de la comunidad con su motivo exacto. */
   const [reports, setReports] = useState<OfferReport[]>([]);
+  /** 🪪 V20 · Expedientes KYB pendientes de auditoría visual. */
+  const [kybPending, setKybPending] = useState<KybVerification[]>([]);
+  const [kybBusyId, setKybBusyId] = useState<string | null>(null);
   const [blockPhone, setBlockPhone] = useState('');
   const [blockDevice, setBlockDevice] = useState('');
   const [blockIp, setBlockIp] = useState('');
@@ -113,6 +119,13 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
         setHolderInput(config.holderName || '');
         setQrThumb(config.qrThumb || '');
         setAutoApprove(config.autoApprove);
+      }
+      // 🪪 V20 · Expedientes KYB pendientes (silencioso: si la tabla aún no
+      // existe porque falta correr el SQL, el panel NO se rompe).
+      try {
+        setKybPending(await fetchKybPending());
+      } catch {
+        setKybPending([]);
       }
     } catch (err) {
       toast.error(friendlyError(err));
@@ -336,13 +349,37 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
     setCleanupBusy(true);
     try {
       const deleted = await adminCleanupExpired();
-      toast.success(`🧹 ${deleted} ofertas vencidas eliminadas — base de datos liviana`);
+      // 🧹 V20 · Purga profunda: ofertas vencidas hace más de 30 días +
+      // miniaturas de comprobantes resueltos liberadas (el hash queda).
+      let cleared = 0;
+      try {
+        const deep = await cleanupExpiredData();
+        cleared = deep.receipts_cleared;
+      } catch {
+        // Si la RPC nueva aún no está instalada, la limpieza clásica ya corrió.
+      }
+      toast.success(`🧹 ${deleted} ofertas vencidas eliminadas${cleared ? ` · ${cleared} comprobantes liberados` : ''} — base liviana`);
       void load();
       void loadOffers();
     } catch (err) {
       toast.error(friendlyError(err));
     } finally {
       setCleanupBusy(false);
+    }
+  }
+
+  /** 🪪 V20 · Aprueba o rechaza un expediente KYB (el rechazo libera las imágenes). */
+  async function reviewKybExpedient(merchantId: string, approve: boolean) {
+    setKybBusyId(merchantId);
+    try {
+      await reviewKyb(merchantId, approve);
+      setKybPending((prev) => prev.filter((k) => k.merchant_id !== merchantId));
+      toast.success(approve ? '🪪 Identidad verificada: insignia otorgada' : 'Expediente KYB rechazado e imágenes liberadas');
+      void load();
+    } catch (err) {
+      toast.error(friendlyError(err));
+    } finally {
+      setKybBusyId(null);
     }
   }
 
@@ -415,6 +452,55 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
         {/* ═══ Pestaña 1: Comercios y Créditos ═══ */}
         {tab === 'merchants' && (
           <>
+            {/* 🪪 V20 · Bandeja de verificación de identidad (KYB) pendiente */}
+            {kybPending.length > 0 && (
+              <div className="px-4 pt-4">
+                <div className="rounded-3xl border border-impulso-gold/30 bg-impulso-gold/5 p-4">
+                  <p className="flex items-center gap-2 text-sm font-extrabold text-impulso-gold">
+                    <BadgeCheck className="h-4 w-4" /> Verificación de identidad pendiente ({kybPending.length})
+                  </p>
+                  <p className="mt-1 text-xs leading-relaxed text-slate-400">
+                    Audita el documento y la foto de cada comercio antes de otorgar la insignia ✅ Verificado.
+                  </p>
+                  <div className="mt-3 space-y-3">
+                    {kybPending.map((k) => {
+                      const merchant = merchants.find((m) => m.id === k.merchant_id);
+                      return (
+                        <div key={k.merchant_id} className="rounded-2xl border border-white/10 bg-slate-950/40 p-3">
+                          <p className="truncate text-xs font-extrabold text-white">
+                            {merchant?.business_name ?? k.merchant_id} · {new Date(k.submitted_at).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}
+                          </p>
+                          <div className="mt-2 grid grid-cols-2 gap-2">
+                            <img src={k.doc_image} alt="Documento" className="h-32 w-full rounded-xl border border-white/10 object-cover" />
+                            <img src={k.face_image} alt="Establecimiento" className="h-32 w-full rounded-xl border border-white/10 object-cover" />
+                          </div>
+                          <p className="mt-1.5 truncate font-mono text-[9px] text-slate-500">
+                            🧬 doc {k.doc_hash.slice(0, 16)}… · 🧬 foto {k.face_hash.slice(0, 16)}…
+                          </p>
+                          <div className="mt-2 grid grid-cols-2 gap-2">
+                            <button
+                              onClick={() => void reviewKybExpedient(k.merchant_id, true)}
+                              disabled={kybBusyId === k.merchant_id}
+                              className="pressable flex items-center justify-center gap-1.5 rounded-xl border border-impulso-emerald/40 bg-impulso-emerald/10 py-2 text-xs font-extrabold text-impulso-mint disabled:opacity-50"
+                            >
+                              {kybBusyId === k.merchant_id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <BadgeCheck className="h-3.5 w-3.5" />}
+                              Aprobar verificación
+                            </button>
+                            <button
+                              onClick={() => void reviewKybExpedient(k.merchant_id, false)}
+                              disabled={kybBusyId === k.merchant_id}
+                              className="pressable flex items-center justify-center gap-1.5 rounded-xl border border-impulso-rose/40 bg-impulso-rose/10 py-2 text-xs font-extrabold text-impulso-rose disabled:opacity-50"
+                            >
+                              <X className="h-3.5 w-3.5" /> Rechazar
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
             <div className="px-4 pt-4">
               <div className="relative">
                 <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
@@ -455,6 +541,11 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
                         <p className="flex items-center gap-1.5 truncate text-sm font-extrabold text-white">
                           <Store className="h-3.5 w-3.5 text-slate-500" />
                           {m.business_name}
+                          {m.kyb_status === 'pending' && (
+                            <span className="rounded-md border border-impulso-gold/40 bg-impulso-gold/10 px-1.5 py-0.5 text-[9px] font-extrabold text-impulso-gold">
+                              🪪 KYB en revisión
+                            </span>
+                          )}
                         </p>
                         <p className="truncate text-xs font-semibold text-slate-400">
                           {m.municipality} · {m.whatsapp}

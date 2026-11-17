@@ -67,6 +67,25 @@ export async function updateMyProfile(input: UpdateProfileInput): Promise<Profil
   return data as unknown as Profile;
 }
 
+/** 🪪 V20 · Envío del blindaje KYB: documento + foto con sus huellas SHA-256.
+ *  La RPC security definer escribe en la fila del propio comercio y deja el
+ *  expediente en 'pending' para que el administrador lo audite visualmente. */
+export async function submitKybVerification(input: {
+  docImage: string;
+  faceImage: string;
+  docHash: string;
+  faceHash: string;
+}): Promise<{ status: string }> {
+  const { data, error } = await supabase.rpc('submit_kyb_verification_rpc', {
+    p_doc_image: input.docImage,
+    p_face_image: input.faceImage,
+    p_doc_hash: input.docHash,
+    p_face_hash: input.faceHash,
+  });
+  if (error) throw error;
+  return data as unknown as { status: string };
+}
+
 export interface SignUpMerchantInput {
   email: string;
   password: string;

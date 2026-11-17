@@ -2405,6 +2405,163 @@ $$;
 grant execute on function public.save_payment_method_rpc(text, text, text)   to authenticated;
 grant execute on function public.delete_payment_method_rpc(text)             to authenticated;
 
+-- ============================================================================
+-- 11. BLINDAJE KYB (KNOW YOUR BUSINESS) · V20
+--     El comerciante sube su documento y una foto del establecimiento;
+--     el administrador las audita y otorga la insignia de verificado.
+--     Las imágenes viven en esta tabla SEPARADA (RLS admin/dueño) para que
+--     JAMÁS queden expuestas en la lectura pública de profiles.
+-- ============================================================================
+
+-- 11.1 Columnas de estado rápido sobre el perfil (sin imágenes, solo texto)
+alter table public.profiles add column if not exists kyb_status       text not null default 'none';
+alter table public.profiles add column if not exists kyb_submitted_at timestamptz;
+
+-- 11.2 Tabla de verificación documental
+create table if not exists public.kyb_verifications (
+  id           uuid primary key default gen_random_uuid(),
+  merchant_id  uuid not null unique references public.profiles (id) on delete cascade,
+  -- Cédula/RUT y foto del establecimiento o del titular (dataURL WebP ≤ 100 KB)
+  doc_image    text not null default '',
+  face_image   text not null default '',
+  -- Huella SHA-256 de cada imagen (auditabilidad sin exponer la imagen)
+  doc_hash     text not null default '',
+  face_hash    text not null default '',
+  status       text not null default 'pending',
+  submitted_at timestamptz not null default now(),
+  reviewed_at  timestamptz
+);
+
+alter table public.kyb_verifications enable row level security;
+
+drop policy if exists "KYB visible por dueno o admin" on public.kyb_verifications;
+create policy "KYB visible por dueno o admin"
+  on public.kyb_verifications for select
+  to authenticated
+  using (auth.uid() = merchant_id or public.is_admin());
+-- (SIN políticas INSERT/UPDATE/DELETE: escritura SOLO por RPC security definer.)
+
+drop index if exists kyb_verifications_status_idx;
+create index kyb_verifications_status_idx on public.kyb_verifications (status);
+
+-- 11.3 El comerciante envía sus documentos (seguridad definer: escribe en su
+--      propia fila aunque no exista política de escritura)
+create or replace function public.submit_kyb_verification_rpc(
+  p_doc_image text,
+  p_face_image text,
+  p_doc_hash text,
+  p_face_hash text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_uid uuid;
+begin
+  v_uid := auth.uid();
+  if v_uid is null then
+    raise exception 'Debes iniciar sesión para enviar tu verificación';
+  end if;
+  if left(coalesce(p_doc_image, ''), 11) <> 'data:image/' or left(coalesce(p_face_image, ''), 11) <> 'data:image/' then
+    raise exception 'Las imágenes deben llegar comprimidas en formato WebP/JPEG';
+  end if;
+  if char_length(p_doc_image) > 200000 or char_length(p_face_image) > 200000 then
+    raise exception 'Las imágenes exceden el tamaño máximo (100 KB). Vuelve a intentarlo';
+  end if;
+  if coalesce(p_doc_hash, '') !~ '^[0-9a-f]{64}$' or coalesce(p_face_hash, '') !~ '^[0-9a-f]{64}$' then
+    raise exception 'La huella de las imágenes es inválida. Vuelve a intentarlo';
+  end if;
+
+  insert into public.kyb_verifications (merchant_id, doc_image, face_image, doc_hash, face_hash, status, submitted_at, reviewed_at)
+  values (v_uid, p_doc_image, p_face_image, p_doc_hash, p_face_hash, 'pending', now(), null)
+  on conflict (merchant_id) do update
+    set doc_image    = excluded.doc_image,
+        face_image   = excluded.face_image,
+        doc_hash     = excluded.doc_hash,
+        face_hash    = excluded.face_hash,
+        status       = 'pending',
+        submitted_at = now(),
+        reviewed_at  = null;
+
+  update public.profiles
+     set kyb_status = 'pending',
+         kyb_submitted_at = now()
+   where id = v_uid;
+
+  return jsonb_build_object('status', 'pending');
+end;
+$$;
+grant execute on function public.submit_kyb_verification_rpc(text, text, text, text) to authenticated;
+
+-- 11.4 El administrador aprueba o rechaza la verificación. Al rechazar se
+--      borran las imágenes (libera la BD gratuita) pero se conservan los
+--      hashes para que un reenvío idéntico pueda detectarse.
+create or replace function public.admin_kyb_review_rpc(p_merchant_id uuid, p_approve boolean)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if not public.is_admin() then
+    raise exception 'SOLO_ADMIN: esta acción está reservada al administrador';
+  end if;
+
+  update public.kyb_verifications
+     set status = case when p_approve then 'approved' else 'rejected' end,
+         reviewed_at = now(),
+         doc_image = case when p_approve then doc_image else '' end,
+         face_image = case when p_approve then face_image else '' end
+   where merchant_id = p_merchant_id;
+
+  update public.profiles
+     set is_verified = coalesce(p_approve, is_verified),
+         kyb_status = case when p_approve then 'approved' else 'rejected' end
+   where id = p_merchant_id;
+
+  return jsonb_build_object('merchant_id', p_merchant_id, 'approved', p_approve);
+end;
+$$;
+grant execute on function public.admin_kyb_review_rpc(uuid, boolean) to authenticated;
+
+-- 11.5 🧹 Optimización de base de datos (plan gratuito): el administrador la
+--      lanza con un clic. Borra ofertas vencidas hace MÁS de 30 días
+--      (gracia para reposiciones) y libera los comprobantes de órdenes de
+--      crédito ya resueltas poniendo receipt_thumb = null PERO conservando
+--      el hash y la referencia por trazabilidad y seguridad.
+create or replace function public.cleanup_expired_data_rpc()
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_offers integer;
+  v_receipts integer;
+begin
+  if not public.is_admin() then
+    raise exception 'SOLO_ADMIN: esta acción está reservada al administrador';
+  end if;
+
+  -- 1. Ofertas vencidas hace más de 30 días (y sus reservas en cascada)
+  delete from public.offers
+   where expires_at < now() - interval '30 days';
+  get diagnostics v_offers = row_count;
+
+  -- 2. Comprobantes ya resueltos: la miniatura se borra, el hash queda
+  update public.credit_orders
+     set receipt_thumb = null
+   where status in ('approved', 'rejected')
+     and receipt_thumb is not null;
+  get diagnostics v_receipts = row_count;
+
+  return jsonb_build_object('offers_deleted', v_offers, 'receipts_cleared', v_receipts);
+end;
+$$;
+grant execute on function public.cleanup_expired_data_rpc() to authenticated;
+
 -- 🔄 V19 · Refresca el caché de PostgREST automáticamente al correr el script:
 -- sin esto, funciones nuevas (como admin_reports_list_rpc) pueden seguir
 -- "no encontradas" hasta 1-2 minutos por caché del esquema.
