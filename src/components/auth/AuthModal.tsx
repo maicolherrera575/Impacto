@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Fingerprint, Loader2, LogIn, UserPlus, X } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { Fingerprint, Info, Loader2, LogIn, UserPlus, X } from 'lucide-react';
 import type { Category } from '../../types';
 import { CATEGORIES, MUNICIPIOS } from '../../types';
 import { ModalShell } from '../ui/ModalShell';
@@ -10,10 +10,10 @@ import { ensureSignedInAfterSignUp, signIn, signOut, signUpMerchant, validateInv
 import {
   authenticateWithPasskey,
   isWebAuthnSupported,
-  WEBAUTHN_CANCELLED_MSG,
-  WEBAUTHN_CROSS_DEVICE_MSG,
 } from '../../services/WebAuthnService';
 import { cx } from '../../utils/format';
+
+const PASSWORD_FALLBACK_INFO_MSG = 'Inicia sesión con tu contraseña para este dispositivo.';
 
 interface AuthModalProps {
   open: boolean;
@@ -39,8 +39,11 @@ export function AuthModal({ open, onClose, onAuthed, onOpenLegal }: AuthModalPro
   const [inviteCode, setInviteCode] = useState('');
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [loading, setLoading] = useState(false);
-  /** ⚠️ V18 · Errores y avisos DENTRO del modal (nunca detrás, invisibles). */
+  /** ⚠️ V18 · Errores de formulario DENTRO del modal. */
   const [errorMsg, setErrorMsg] = useState('');
+  /** ℹ️ V27 · Aviso azul amigable cuando no hay passkey local (nunca error rojo restrictivo). */
+  const [infoMsg, setInfoMsg] = useState('');
+  const passwordInputRef = useRef<HTMLInputElement | null>(null);
   const emailOk = /.+@.+\..+/.test(email.trim());
   const passOk = password.length >= 6;
 
@@ -49,6 +52,7 @@ export function AuthModal({ open, onClose, onAuthed, onOpenLegal }: AuthModalPro
 
   async function passkeyLogin() {
     setErrorMsg('');
+    setInfoMsg('');
     if (!emailOk) {
       setErrorMsg('Escribe tu correo para validar tu huella / FaceID');
       return;
@@ -59,18 +63,12 @@ export function AuthModal({ open, onClose, onAuthed, onOpenLegal }: AuthModalPro
       toast.success('🔐 ¡Identidad biométrica verificada! Bienvenido 👋');
       onAuthed();
       onClose();
-    } catch (err) {
-      const msg = friendlyError(err);
-      if (
-        msg === WEBAUTHN_CROSS_DEVICE_MSG ||
-        msg === WEBAUTHN_CANCELLED_MSG ||
-        /cancel|NotAllowed|no hay llaves|no se encontró la llave|equipo nuevo|dispositivo/i.test(msg)
-      ) {
-        setErrorMsg(WEBAUTHN_CROSS_DEVICE_MSG);
-        toast.info('Ingresa con tu contraseña para continuar o sincroniza tu cuenta Google/Apple.');
-      } else {
-        setErrorMsg(msg);
-      }
+    } catch {
+      // V27 Anti-frustración: ante cualquier fallo o falta de llave local/roaming,
+      // mostramos toast informativo azul y devolvemos el foco al ingreso con contraseña.
+      toast.info(PASSWORD_FALLBACK_INFO_MSG);
+      setInfoMsg(PASSWORD_FALLBACK_INFO_MSG);
+      window.setTimeout(() => passwordInputRef.current?.focus(), 40);
     } finally {
       setLoading(false);
     }
@@ -78,6 +76,7 @@ export function AuthModal({ open, onClose, onAuthed, onOpenLegal }: AuthModalPro
 
   async function submit() {
     setErrorMsg('');
+    setInfoMsg('');
     if (!emailOk) {
       setErrorMsg('Escribe un correo válido');
       return;
@@ -153,12 +152,7 @@ export function AuthModal({ open, onClose, onAuthed, onOpenLegal }: AuthModalPro
         }
       }
     } catch (err) {
-      const msg = friendlyError(err);
-      if (msg === WEBAUTHN_CANCELLED_MSG || /cancel/i.test(msg)) {
-        toast.info(WEBAUTHN_CANCELLED_MSG);
-      } else {
-        setErrorMsg(msg);
-      }
+      setErrorMsg(friendlyError(err));
     } finally {
       setLoading(false);
     }
@@ -187,7 +181,11 @@ export function AuthModal({ open, onClose, onAuthed, onOpenLegal }: AuthModalPro
           {(['login', 'signup'] as const).map((m) => (
             <button
               key={m}
-              onClick={() => setMode(m)}
+              onClick={() => {
+                setMode(m);
+                setErrorMsg('');
+                setInfoMsg('');
+              }}
               className={cx(
                 'pressable rounded-xl py-2.5 text-sm font-bold transition',
                 mode === m ? 'bg-impulso-emerald text-white' : 'text-slate-400'
@@ -208,12 +206,16 @@ export function AuthModal({ open, onClose, onAuthed, onOpenLegal }: AuthModalPro
             className="w-full rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3.5 text-[15px] font-medium text-white placeholder:text-slate-600 outline-none focus:border-impulso-emerald/60"
           />
           <input
+            ref={passwordInputRef}
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="Contraseña (mínimo 6 caracteres)"
             autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-            className="w-full rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3.5 text-[15px] font-medium text-white placeholder:text-slate-600 outline-none focus:border-impulso-emerald/60"
+            className={cx(
+              'w-full rounded-2xl border bg-slate-950/50 px-4 py-3.5 text-[15px] font-medium text-white placeholder:text-slate-600 outline-none transition',
+              infoMsg ? 'border-sky-400/70 ring-2 ring-sky-400/20' : 'border-white/10 focus:border-impulso-emerald/60',
+            )}
           />
 
           {mode === 'signup' && (
@@ -292,7 +294,15 @@ export function AuthModal({ open, onClose, onAuthed, onOpenLegal }: AuthModalPro
             </>
           )}
 
-          {/* ⚠️ V18 · Error DENTRO del modal, imposible de perderse */}
+          {/* ℹ️ V27 · Aviso informativo sutil (azul/info) para flujo anti-frustración */}
+          {infoMsg && (
+            <div className="flex items-start gap-2 rounded-xl border border-sky-400/35 bg-sky-500/10 p-3 text-sky-200" role="status">
+              <Info className="mt-0.5 h-4 w-4 shrink-0 text-sky-300" />
+              <p className="text-xs font-semibold leading-relaxed">{infoMsg}</p>
+            </div>
+          )}
+
+          {/* ⚠️ V18 · Error de validación de formulario DENTRO del modal */}
           {errorMsg && (
             <div className="flex items-start gap-2 rounded-xl border border-red-500/40 bg-red-500/15 p-3 text-red-200" role="alert">
               <X className="mt-0.5 h-4 w-4 shrink-0" />
@@ -318,14 +328,15 @@ export function AuthModal({ open, onClose, onAuthed, onOpenLegal }: AuthModalPro
             )}
           </button>
 
-          {/* 🫆 V20 · Botón biométrico (Passkeys): solo si el dispositivo lo soporta */}
+          {/* 🫆 V27 · Opción secundaria tipo outline debajo del acceso principal por contraseña */}
           {mode === 'login' && passkeyAvailable && (
             <button
+              type="button"
               onClick={() => void passkeyLogin()}
               disabled={loading}
-              className="pressable flex w-full items-center justify-center gap-2 rounded-2xl border border-white/15 bg-slate-950/40 py-3 text-sm font-bold text-slate-200 disabled:opacity-60"
+              className="pressable flex w-full items-center justify-center gap-2 rounded-2xl border border-white/15 bg-transparent py-2.5 text-xs font-semibold text-slate-300 transition hover:border-white/30 hover:bg-white/[0.04] hover:text-white disabled:opacity-60"
             >
-              <Fingerprint className="h-4.5 w-4.5 text-impulso-mint" />
+              <Fingerprint className="h-4 w-4 text-impulso-mint/85" />
               Entrar con huella / FaceID
             </button>
           )}

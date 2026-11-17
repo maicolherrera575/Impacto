@@ -283,9 +283,9 @@ function buildBrandTheme(base: AfficheTheme, palette: ExtractedBrandPalette | nu
         `linear-gradient(155deg, ${bgTop}, ${bgBottom})`,
     };
   }
-  const deepTop = mixHex(palette.primary, '#070b14', 0.72);
-  const deepBottom = mixHex(palette.secondary, '#04070e', 0.86);
-  const darkSub = mixHex(palette.secondary, '#e2e8f0', 0.72);
+  const deepTop = mixHex(palette.primary, '#060a14', 0.74);
+  const deepBottom = mixHex(palette.secondary, '#03060c', 0.88);
+  const darkSub = mixHex(palette.secondary, '#cbd5e1', 0.74);
   return {
     ...base,
     light: false,
@@ -294,8 +294,9 @@ function buildBrandTheme(base: AfficheTheme, palette: ExtractedBrandPalette | nu
     accent: ensureReadableAccent(palette.primary, false),
     accent2: ensureReadableAccent(palette.accent, false),
     bg:
-      `radial-gradient(360px 220px at 84% 8%, ${palette.accent}42, transparent 62%),` +
-      `radial-gradient(380px 240px at 8% 90%, ${palette.primary}38, transparent 62%),` +
+      `radial-gradient(380px 230px at 86% 6%, ${palette.accent}48, transparent 62%),` +
+      `radial-gradient(400px 250px at 8% 92%, ${palette.primary}3e, transparent 62%),` +
+      `repeating-linear-gradient(90deg, rgba(255,255,255,0.03) 0px, rgba(255,255,255,0.03) 1px, transparent 1px, transparent 44px),` +
       `linear-gradient(160deg, ${deepTop}, ${deepBottom})`,
   };
 }
@@ -511,10 +512,10 @@ function Headline({
   const readableAccent2 = ensureReadableAccent(t.accent2, isLight);
   const baseInk = color ?? (isLight ? t.text : '#ffffff');
   const shadowColor = longShadow
-    ? `0 ${5 * s}px ${14 * s}px rgba(0,0,0,0.85), 0 0 ${18 * s}px ${readableAccent2}44`
-    : isLight && !color && eff !== 'neon'
+    ? `0 4px 10px rgba(0,0,0,0.85), 0 ${12 * s}px ${28 * s}px rgba(0,0,0,0.75), 0 0 ${24 * s}px ${readableAccent2}44`
+    : isLight && !color
       ? '0 2px 10px rgba(255,255,255,0.45)'
-      : '0 4px 12px rgba(0,0,0,0.78)';
+      : '0 4px 10px rgba(0,0,0,0.85), 0 12px 28px rgba(0,0,0,0.72)';
 
   const base: CSSProperties = {
     margin: 0,
@@ -522,7 +523,7 @@ function Headline({
     zIndex: 10,
     fontFamily: `"${typo.font || t.font}", system-ui, sans-serif`,
     fontSize: Number(computedSize.toFixed(1)),
-    lineHeight: eff === 'caja' ? 1.08 : 0.96,
+    lineHeight: eff === 'caja' ? 1.06 : 0.94,
     fontWeight: 900,
     textTransform: 'uppercase',
     letterSpacing: -1.1 * s,
@@ -533,7 +534,6 @@ function Headline({
   const highlight = (): ReactElement => {
     const hl = cleanPosterCopy(texts.highlight);
     if (!hl) return <></>;
-    // Color sólido puro de rotulador + tinta sólida contrastante (cero bg-clip-text, gradientes o superposiciones)
     const markerBg = ensureReadableAccent(t.accent2, false);
     const cajaInk = contrastTextOn(markerBg);
 
@@ -544,13 +544,14 @@ function Headline({
             style={{
               backgroundColor: markerBg,
               color: cajaInk,
-              padding: `${2 * s}px ${9 * s}px`,
-              borderRadius: 6 * s,
+              padding: `${2 * s}px ${10 * s}px`,
+              borderRadius: 7 * s,
               display: 'inline-block',
               lineHeight: 1.04,
               marginTop: 3 * s,
               fontWeight: 900,
               textShadow: 'none',
+              boxShadow: `0 10px 24px -4px ${markerBg}66`,
             }}
           >
             {hl}
@@ -583,14 +584,14 @@ function Headline({
           </span>
         );
       default:
-        // Color sólido puro + sombra de texto simple 100% compatible con html-to-image
+        // Color sólido de alto impacto con drop-shadow profundo y halo de tema (100% seguro para html-to-image)
         return (
           <span
             style={{
               color: readableAccent2,
               textShadow: isLight
-                ? '0 2px 8px rgba(15,23,42,0.18)'
-                : `0 4px 12px rgba(0,0,0,0.82)`,
+                ? '0 2px 10px rgba(15,23,42,0.22)'
+                : `0 4px 10px rgba(0,0,0,0.86), 0 0 ${22 * s}px ${readableAccent2}4d`,
             }}
           >
             {hl}
@@ -869,13 +870,15 @@ function BenefitsShowcase({
   }
 
   if (mode === 'editorial') {
-    const ruleColor = t.light ? 'rgba(15,23,42,0.16)' : 'rgba(255,255,255,0.16)';
     return (
       <div
         style={{
+          ...g.card,
+          borderRadius: 20 * s,
+          padding: `${10 * s}px ${13 * s}px`,
           display: 'flex',
           flexDirection: 'column',
-          gap: 6 * s,
+          gap: 7 * s,
           textAlign: align,
           flexShrink: 0,
         }}
@@ -885,32 +888,33 @@ function BenefitsShowcase({
             key={i}
             style={{
               display: 'flex',
-              alignItems: 'baseline',
+              alignItems: 'center',
               justifyContent: align === 'left' ? 'flex-start' : 'center',
-              gap: 9 * s,
-              borderBottom: i < cleanItems.length - 1 ? `1px solid ${ruleColor}` : 'none',
-              paddingBottom: i < cleanItems.length - 1 ? 5 * s : 0,
+              gap: 10 * s,
             }}
           >
             <span
               style={{
-                fontFamily: `"${t.font}", system-ui, sans-serif`,
-                fontSize: 13 * s,
-                fontWeight: 900,
-                color: t.accent2,
-                letterSpacing: 1,
+                width: 24 * s,
+                height: 24 * s,
+                borderRadius: 8 * s,
+                background: `linear-gradient(135deg, ${t.accent}, ${t.accent2})`,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
                 flexShrink: 0,
+                boxShadow: `0 6px 14px ${t.accent}44`,
               }}
             >
-              0{i + 1}/
+              <GlyphIcon kind={i} size={13 * s} color={contrastTextOn(t.accent, t.accent2)} />
             </span>
             <span
               style={{
-                fontSize: 16.5 * s,
-                fontWeight: 900,
-                letterSpacing: -0.3 * s,
+                fontSize: 14.5 * s,
+                fontWeight: 800,
+                letterSpacing: -0.2 * s,
                 color: t.text,
-                lineHeight: 1.16,
+                lineHeight: 1.18,
               }}
             >
               {body}
@@ -934,7 +938,7 @@ function BenefitsShowcase({
             transform: align === 'left' ? 'translateY(-50%)' : 'translate(-50%, -50%)',
             margin: 0,
             fontFamily: `"${t.font}", system-ui, sans-serif`,
-            fontSize: 74 * s,
+            fontSize: 70 * s,
             fontWeight: 900,
             letterSpacing: 4 * s,
             color: t.text,
@@ -953,23 +957,39 @@ function BenefitsShowcase({
             display: 'flex',
             flexWrap: 'wrap',
             justifyContent: align === 'left' ? 'flex-start' : 'center',
-            gap: `${6 * s}px ${16 * s}px`,
+            gap: 7 * s,
           }}
         >
           {cleanItems.map((body, i) => (
             <span
               key={i}
               style={{
+                ...g.card,
+                borderRadius: 999,
+                padding: `${5.5 * s}px ${11 * s}px`,
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: 6 * s,
-                fontSize: 13.5 * s,
-                fontWeight: 900,
+                fontSize: 12 * s,
+                fontWeight: 800,
                 color: t.text,
-                letterSpacing: -0.2 * s,
+                letterSpacing: -0.15 * s,
               }}
             >
-              <span style={{ width: 12 * s, height: 1.5 * s, background: ensureReadableAccent(t.accent2, Boolean(t.light)), flexShrink: 0 }} />
+              <span
+                style={{
+                  width: 18 * s,
+                  height: 18 * s,
+                  borderRadius: '50%',
+                  background: `linear-gradient(135deg, ${t.accent}, ${t.accent2})`,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <GlyphIcon kind={i} size={10 * s} color={contrastTextOn(t.accent, t.accent2)} />
+              </span>
               {body}
             </span>
           ))}
@@ -985,43 +1005,43 @@ function BenefitsShowcase({
         style={{
           display: 'flex',
           flexDirection: 'column',
-          gap: 6 * s,
+          gap: 6.5 * s,
           flexShrink: 0,
-          alignItems: align === 'left' ? 'flex-start' : 'center',
+          alignItems: align === 'left' ? 'stretch' : 'center',
         }}
       >
         {cleanItems.map((body, i) => (
           <div
             key={i}
             style={{
+              ...g.card,
+              borderRadius: 14 * s,
+              borderLeft: `3.5px solid ${lineInk}`,
+              padding: `${7 * s}px ${12 * s}px`,
               display: 'inline-flex',
               alignItems: 'center',
-              gap: 8 * s,
+              gap: 9 * s,
               maxWidth: '100%',
             }}
           >
             <span
               style={{
-                width: 6 * s,
-                height: 6 * s,
-                borderRadius: '50%',
-                background: lineInk,
-                boxShadow: `0 0 10px ${lineInk}88`,
+                width: 22 * s,
+                height: 22 * s,
+                borderRadius: 8 * s,
+                background: `${lineInk}26`,
+                border: `1px solid ${lineInk}55`,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
                 flexShrink: 0,
               }}
-            />
+            >
+              <GlyphIcon kind={i} size={12 * s} color={lineInk} />
+            </span>
             <span
               style={{
-                width: (22 + i * 10) * s,
-                height: '1px',
-                background: lineInk,
-                opacity: 0.85,
-                flexShrink: 0,
-              }}
-            />
-            <span
-              style={{
-                fontSize: 13 * s,
+                fontSize: 12.5 * s,
                 fontWeight: 800,
                 color: t.text,
                 letterSpacing: 0.1 * s,
@@ -1036,7 +1056,7 @@ function BenefitsShowcase({
     );
   }
 
-  // 'ribbons': Cintas escalonadas con acento diagonal
+  // 'ribbons': Cintas de cristal translúcidas con icono vectorial
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 * s, justifyContent: align === 'left' ? 'flex-start' : 'center', flexShrink: 0 }}>
       {cleanItems.map((body, i) => (
@@ -1046,8 +1066,8 @@ function BenefitsShowcase({
             ...g.card,
             borderRadius: 14 * s,
             borderLeft: `3px solid ${i % 2 === 0 ? t.accent2 : t.accent}`,
-            padding: `${7.5 * s}px ${13 * s}px`,
-            fontSize: 13 * s,
+            padding: `${7 * s}px ${12 * s}px`,
+            fontSize: 12.5 * s,
             fontWeight: 800,
             color: t.text,
             display: 'inline-flex',
@@ -1055,6 +1075,7 @@ function BenefitsShowcase({
             gap: 6 * s,
           }}
         >
+          <GlyphIcon kind={i} size={12 * s} color={i % 2 === 0 ? t.accent2 : t.accent} />
           {body}
         </span>
       ))}
@@ -1101,24 +1122,38 @@ function PricePill({ brand, t, s, big = false }: { brand: AfficheBrand; t: Affic
   );
 }
 
-function CtaButton({ label, s, bg = '#10b981', color = '#ffffff' }: { label: string; s: number; bg?: string; color?: string }) {
+function CtaButton({
+  label,
+  s,
+  bg = '#10b981',
+  accent2,
+  color = '#ffffff',
+}: {
+  label: string;
+  s: number;
+  bg?: string;
+  accent2?: string;
+  color?: string;
+}) {
   const clean = cleanPosterCopy(label);
   if (!clean) return null;
+  const endColor = accent2 || bg;
   return (
     <div style={{ display: 'flex', justifyContent: 'center', flexShrink: 0 }}>
       <span
         style={{
-          background: bg,
+          background: `linear-gradient(135deg, ${bg} 0%, ${endColor} 100%)`,
           color,
           borderRadius: 999,
-          padding: `${9.5 * s}px ${22 * s}px`,
+          border: '1px solid rgba(255,255,255,0.28)',
+          padding: `${10 * s}px ${22 * s}px`,
           fontSize: 14.5 * s,
           fontWeight: 900,
           letterSpacing: 0.4,
           display: 'inline-flex',
           alignItems: 'center',
           gap: 7 * s,
-          boxShadow: `0 12px 28px -6px ${bg}77`,
+          boxShadow: `0 0 ${24 * s}px ${endColor}66, 0 ${12 * s}px ${26 * s}px -6px rgba(0,0,0,0.55)`,
           whiteSpace: 'nowrap',
         }}
       >
@@ -1721,12 +1756,24 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
         maxHeight: PHOTO_MAX,
         position: 'relative',
         borderRadius: 26 * s,
-        boxShadow: `0 24px 52px -12px rgba(0,0,0,0.55), 0 10px 28px -8px ${t.accent}35`,
+        border: `1px solid ${t.light ? 'rgba(15,23,42,0.12)' : 'rgba(255,255,255,0.16)'}`,
+        boxShadow: `0 24px 52px -12px rgba(0,0,0,0.62), 0 10px 28px -8px ${t.accent}44`,
         overflow: 'hidden',
         ...extra,
       }}
     >
       <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
+      {/* Degradado atmosférico en el tercio inferior para integrar la foto al tema */}
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          pointerEvents: 'none',
+          background: t.light
+            ? `linear-gradient(to top, rgba(2,6,23,0.46) 0%, rgba(15,23,42,0.14) 38%, transparent 72%)`
+            : `linear-gradient(to top, ${mixHex(t.accent, '#020617', 0.88)}e6 0%, ${mixHex(t.accent2, '#0f172a', 0.86)}66 38%, transparent 74%)`,
+        }}
+      />
       {priceOverlay && (
         <div style={{ position: 'absolute', bottom: 14 * s, right: 14 * s }}>
           <PricePill brand={brand} t={t} s={s} />
@@ -1751,7 +1798,7 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
         />
       )}
       {isService && priceLabel ? (
-        <CtaButton label={priceLabel} s={s} bg={t.accent2} color={contrastTextOn(t.accent2)} />
+        <CtaButton label={priceLabel} s={s} bg={t.accent} accent2={t.accent2} color={contrastTextOn(t.accent, t.accent2)} />
       ) : null}
     </>
   );
@@ -2358,7 +2405,9 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
   let body: ReactElement;
   switch (layout) {
     case 'magazine': {
-      // Editorial Full-Bleed: foto al 100% con degradado orgánico profundo abajo (from-slate-900 to-transparent) sin tapar el sujeto principal
+      // Editorial Full-Bleed V27: foto inmersiva al 100% con degradado profundo teñido del tema seleccionado (slate-950 + t.accent)
+      const deepBottom = mixHex(t.accent, '#020617', 0.9);
+      const deepMid = mixHex(t.accent2, '#0f172a', 0.84);
       body = (
         <div style={{ position: 'relative', width: '100%', height: '100%', borderRadius: 24 * s, overflow: 'hidden' }}>
           <div style={{ position: 'absolute', inset: 0 }}>
@@ -2369,7 +2418,7 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
               position: 'absolute',
               inset: 0,
               background:
-                'linear-gradient(to top, #0f172a 0%, rgba(15,23,42,0.92) 34%, rgba(15,23,42,0.52) 56%, rgba(15,23,42,0.12) 78%, transparent 100%)',
+                `linear-gradient(to top, ${deepBottom} 0%, ${deepMid}e0 34%, rgba(15,23,42,0.62) 56%, rgba(15,23,42,0.12) 78%, transparent 100%)`,
             }}
           />
           <div
@@ -2397,7 +2446,7 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
               {showBenefits && benefits.length > 0 && (
                 <BenefitsShowcase items={benefits} t={{ ...t, light: false, text: '#ffffff' }} s={s} mode={benefitStyle === 'auto' ? 'editorial' : resolvedBenefitMode} align="left" />
               )}
-              {isService && priceLabel && <CtaButton label={priceLabel} s={s} bg={t.accent2} color={contrastTextOn(t.accent2)} />}
+              {isService && priceLabel && <CtaButton label={priceLabel} s={s} bg={t.accent} accent2={t.accent2} color={contrastTextOn(t.accent, t.accent2)} />}
               {showQr && (
                 <Dock
                   brand={brand}
@@ -3084,6 +3133,8 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
     case 'immersive': {
       // V25 · Tipografía Inmersiva sin mixBlendMode: degradado orgánico inferior Slate-900 a transparente
       const blendWord = (cleanPosterCopy(brand.product || brand.name || 'IMPULSO').split(/\s+/)[0] || 'OFERTA').toUpperCase();
+      const deepBottom = mixHex(t.accent, '#020617', 0.9);
+      const deepMid = mixHex(t.accent2, '#0f172a', 0.84);
       body = (
         <div style={{ position: 'relative', width: '100%', height: '100%', borderRadius: 24 * s, overflow: 'hidden' }}>
           <div style={{ position: 'absolute', inset: 0 }}>
@@ -3094,7 +3145,7 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
               position: 'absolute',
               inset: 0,
               background:
-                'linear-gradient(to top, #0f172a 0%, rgba(15,23,42,0.92) 34%, rgba(15,23,42,0.52) 56%, rgba(15,23,42,0.14) 78%, transparent 100%)',
+                `linear-gradient(to top, ${deepBottom} 0%, ${deepMid}e0 34%, rgba(15,23,42,0.62) 56%, rgba(15,23,42,0.14) 78%, transparent 100%)`,
             }}
           />
           {/* Eco tipográfico translúcido seguro en exportación sin mixBlendMode */}
@@ -3151,7 +3202,7 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
                   align="left"
                 />
               )}
-              {isService && priceLabel && <CtaButton label={priceLabel} s={s} bg={t.accent2} color={contrastTextOn(t.accent2)} />}
+              {isService && priceLabel && <CtaButton label={priceLabel} s={s} bg={t.accent} accent2={t.accent2} color={contrastTextOn(t.accent, t.accent2)} />}
               {showQr && (
                 <Dock
                   brand={brand}

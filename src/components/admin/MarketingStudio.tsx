@@ -427,14 +427,14 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
   const [copied, setCopied] = useState<string | null>(null);
   const [copyTab, setCopyTab] = useState<CopyTab>('post');
 
-  // ── Estudio gráfico (V11: artboard HTML en vez de canvas 2D) ──
-  const [themeIdx, setThemeIdx] = useState(1);
+  // ── Estudio gráfico (V27: cyber + magazine full-bleed inmersivo por defecto) ──
+  const [themeIdx, setThemeIdx] = useState(2);
   /** V14/V20: emparejamiento tipográfico elegido (índice en AFFICHE_TYPOS). */
   const [fontIdx, setFontIdx] = useState(0);
   /** 🔍 V18: escala del titular en el afiche (0.8 a 1.5 — slider en vivo). */
   const [headlineScale, setHeadlineScale] = useState(1.2);
   const [format, setFormat] = useState<Format>('story');
-  const [layout, setLayout] = useState<Layout>('bento');
+  const [layout, setLayout] = useState<Layout>('magazine');
   const [piece, setPiece] = useState<Piece>(0);
   const [badgeMode, setBadgeMode] = useState<string>('dynamic');
   const [badgeCustom, setBadgeCustom] = useState('');
@@ -640,9 +640,9 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     setFocus('remate');
     setDetectedCategory('');
     setTexts({ plain: '', highlight: '', sub: '', benefits: ['', '', ''], cta: '', priceLabel: 'Cotiza sin costo · WhatsApp' });
-    setThemeIdx(1);
+    setThemeIdx(2);
     setFormat('story');
-    setLayout('bento');
+    setLayout('magazine');
     setPiece(0);
     setBadgeMode('dynamic');
     setBadgeCustom('');
