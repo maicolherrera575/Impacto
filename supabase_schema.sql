@@ -1759,6 +1759,7 @@ create unique index if not exists credit_orders_receipt_hash_unique
 --   5) CÓDIGO QUEMADO: si otra cuenta ya envió esa referencia y fue rechazada,
 --      queda invalidada para todos los demás (anti-reciclaje de códigos).
 drop function if exists public.submit_credit_order_rpc(text, integer, numeric, text, text, text, text);
+drop function if exists public.submit_credit_order_rpc(text, integer, numeric, text, text, text, text, text, text, text, boolean);
 create or replace function public.submit_credit_order_rpc(
   p_package_name      text,
   p_credits_requested integer,
@@ -1780,6 +1781,13 @@ as $$
 declare
   v_order public.credit_orders;
   v_code  text;
+  -- V22 · Blindaje de destino oficial
+  v_nequi          text;
+  v_llave          text;
+  v_dest           text;
+  v_dest_digits    text;
+  v_nequi_digits   text;
+  v_llave_digits   text;
 begin
   if auth.uid() is null then
     raise exception 'Debes iniciar sesión';
@@ -1829,7 +1837,7 @@ begin
      where upper(c.reference_code) = v_code
        and c.status in ('pending', 'approved')
   ) then
-    raise exception 'YA_CANJEADO: 🚫 CÓDIGO O COMPROBANTE YA UTILIZADO: este pago (Ref: ' || v_code || ') ya fue registrado y vinculado previamente a una cuenta en la plataforma. Cada pago o código QR solo puede canjearse una única vez.';
+    raise exception 'YA_CANJEADO: 🚫 CÓDIGO O COMPROBANTE YA UTILIZADO: este pago (Ref: %) ya fue registrado y vinculado previamente a una cuenta en la plataforma. Cada pago o código QR solo puede canjearse una única vez.', v_code;
   end if;
 
   -- 🛡️ HUELLA ÚNICA: la misma imagen (SHA-256) jamás se canjea dos veces
@@ -1851,6 +1859,29 @@ begin
        and c.merchant_id <> auth.uid()
   ) then
     raise exception 'CODIGO_INVALIDADO: ese comprobante ya fue revisado y rechazado por otra cuenta. Envía el pago que acabas de hacer tú';
+  end if;
+
+  -- 🛡️ V22 · DESTINO OFICIAL EXACTO (automático, leído de la BD): el dinero
+  -- debe haber llegado al Nequi o a la Llave OFICIAL del administrador. Si la
+  -- IA leyó un destino distinto, el canje se rechaza AL INSTANTE — nadie
+  -- puede colar un pago hecho a un número ajeno.
+  select coalesce((select value from public.app_settings where key = 'nequi_phone'), ''),
+         coalesce((select value from public.app_settings where key = 'payment_llave'), '')
+    into v_nequi, v_llave;
+  v_nequi_digits := coalesce(regexp_replace(v_nequi, '\D', '', 'g'), '');
+  v_llave_digits := coalesce(regexp_replace(v_llave, '\D', '', 'g'), '');
+
+  v_dest        := upper(btrim(coalesce(p_destination_detected, '')));
+  v_dest_digits := coalesce(regexp_replace(v_dest, '\D', '', 'g'), '');
+  if v_dest <> '' then
+    if v_dest_digits = ''
+       or ((v_nequi_digits = '' and v_llave_digits = '')
+           or (position(v_nequi_digits in v_dest_digits) = 0
+               and (v_llave_digits = '' or position(v_llave_digits in v_dest_digits) = 0))) then
+      raise exception 'DESTINO_INVALIDO: el comprobante indica un destino distinto a la cuenta oficial de Impulso. Haz el pago EXACTAMENTE al Nequi/Llave que muestra la app y vuelve a intentarlo';
+    end if;
+  elsif p_receipt_thumb is null then
+    raise exception 'ADJUNTA_LA_CAPTURA: para validar tu recarga envía la captura del pago (o el QR de confirmación). Sin comprobante no hay validación posible';
   end if;
 
   insert into public.credit_orders (
@@ -1937,7 +1968,10 @@ declare
   v_admin    text;
   v_prices   text;
   v_price    numeric;
-  v_current  numeric;
+  -- V22 · Dígitos oficiales (Nequi y Llave) vs dígitos leídos por la IA
+  v_dest_digits   text;
+  v_nequi_digits  text;
+  v_llave_digits  text;
 begin
   select value into v_admin from public.app_settings where key = 'nequi_phone';
   select value into v_prices from public.app_settings where key = 'credit_package_prices';
@@ -1958,12 +1992,15 @@ begin
     return jsonb_build_object('approved', false, 'reason', 'IA_INCOMPLETA');
   end if;
 
-  -- El destino leído debe contener el número oficial del Admin (BD, no cliente)
-  v_current := coalesce(regexp_replace(v_admin, '\D', '', 'g'), '');
-  if v_current = ''
-     or char_length(regexp_replace(v_order.destination_detected, '\D', '', 'g')) < 7
-     or (position(regexp_replace(v_order.destination_detected, '\D', '', 'g') in v_current) = 0
-         and position(v_current in regexp_replace(v_order.destination_detected, '\D', '', 'g')) = 0) then
+  -- El destino leído debe contener el número oficial del Admin (Nequi o
+  -- Llave, ambos leídos de la BD — jamás del cliente)
+  v_dest_digits  := coalesce(regexp_replace(v_order.destination_detected, '\D', '', 'g'), '');
+  v_nequi_digits := coalesce(regexp_replace(coalesce(v_admin, ''), '\D', '', 'g'), '');
+  v_llave_digits := coalesce(regexp_replace(coalesce((select value from public.app_settings where key = 'payment_llave'), ''), '\D', '', 'g'), '');
+  if char_length(v_dest_digits) < 7
+     or (v_nequi_digits = '' and v_llave_digits = '')
+     or (position(v_nequi_digits in v_dest_digits) = 0
+         and (v_llave_digits = '' or position(v_llave_digits in v_dest_digits) = 0)) then
     return jsonb_build_object('approved', false, 'reason', 'DESTINO_NO_COINCIDE');
   end if;
 
@@ -1983,7 +2020,7 @@ begin
   update public.credit_orders
      set status = 'approved',
          receipt_thumb = null,
-         ai_verification_note = '⚡ Auto-aprobado por Escáner IA (destino ' || v_admin || ' confirmado · monto exacto · referencia y huella únicas)'
+         ai_verification_note = '⚡ Auto-aprobado por Escáner IA (destino ' || coalesce(v_admin, 'Nequi oficial') || ' confirmado · monto exacto · referencia y huella únicas)'
    where id = v_order.id
    returning * into v_order;
 
