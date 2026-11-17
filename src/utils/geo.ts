@@ -43,13 +43,17 @@ export type GeoStatus = 'idle' | 'active' | 'inexact' | 'denied';
 const ACCURACY_LIMIT_M = 200;
 
 /**
- * Geolocalización con modo Google Maps:
- *  1. La app PIDE la ubicación al arrancar (auto-GPS, cero clics).
- *  2. El punto azul se actualiza EN VIVO con watchPosition (como el mapa
+ * ⚖️ V18/V21 · Geolocalización EXACTA y VOLUNTARIA (Ley 1581 de 2012):
+ *  1. La app JAMÁS pide la ubicación de golpe: solo con el consentimiento
+ *     explícito del usuario ("📍 Encontrar ofertas exactas cerca de mí").
+ *  2. Lecturas frescas de alta precisión: enableHighAccuracy, maximumAge 0
+ *     y un filtro de exactitud (≤ 200 m) — lo aproximado se descarta.
+ *  3. El punto azul se actualiza EN VIVO con watchPosition (como el mapa
  *     de Google: caminas y el punto te sigue).
- *  3. Si el usuario niega o falla, la app JAMÁS se bloquea: se centra en
+ *  4. Si el usuario niega o falla, la app JAMÁS se bloquea: se centra en
  *     el Parque Principal de Gachetá y puede reintentar desde el mapa
  *     o desde la barra superior.
+ *  5. Las coordenadas viven SOLO en el estado de React: jamás van a la BD.
  */
 export function useGeolocation() {
   const [pos, setPos] = useState<LatLng | null>(null);
@@ -107,7 +111,7 @@ export function useGeolocation() {
     }
     navigator.geolocation.getCurrentPosition(adoptFix, onError, {
       enableHighAccuracy: true,
-      timeout: 15_000,
+      timeout: 10_000,
       maximumAge: 0,
     });
   }, [adoptFix, onError]);

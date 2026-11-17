@@ -23,7 +23,9 @@ export type AfficheLayout =
   | 'bento' | 'magazine' | 'diagonal' | 'polaroid' | 'arc' | 'portal' | 'swiss'
   | 'split' | 'brutal' | 'vip' | 'cyber' | 'rustic' | 'retail' | 'eco' | 'cinema' | 'float'
   // 🚀 V19 · 8 arquitecturas futuristas nuevas (17–24)
-  | 'hud' | 'resort' | 'menu' | 'clinic' | 'agro' | 'diamond' | 'flash' | 'bento3d';
+  | 'hud' | 'resort' | 'menu' | 'clinic' | 'agro' | 'diamond' | 'flash' | 'bento3d'
+  // 💥 V21 · 4 composiciones asimétricas disruptivas (25–28)
+  | 'diagx' | 'orbits' | 'bleed' | 'zen';
 export type AffichePiece = 0 | 1 | 2 | 3;
 
 export interface AfficheTheme {
@@ -466,7 +468,7 @@ function Badge({ text, t, s }: { text: string; t: AfficheTheme; s: number }) {
  * sticker 3D / barra lateral).
  */
 function Headline({
-  texts, t, s, size = 46, align = 'center', color, styleId, scale = 1,
+  texts, t, s, size = 46, align = 'center', color, styleId, scale = 1, fullWidth = false,
 }: {
   texts: AfficheTexts;
   t: AfficheTheme;
@@ -477,6 +479,8 @@ function Headline({
   styleId?: string;
   /** 🔍 V18: multiplicador del tamaño del titular (slider 80%–150%). */
   scale?: number;
+  /** 💥 V21 · Ancho 100% (layout Tipografía Sangrada: el titular sangra). */
+  fullWidth?: boolean;
 }) {
   const typo = AFFICHE_TYPOS.find((x) => x.id === styleId) ?? AFFICHE_TYPOS[0];
   const eff = typo.effect;
@@ -484,9 +488,12 @@ function Headline({
     margin: 0,
     fontFamily: `"${typo.font || t.font}", system-ui, sans-serif`,
     fontSize: (size * scale * s).toFixed(1),
-    lineHeight: 1.06,
+    // 🎯 V21 · Display de élite: interlineado mínimo (leading-none) y
+    // tracking apretado (-1.2px) tipo revista de moda, 100% en caja alta.
+    lineHeight: 1.0,
     fontWeight: 900,
-    letterSpacing: -0.5,
+    textTransform: 'uppercase',
+    letterSpacing: -1.2 * s,
     color: color ?? (t.light ? t.text : '#ffffff'),
     // 💡 V19 · Reluciente de alto contraste: sombra triple de profundidad para
     // que el titular se lea perfecto sobre cualquier fondo claro u oscuro.
@@ -562,7 +569,16 @@ function Headline({
   };
 
   return (
-    <div style={{ textAlign: align }}>
+    // 🎯 V21 · El titular respira: ocupa el 90% del ancho disponible del afiche
+    // (o 100% con fullWidth en el layout de tipografía sangrada).
+    <div
+      style={{
+        textAlign: align,
+        width: fullWidth ? '100%' : '90%',
+        marginLeft: align === 'left' || fullWidth ? 0 : 'auto',
+        marginRight: 'auto',
+      }}
+    >
       <p style={base}>
         {texts.plain.trim()}{' '}
         {highlight()}
@@ -700,94 +716,139 @@ function CtaButton({ label, s, bg = '#16a34a', color = '#ffffff' }: { label: str
 }
 
 /**
- * 📲 Dock de Conversión V19 (rediseño total): la columna izquierda al lado
- * del QR se llena al 100% de arriba a abajo — píldora luminosa del rubro,
- * negocio GIGANTE con sombra profunda, ubicación acentuada y botón de
- * WhatsApp de ancho completo con resplandor. QR blanco a la derecha en
- * bloque cuadrado limpio con marco brillante y leyenda en negrita.
+ * 🎫 V21 · DOCK "TARJETA DE EMBARQUE" (rediseño total): una tarjeta VIP con
+ * fondo SÓLIDO contrastante (blanco puro en tema oscuro, ónix en tema claro)
+ * para que el QR se escanee a la primera. Estructura de boarding pass:
+ *  · Franja superior de acento (filete de color).
+ *  · Zona izquierda: rubro · negocio · ubicación.
+ *  · Separador PERFORADO con muescas circulares (estilo billete).
+ *  · Zona derecha: QR gigante (≥45% del ancho del dock) + leyenda.
+ *  · Barra inferior de ancho completo: WhatsApp en ≥32px REALES.
  */
-function Dock({ brand, t, s, qrUrl, size, qrLabel }: { brand: AfficheBrand; t: AfficheTheme; s: number; qrUrl: string | null; size: number; qrLabel?: string }) {
-  const g = glass(t);
-  const qrBox = size;
+function Dock({ brand, t, s, qrUrl, size, qrZone, qrLabel }: { brand: AfficheBrand; t: AfficheTheme; s: number; qrUrl: string | null; size: number; qrZone: number; qrLabel?: string }) {
   const phone = brand.phoneDisplay || '📲 Escríbenos';
+  // Contraste radical: tema oscuro → tarjeta blanca pura; tema claro → ónix.
+  const cardBg = t.light ? '#0b0f18' : '#ffffff';
+  const ink = t.light ? '#ffffff' : '#0f172a';
+  const inkSoft = t.light ? 'rgba(255,255,255,0.72)' : 'rgba(15,23,42,0.62)';
+  const waText = t.light ? '#eafff6' : '#022c22';
+  // WhatsApp con mínimo garantizado de 32px reales en el PNG 1080p:
+  // 16px en el lienzo de 540px = 32px reales en AMBOS formatos.
+  const waFont = 16 * Math.max(1, s);
+  const qrPad = 7 * s;
   return (
     <div
       style={{
-        ...g.card,
+        background: cardBg,
         borderRadius: 18 * s,
-        display: 'flex', alignItems: 'stretch', justifyContent: 'space-between', gap: 12 * s,
-        padding: `${12 * s}px ${14 * s}px`,
-        boxShadow: t.light ? '0 2px 10px rgba(15,23,42,0.10)' : '0 8px 26px rgba(0,0,0,0.38)',
+        position: 'relative', overflow: 'hidden',
+        display: 'flex', flexDirection: 'column',
+        padding: 0,
+        boxShadow: '0 10px 30px rgba(0,0,0,0.45), inset 0 0 0 1px rgba(148,163,184,0.25)',
       }}
     >
-      {/* Columna izquierda: rubro · negocio gigante · ubicación · botón WA */}
-      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 6 * s, padding: `${2 * s}px 0` }}>
-        <p
-          style={{
-            margin: 0, alignSelf: 'flex-start',
-            background: `${t.accent2}26`, border: `1px solid ${t.accent2}55`,
-            color: t.light ? '#92400e' : '#fde68a',
-            borderRadius: 8 * s,
-            padding: `${4 * s}px ${10 * s}px`,
-            fontSize: 11 * s, fontWeight: 900, letterSpacing: 1.6, textTransform: 'uppercase',
-            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%',
-            boxShadow: `0 0 ${12 * s}px ${t.accent2}33`,
-          }}
-        >
-          {(brand.slogan || 'ATENCIÓN INMEDIATA').toUpperCase()}
-        </p>
-        <div style={{ minWidth: 0 }}>
+      {/* Filete superior de acento de color */}
+      <div style={{ height: 6 * s, flexShrink: 0, background: `linear-gradient(90deg, ${t.accent}, ${t.accent2}, ${t.accent})` }} />
+      {/* Cuerpo: información + separador perforado + QR */}
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'stretch', gap: 0, padding: `${10 * s}px ${12 * s}px 0` }}>
+        {/* Columna izquierda: rubro · negocio gigante · ubicación */}
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 5 * s, paddingRight: 10 * s }}>
           <p
             style={{
-              margin: 0,
-              fontFamily: `"${t.font}", system-ui, sans-serif`,
-              fontSize: 30 * s, fontWeight: 900, color: t.text, lineHeight: 1,
-              letterSpacing: -0.4,
-              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-              textShadow: t.light ? 'none' : '0 2px 10px rgba(0,0,0,0.8)',
+              margin: 0, alignSelf: 'flex-start',
+              background: t.light ? 'rgba(255,255,255,0.12)' : `${t.accent2}1f`,
+              border: `1px solid ${t.accent2}55`,
+              color: t.light ? t.accent2 : '#92400e',
+              borderRadius: 6 * s,
+              padding: `${3 * s}px ${9 * s}px`,
+              fontSize: 10 * s, fontWeight: 900, letterSpacing: 1.6, textTransform: 'uppercase',
+              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%',
             }}
           >
-            {brand.name || 'Tu Negocio'}
+            {(brand.slogan || 'ATENCIÓN INMEDIATA').toUpperCase()}
           </p>
-          <p style={{ margin: 0, marginTop: 4 * s, fontSize: 13.5 * s, fontWeight: 700, color: t.light ? 'rgba(15,23,42,0.7)' : t.accent2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            📍 {brand.address || brand.municipality || 'Gachetá'}
-          </p>
+          <div style={{ minWidth: 0 }}>
+            <p
+              style={{
+                margin: 0,
+                fontFamily: `"${t.font}", system-ui, sans-serif`,
+                fontSize: 28 * s, fontWeight: 900, color: ink, lineHeight: 1.02,
+                letterSpacing: -0.5,
+                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+              }}
+            >
+              {brand.name || 'Tu Negocio'}
+            </p>
+            <p style={{ margin: 0, marginTop: 3 * s, fontSize: 12 * s, fontWeight: 700, color: inkSoft, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {brand.address || brand.municipality || 'Gachetá'}
+            </p>
+          </div>
         </div>
+        {/* Separador perforado estilo billete de avión */}
+        <div style={{ width: 0, flexShrink: 0, position: 'relative', borderLeft: `2px dashed ${t.light ? 'rgba(255,255,255,0.30)' : 'rgba(15,23,42,0.22)'}` }}>
+          {/* Muescas semicirculares en los extremos (clipeadas por el borde
+              de la tarjeta, como en un billete real de embarque) */}
+          <span
+            style={{
+              position: 'absolute', top: -9 * s, left: 0, transform: 'translateX(-50%)',
+              width: 18 * s, height: 18 * s, borderRadius: '50%',
+              background: cardBg,
+              boxShadow: `inset 0 0 0 ${1.5 * s}px ${t.light ? 'rgba(255,255,255,0.18)' : 'rgba(15,23,42,0.14)'}`,
+            }}
+          />
+          <span
+            style={{
+              position: 'absolute', bottom: -9 * s, left: 0, transform: 'translateX(-50%)',
+              width: 18 * s, height: 18 * s, borderRadius: '50%',
+              background: cardBg,
+              boxShadow: `inset 0 0 0 ${1.5 * s}px ${t.light ? 'rgba(255,255,255,0.18)' : 'rgba(15,23,42,0.14)'}`,
+            }}
+          />
+        </div>
+        {/* Zona derecha: QR gigante sobre blanco puro (≥45% del ancho del dock) */}
+        {qrUrl && (
+          <div
+            style={{
+              width: qrZone, flexShrink: 0,
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4 * s,
+            }}
+          >
+            <div
+              style={{
+                background: '#ffffff',
+                borderRadius: 10 * s,
+                padding: qrPad,
+                border: `2px solid ${t.accent2}`,
+                boxShadow: `0 0 ${14 * s}px ${t.accent2}55`,
+              }}
+            >
+              <img src={qrUrl} alt="QR" style={{ width: size, height: size, display: 'block' }} />
+            </div>
+            <p style={{ margin: 0, fontSize: 10.5 * s, fontWeight: 900, letterSpacing: 0.8, color: inkSoft, whiteSpace: 'nowrap' }}>
+              {qrLabel || 'ESCANEA AQUÍ'}
+            </p>
+          </div>
+        )}
+      </div>
+      {/* Barra inferior de ancho completo: WhatsApp en ≥32px reales */}
+      <div style={{ flexShrink: 0, padding: `${8 * s}px ${12 * s}px ${10 * s}px` }}>
         <div
           style={{
             width: '100%', boxSizing: 'border-box',
             background: 'linear-gradient(90deg, #059669, #34d399)',
-            color: '#022c22',
+            color: waText,
             borderRadius: 12 * s,
-            padding: `${9 * s}px ${12 * s}px`,
-            fontSize: 17 * s, fontWeight: 900,
+            padding: `${8 * s}px ${12 * s}px`,
+            fontSize: waFont, fontWeight: 900, letterSpacing: 0.2,
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7 * s,
-            boxShadow: `0 0 ${25 * s}px rgba(16,185,129,0.5)`,
-            whiteSpace: 'nowrap',
+            boxShadow: `0 0 ${22 * s}px rgba(16,185,129,0.45)`,
+            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
           }}
         >
-          💬 {phone}
+          <span style={{ flexShrink: 0 }}>💬</span>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{phone}</span>
         </div>
       </div>
-      {/* QR: bloque cuadrado nítido con marco brillante + leyenda en negrita */}
-      {qrUrl && (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 5 * s, flexShrink: 0 }}>
-          <div
-            style={{
-              background: '#ffffff',
-              borderRadius: 12 * s,
-              padding: 7 * s,
-              border: `2.5px solid ${t.accent2}`,
-              boxShadow: `0 0 ${18 * s}px ${t.accent2}66, 0 6px 18px rgba(0,0,0,0.35)`,
-            }}
-          >
-            <img src={qrUrl} alt="QR" style={{ width: qrBox, height: qrBox, display: 'block' }} />
-          </div>
-          <p style={{ margin: 0, fontSize: 11.5 * s, fontWeight: 900, letterSpacing: 0.8, color: t.light ? 'rgba(15,23,42,0.8)' : '#ffffff', whiteSpace: 'nowrap', textShadow: t.light ? 'none' : '0 2px 6px rgba(0,0,0,0.7)' }}>
-            {qrLabel || '📲 ESCANEA AQUÍ'}
-          </p>
-        </div>
-      )}
     </div>
   );
 }
@@ -846,11 +907,16 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
   const PHOTO_MAX = 400 * s;
 
   // Tamaños del dock según la pieza (piezas 2/3 tienen QR dedicado).
-  // 🎯 V20 · QR PROTAGONISTA con mínimo 320px REALES en la exportación 1080p:
-  // story (s=1): 190px lienzo = 380px PNG · square (s=0.58): 276px escalados
-  // = 160px lienzo = 320px PNG. El marco blanco puro garantiza el escaneo.
-  const dockQrSize = (format === 'square' ? 276 : 190) * s;
-  const dockHeight = (format === 'square' ? 330 : 230) * s;
+  // 🎯 V20/V21 · QR PROTAGONISTA y DOCK "TARJETA DE EMBARQUE":
+  //  · story (s=1): QR 226px lienzo = 452px PNG 1080p, zona QR = 244px lienzo
+  //    (≈47% del ancho del dock, ≥45% exigido) · WhatsApp 32px reales.
+  //  · square (s=0.58): QR 276px escalados = 160px lienzo = 320px PNG.
+  //  · Alturas con holgura verificada: story 332 · square 400 (escalados).
+  //  · El fondo es SÓLIDO y contrastante (blanco puro u ónix) para escaneo perfecto.
+  const isSquare = format === 'square';
+  const dockQrSize = (isSquare ? 276 : 226) * s;
+  const dockHeight = (isSquare ? 400 : 332) * s;
+  const dockQrZone = (isSquare ? 300 : 244) * s;
 
   const photoBlock = (extra?: CSSProperties): React.ReactElement => (
     <div
@@ -882,10 +948,10 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
     </>
   );
 
-  /** Dock estándar de la pieza maestra. */
+  /** Dock estándar de la pieza maestra (Tarjeta de Embarque V21). */
   const masterDock = showQr ? (
     <div style={{ height: dockHeight }}>
-      <Dock brand={brand} t={t} s={s} qrUrl={qrUrl} size={dockQrSize} qrLabel={qrLabel} />
+      <Dock brand={brand} t={t} s={s} qrUrl={qrUrl} size={dockQrSize} qrZone={dockQrZone} qrLabel={qrLabel} />
     </div>
   ) : null;
 
@@ -1318,7 +1384,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
               {showBenefits && benefits.length > 0 && <div style={{ marginTop: 10 * s }}><BenefitPills items={benefits} t={t} s={s} /></div>}
               {isService && priceLabel && <div style={{ marginTop: 10 * s }}><CtaButton label={priceLabel} s={s} bg={t.accent2} color="#ffffff" /></div>}
             </div>
-            {showQr && <Dock brand={{ ...brand }} t={{ ...t, light: false, text: '#ffffff', sub: 'rgba(255,255,255,0.8)' }} s={s} qrUrl={qrUrl} size={dockQrSize} qrLabel={qrLabel} />}
+            {showQr && <Dock brand={{ ...brand }} t={{ ...t, light: false, text: '#ffffff', sub: 'rgba(255,255,255,0.8)' }} s={s} qrUrl={qrUrl} size={dockQrSize} qrZone={dockQrZone} qrLabel={qrLabel} />}
           </div>
         </div>
       );
@@ -1553,7 +1619,7 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
           </div>
           {showQr && (
             <div style={{ height: dockHeight }}>
-              <Dock brand={brand} t={{ ...t, light: true, text: '#111827' }} s={s} qrUrl={qrUrl} size={dockQrSize} qrLabel={qrLabel} />
+              <Dock brand={brand} t={{ ...t, light: true, text: '#111827' }} s={s} qrUrl={qrUrl} size={dockQrSize} qrZone={dockQrZone} qrLabel={qrLabel} />
             </div>
           )}
         </div>
@@ -1935,8 +2001,141 @@ export function AfficheArtboard(props: AfficheProps): React.ReactElement {
       );
       break;
     }
+    // ═══ 💥 V21 · 4 COMPOSICIONES ASIMÉTRICAS DISRUPTIVAS (25–28) ═══
+    case 'diagx': {
+      // 25 · Split Diagonal Extremo: foto cortada esquina a esquina con
+      // borde neón de 10px + titular abajo alineado a la izquierda.
+      body = (
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+          <div style={{ position: 'relative', height: 340 * s, flexShrink: 0, overflow: 'visible' }}>
+            <div
+              style={{
+                position: 'absolute', top: -20 * s, left: -30 * s, right: -30 * s, bottom: -20 * s,
+                clipPath: 'polygon(0 0, 100% 0, 100% 62%, 0 100%)',
+                overflow: 'hidden',
+                borderBottom: `${10 * s}px solid ${t.accent2}`,
+              }}
+            >
+              <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
+              {priceOverlay && (
+                <div style={{ position: 'absolute', bottom: 20 * s, right: 16 * s }}>
+                  <PricePill brand={brand} t={t} s={s} />
+                </div>
+              )}
+            </div>
+          </div>
+          <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 9 * s, padding: `${14 * s}px 18 * s` }}>
+            <Badge text={badge} t={t} s={s} />
+            <Headline texts={texts} t={t} s={s} size={50} align="left" styleId={fontStyle} scale={hs} />
+            {contentBlocks('left', true)}
+            {masterDock}
+          </div>
+        </div>
+      );
+      break;
+    }
+    case 'orbits': {
+      // 26 · Círculos Intersectados: gran círculo con la foto a la derecha y
+      // un círculo sólido de acento a la izquierda con el descuento/titular.
+      body = (
+        <div style={{ position: 'relative', height: '100%' }}>
+          <div style={{ position: 'absolute', top: 40 * s, right: -46 * s, width: 380 * s, height: 380 * s, borderRadius: '50%', overflow: 'hidden', border: `${6 * s}px solid ${t.accent2}66`, boxShadow: `0 18px 44px rgba(0,0,0,0.5), 0 0 ${30 * s}px ${t.accent2}44` }}>
+            <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
+          </div>
+          <div style={{ position: 'absolute', top: 150 * s, left: -70 * s, width: 300 * s, height: 300 * s, borderRadius: '50%', background: `linear-gradient(160deg, ${t.accent}, ${t.accent2})`, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6 * s, boxShadow: `0 16px 40px ${t.accent}66` }}>
+            <span style={{ fontFamily: `"${t.font}", system-ui, sans-serif`, fontSize: 64 * s, fontWeight: 900, color: '#0b0f18', lineHeight: 1 }}>
+              {showPrice && brand.promoPrice != null ? money(brand.promoPrice) : (badge || t.accent).slice(0, 9)}
+            </span>
+            {showPrice && brand.normalPrice != null && brand.promoPrice != null && (
+              <span style={{ fontSize: 14 * s, color: 'rgba(11,15,24,0.72)', textDecoration: 'line-through', fontWeight: 800 }}>{money(brand.normalPrice)}</span>
+            )}
+          </div>
+          <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', gap: 10 * s, paddingTop: 440 * s }}>
+            <Headline texts={texts} t={t} s={s} size={44} align="left" styleId={fontStyle} scale={hs} />
+            {contentBlocks('left', true)}
+            {masterDock}
+          </div>
+        </div>
+      );
+      break;
+    }
+    case 'bleed': {
+      // 27 · Tipografía Sangrada: titular de revista de moda, tan grande que
+      // sangra por los bordes del afiche (overflow hidden) + foto vertical.
+      body = (
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+          <div style={{ flexShrink: 0, margin: `0 ${-26 * s}px`, marginTop: -6 * s }}>
+            <div style={{ width: '116%', marginLeft: '-8%' }}>
+              <Headline texts={texts} t={t} s={s} size={64} align="left" styleId={fontStyle} scale={hs} fullWidth />
+            </div>
+          </div>
+          <div style={{ display: 'flex', flex: 1, minHeight: 0, gap: 10 * s, marginTop: 8 * s }}>
+            <div style={{ flex: 1.6, borderRadius: 18 * s, overflow: 'hidden', position: 'relative' }}>
+              <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
+              {priceOverlay && (
+                <div style={{ position: 'absolute', bottom: 10 * s, left: 10 * s }}>
+                  <PricePill brand={brand} t={t} s={s} />
+                </div>
+              )}
+            </div>
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 * s, justifyContent: 'center' }}>
+              <Badge text={badge} t={t} s={s} />
+              {showBenefits && benefits.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 7 * s }}>
+                  {benefits.slice(0, 3).map((b, i) => {
+                    const { body: txt } = splitBenefit(b);
+                    return (
+                      <p key={i} style={{ margin: 0, fontSize: 11.5 * s, fontWeight: 700, color: t.text, lineHeight: 1.3 }}>
+                        {txt}
+                      </p>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+          <div style={{ flexShrink: 0, marginTop: 10 * s }}>
+            {masterDock}
+          </div>
+        </div>
+      );
+      break;
+    }
+    case 'zen': {
+      // 28 · Bento Minimalista Japonés: cajas de 1px, mucho aire y una foto
+      // pequeña exquisita — precisión y silencio visual.
+      body = (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 * s, height: '100%', padding: `${6 * s}px 0` }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1.7fr 1fr', gridTemplateRows: '1fr 1fr', gap: 10 * s, height: 360 * s, flexShrink: 0 }}>
+            <div style={{ gridRow: 'span 2', border: `1px solid ${t.light ? 'rgba(15,23,42,0.18)' : 'rgba(255,255,255,0.22)'}`, borderRadius: 4 * s, overflow: 'hidden' }}>
+              <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
+            </div>
+            <div style={{ border: `1px solid ${t.light ? 'rgba(15,23,42,0.18)' : 'rgba(255,255,255,0.22)'}`, borderRadius: 4 * s, padding: 12 * s, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+              <p style={{ margin: 0, fontSize: 10 * s, fontWeight: 800, letterSpacing: 3, textTransform: 'uppercase', color: t.light ? 'rgba(15,23,42,0.5)' : t.accent2 }}>{badge || 'HOY'}</p>
+              {showPrice && brand.promoPrice != null ? (
+                <span style={{ fontFamily: `"${t.font}", system-ui, sans-serif`, fontSize: 26 * s, fontWeight: 900, color: t.text, lineHeight: 1 }}>{money(brand.promoPrice)}</span>
+              ) : (
+                <p style={{ margin: 0, fontSize: 15 * s, fontWeight: 800, color: t.text, lineHeight: 1.25 }}>{splitBenefit(benefits[0] ?? 'Calidad garantizada').body}</p>
+              )}
+            </div>
+            <div style={{ border: `1px solid ${t.light ? 'rgba(15,23,42,0.18)' : 'rgba(255,255,255,0.22)'}`, borderRadius: 4 * s, padding: 12 * s, display: 'flex', flexDirection: 'column', gap: 8 * s, justifyContent: 'center' }}>
+              {benefits.slice(0, 2).map((b, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 * s }}>
+                  <GlyphIcon kind={i + 1} size={14 * s} color={t.accent2} />
+                  <span style={{ fontSize: 11 * s, fontWeight: 700, color: t.text, lineHeight: 1.2, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{splitBenefit(b).body}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <Headline texts={texts} t={t} s={s} size={44} align="left" styleId={fontStyle} scale={hs} />
+          <div style={{ flex: 1, minHeight: 0 }}>
+            {masterDock}
+          </div>
+        </div>
+      );
+      break;
+    }
     default: {
-      // 🏆 Bento Agency Pro (por defecto): tarjetas modulares de cristal.
       body = (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 * s, height: '100%' }}>
           <Badge text={badge} t={t} s={s} />

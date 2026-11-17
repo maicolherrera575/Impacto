@@ -114,13 +114,20 @@ const AFFICHE_LAYOUTS: Array<{ id: Layout; label: string; hint: string }> = [
   { id: 'diamond', label: '💎 Luxury Diamond Showcase', hint: 'Recorte diamante + oro' },
   { id: 'flash', label: '⚡ Flash Promo Explosion', hint: 'Bandas de oferta relámpago' },
   { id: 'bento3d', label: '🌐 Futuristic Bento 3D', hint: 'Mosaico de cristal neón' },
+  // 💥 V21 · 4 composiciones asimétricas disruptivas (25–28)
+  { id: 'diagx', label: '📐 Split Diagonal Extremo', hint: 'Corte esquina a esquina + borde neón' },
+  { id: 'orbits', label: '🌀 Círculos Intersectados', hint: 'Medallón + disco de precio sólido' },
+  { id: 'bleed', label: '📰 Tipografía Sangrada', hint: 'Titular gigante que sangra los bordes' },
+  { id: 'zen', label: '🍃 Bento Japonés Zen', hint: 'Cajas de 1px con mucho aire' },
 ];
 
+// 🎯 V21 · Estética de agencia: sellos SIN emojis (el afiche dibuja su
+// propia iconografía vectorial; el sello es tipografía pura).
 const BADGE_PRESETS: Array<{ id: string; label: string }> = [
-  { id: 'calidad', label: '💎 CALIDAD GARANTIZADA' },
-  { id: 'tiempo', label: '🔥 OFERTA POR TIEMPO LIMITADO' },
-  { id: 'especialidad', label: '⭐ ESPECIALIDAD DE LA CASA' },
-  { id: 'verificado', label: '✅ NEGOCIO VERIFICADO' },
+  { id: 'calidad', label: 'CALIDAD GARANTIZADA' },
+  { id: 'tiempo', label: 'OFERTA POR TIEMPO LIMITADO' },
+  { id: 'especialidad', label: 'ESPECIALIDAD DE LA CASA' },
+  { id: 'verificado', label: 'NEGOCIO VERIFICADO' },
 ];
 
 const FOCUS_OPTIONS: Array<{ id: CampaignFocus; label: string }> = [
@@ -2027,9 +2034,11 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
         </div>
       </div>
 
-      {/* ═══ COLUMNA CENTRAL: artboard en vivo (HTML escalado) ═══ */}
-      <div className="lg:sticky lg:top-4 lg:col-span-4">
-        <div className="space-y-3">
+      {/* ═══ COLUMNA CENTRAL: artboard en vivo (HTML escalado) · V21 anclado
+              a la pantalla (sticky) mientras las columnas laterales hacen
+              scroll: el afiche SIEMPRE visible y centrado, sin recortarse. ═══ */}
+      <div className="lg:sticky lg:top-4 lg:col-span-4 lg:flex lg:max-h-[calc(100vh-2rem)] lg:flex-col lg:overflow-y-auto">
+        <div className="space-y-3 lg:m-auto lg:w-full">
           {/* 📲 V14 · ¿Para qué Red Social es esta publicidad? */}
           <div className={cardCls}>
             <p className="text-xs font-extrabold text-white">📲 ¿Para qué Red Social es esta publicidad?</p>

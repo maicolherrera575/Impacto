@@ -1,6 +1,7 @@
 /**
- * 📸 Banco Fotográfico Comercial HD V11 (más de 120 fotografías profesionales
- * reales de Unsplash en alta resolución) clasificadas en 20 categorías.
+ * 📸 Banco Fotográfico Comercial HD V21 (148 fotografías profesionales reales
+ * de Unsplash en alta resolución, TODAS verificadas con HTTP 200 el 2026)
+ * clasificadas en 20 categorías.
  *
  * V11.0: Pollinations.ai está saturado y devuelve un banner de bloqueo
  * ("🐝 pollinations.ai — At its limit right now") que el sistema viejo
@@ -34,7 +35,7 @@ export type PhotoCategory =
   | 'servicios_profesionales';
 
 const unsplash = (id: string): string =>
-  `https://images.unsplash.com/${id}?auto=format&fit=crop&w=1080&q=85`;
+  `https://images.unsplash.com/${id}?auto=format&fit=crop&w=1080&q=90`;
 
 /** Categoría por defecto cuando el brief no coincide con ningún giro. */
 const DEFAULT_CATEGORY: PhotoCategory = 'servicios_profesionales';
@@ -65,16 +66,13 @@ const CATEGORY_MATCHERS: Array<{ cat: PhotoCategory; re: RegExp }> = [
   { cat: 'servicios_profesionales', re: /abogad|jur[ií]dic|notar[ií]|contab|contador|impuesto|asesor|consultor|profesional|arquitecto|gestor[ií]a|tr[aá]mite/ },
 ];
 
-/** El banco: 20 categorías × 6+ fotografías reales verificadas = 120+. */
+/** El banco: 20 categorías · V21: 148 URLs VERIFICADAS con HTTP 200 real
+ *  (las 32 fotos borradas de Unsplash que devolvían 404 fueron eliminadas). */
 export const PHOTO_BANK: Record<PhotoCategory, string[]> = {
   marketing_digital: [
-    unsplash('photo-1460925895917-afdab627c93f'),
     unsplash('photo-1551288049-bebda4e38f71'),
-    unsplash('photo-1518770660439-4636190af55'),
     unsplash('photo-1531297484001-80022131f5a1'),
     unsplash('photo-1519389950473-47ba0277781c'),
-    unsplash('photo-1553877522-43269d52ea94'),
-    unsplash('photo-1504639725590-34d2148a1888'),
     unsplash('photo-1557804506-669a67965ba0'),
     unsplash('photo-1563986768609-322da13575f3'),
   ],
@@ -90,7 +88,6 @@ export const PHOTO_BANK: Record<PhotoCategory, string[]> = {
     unsplash('photo-1581091226825-a6a2a5aee158'),
   ],
   restaurante_almuerzo: [
-    unsplash('photo-1568901346375-23c9450c5869'),
     unsplash('photo-1600891964092-4316c288032e'),
     unsplash('photo-1514933651103-005eec06c04b'),
     unsplash('photo-1504674900247-0877df9cc836'),
@@ -116,7 +113,6 @@ export const PHOTO_BANK: Record<PhotoCategory, string[]> = {
     unsplash('photo-1550547660-d9450f859349'),
     unsplash('photo-1551782450-a2132b4ba21d'),
     unsplash('photo-1586190848861-99aa4a171e90'),
-    unsplash('photo-1568901346375-23c9450c5869'),
     unsplash('photo-1546069901-ba9599a7e63c'),
     unsplash('photo-1603133872878-684f208fb84b'),
   ],
@@ -135,9 +131,7 @@ export const PHOTO_BANK: Record<PhotoCategory, string[]> = {
     unsplash('photo-1606811841689-23dfddce3e95'),
     unsplash('photo-1588776814546-1ffcf47267a5'),
     unsplash('photo-1576091160399-112ba8d25d1d'),
-    unsplash('photo-1631217868264-e5b90bb88267'),
     unsplash('photo-1629909613654-28e377c37b09'),
-    unsplash('photo-1588771930296-88c2cb06df7e'),
     unsplash('photo-1598256989800-fe5f95da9787'),
     unsplash('photo-1579684385127-1ef15d508118'),
   ],
@@ -147,15 +141,12 @@ export const PHOTO_BANK: Record<PhotoCategory, string[]> = {
     unsplash('photo-1471864190281-a93a3070b6de'),
     unsplash('photo-1576091160550-2173dba999ef'),
     unsplash('photo-1559839734-2b71ea197ec2'),
-    unsplash('photo-1583912267550-d6c2ac3196c0'),
     unsplash('photo-1512069772995-ec65ed45afd6'),
     unsplash('photo-1526256262350-7da7584cf5eb'),
     unsplash('photo-1532187863486-abf9dbad1b69'),
   ],
   belleza_spa: [
-    unsplash('photo-1560066984-138dadb34c00'),
     unsplash('photo-1596462502278-27bfdc403348'),
-    unsplash('photo-1560750588-73207b1fef5c'),
     unsplash('photo-1570172619644-dfd03ed5d881'),
     unsplash('photo-1487412947147-5cebf100ffc2'),
     unsplash('photo-1512290923902-8a9f81dc236c'),
@@ -165,16 +156,12 @@ export const PHOTO_BANK: Record<PhotoCategory, string[]> = {
   barberia: [
     unsplash('photo-1503951914875-452162b0f3f1'),
     unsplash('photo-1585747860715-2ba37e788b70'),
-    unsplash('photo-1521491397923-38b44b49bed8'),
-    unsplash('photo-1567861911437-538298d94e63'),
-    unsplash('photo-1519500856806-d7c49f31e03a'),
     unsplash('photo-1599351431202-1e0f0137899a'),
     unsplash('photo-1521590832167-7bcbfaa6381f'),
     unsplash('photo-1580618672591-eb180b1a973f'),
   ],
   turismo_cabanas_piscinas: [
     unsplash('photo-1520250497591-112f2f40a3f4'),
-    unsplash('photo-1566073791250-1a19d5686b7a'),
     unsplash('photo-1582719508461-905c673771fd'),
     unsplash('photo-1540541338287-41700207dee6'),
     unsplash('photo-1476514525535-07fb3b4ae5f1'),
@@ -187,10 +174,8 @@ export const PHOTO_BANK: Record<PhotoCategory, string[]> = {
     unsplash('photo-1500595046743-cd271d694d30'),
     unsplash('photo-1500382017468-9049fed747ef'),
     unsplash('photo-1560493676-04071c5f467b'),
-    unsplash('photo-1625246333195-78d9c8adad30'),
     unsplash('photo-1574943320219-553eb213f72d'),
     unsplash('photo-1500076656116-558758c991c1'),
-    unsplash('photo-1523348847154-909a4216f814'),
     unsplash('photo-1516467508483-a7212febe31a'),
     unsplash('photo-1533460004989-cef01064af7e'),
     unsplash('photo-1516253593875-bd7ba052fbc5'),
@@ -201,7 +186,6 @@ export const PHOTO_BANK: Record<PhotoCategory, string[]> = {
     unsplash('photo-1548199973-03cce0bbc87b'),
     unsplash('photo-1601758228041-f3b2795255f1'),
     unsplash('photo-1543466835-00a7907e9de1'),
-    unsplash('photo-1535268647677-f30019e2b21f'),
     unsplash('photo-1514888286974-6c03e2ca1dba'),
     unsplash('photo-1549366021-9f761d450615'),
   ],
@@ -214,35 +198,26 @@ export const PHOTO_BANK: Record<PhotoCategory, string[]> = {
     unsplash('photo-1486406146926-c627a92ad1ab'),
     unsplash('photo-1503387762-592deb58ef4e'),
     unsplash('photo-1416879595882-3373a0480b5b'),
-    unsplash('photo-1581094288338-31cf4c45ad19'),
   ],
   transporte_camioneta: [
     unsplash('photo-1501700493788-fa1a4fc9fe62'),
     unsplash('photo-1601584115197-04ecc0da31d7'),
-    unsplash('photo-1519003722824-194ddf4c2e91'),
-    unsplash('photo-1568607918850-51c8d6ac40e5'),
     unsplash('photo-1558618666-fcd25c85cd64'),
-    unsplash('photo-1519125323398-675f0ddb6304'),
     unsplash('photo-1558981403-c5f9899a28bc'),
     unsplash('photo-1566576912321-d58ddd7a6088'),
-    unsplash('photo-1578575437130-527eed3abb8c'),
   ],
   moda_ropa: [
     unsplash('photo-1521572163474-6864f9cf17ab'),
-    unsplash('photo-1445205170230-e053b7e0c1a1'),
     unsplash('photo-1441986300917-64674bd600d8'),
     unsplash('photo-1483985988355-763728e1935b'),
     unsplash('photo-1472851294608-062f824d29cc'),
     unsplash('photo-1489987707025-afc232f7ea0f'),
-    unsplash('photo-1467086322280-714415ca9be9'),
-    unsplash('photo-1567401893414-76b7b1e23a7a'),
     unsplash('photo-1542291026-7eec264c27ff'),
   ],
   gimnasio_fitness: [
     unsplash('photo-1534438327276-14e5300c3a48'),
     unsplash('photo-1571019613454-1cb2f99b2d8b'),
     unsplash('photo-1541534741688-6078c6bfb5c5'),
-    unsplash('photo-1583454110551-21f2fa2afa61'),
     unsplash('photo-1517836357463-d25dfeac3438'),
     unsplash('photo-1540497077202-7c8a3999166f'),
     unsplash('photo-1571902943202-507ec2618e8f'),
@@ -255,8 +230,6 @@ export const PHOTO_BANK: Record<PhotoCategory, string[]> = {
     unsplash('photo-1456513080510-7bf3a84b82f8'),
     unsplash('photo-1434030216411-0b793f4b4173'),
     unsplash('photo-1524995997946-a1c2e315a42f'),
-    unsplash('photo-1503676262388-30692ca84783'),
-    unsplash('photo-1523050854058-8df90110c9f1'),
   ],
   inmobiliaria_hogar: [
     unsplash('photo-1564013799919-ab600027ffc6'),
@@ -269,19 +242,16 @@ export const PHOTO_BANK: Record<PhotoCategory, string[]> = {
     unsplash('photo-1560448204-e02f11c3d0e2'),
   ],
   eventos_fiestas: [
-    unsplash('photo-1530103862671-de83c484dad3'),
     unsplash('photo-1519671482749-fd09be7ccebf'),
     unsplash('photo-1492684223066-81342ee5ff30'),
     unsplash('photo-1470229722913-7c0e2dbbafd3'),
     unsplash('photo-1519225421980-715cb0215aed'),
     unsplash('photo-1517457373958-b7bdd4587205'),
     unsplash('photo-1519167758481-83f550bb49b3'),
-    unsplash('photo-1429962714451-bb934ec244d2'),
   ],
   servicios_profesionales: [
     unsplash('photo-1589829545856-d10d557cf95f'),
     unsplash('photo-1454165804606-c3d57bc86b40'),
-    unsplash('photo-1554224155-672265f51298'),
     unsplash('photo-1450101499163-c8848c66ca85'),
     unsplash('photo-1521791136064-7986c2920216'),
     unsplash('photo-1507003211169-0a1dd7228f2d'),

@@ -38,7 +38,8 @@ import {
   setPaymentConfig,
 } from '../../services/credits.service';
 import { fetchActiveOffers } from '../../services/offers.service';
-import { analyzeMerchantTrust } from '../../services/gemini.service';
+import { analyzeKybForensic, analyzeMerchantTrust } from '../../services/gemini.service';
+import type { KybForensicResult } from '../../services/gemini.service';
 import { friendlyError } from '../../services/supabase';
 import { compressImageToMicroWebP, compressionSummary } from '../../services/imageCompressor';
 import { cx, formatCOP, timeAgo } from '../../utils/format';
@@ -84,6 +85,9 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
   /** 🪪 V20 · Expedientes KYB pendientes de auditoría visual. */
   const [kybPending, setKybPending] = useState<KybVerification[]>([]);
   const [kybBusyId, setKybBusyId] = useState<string | null>(null);
+  /** 🤖 V21 · Score de Confianza Forense (Gemini Vision) del expediente inspeccionado. */
+  const [kybForensic, setKybForensic] = useState<{ merchantId: string; result: KybForensicResult } | null>(null);
+  const [kybForensicBusy, setKybForensicBusy] = useState<string | null>(null);
   const [blockPhone, setBlockPhone] = useState('');
   const [blockDevice, setBlockDevice] = useState('');
   const [blockIp, setBlockIp] = useState('');
@@ -383,6 +387,26 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
     }
   }
 
+  /** 🤖 V21 · Gemini Vision lee el documento del expediente, lo cruza con el
+   *  nombre del negocio y su NIT/cédula declarada, y entrega un score 0–100. */
+  async function runKybForensic(k: KybVerification) {
+    setKybForensicBusy(k.merchant_id);
+    setKybForensic(null);
+    try {
+      const merchant = merchants.find((m) => m.id === k.merchant_id);
+      const result = await analyzeKybForensic({
+        docImageDataUrl: k.doc_image,
+        merchantName: merchant?.business_name ?? 'Comercio de Gachetá',
+        declaredId: merchant?.nit_or_cedula ?? null,
+      });
+      setKybForensic({ merchantId: k.merchant_id, result });
+    } catch (err) {
+      toast.error(friendlyError(err));
+    } finally {
+      setKybForensicBusy(null);
+    }
+  }
+
   const filteredMerchants = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return merchants;
@@ -477,6 +501,45 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
                           <p className="mt-1.5 truncate font-mono text-[9px] text-slate-500">
                             🧬 doc {k.doc_hash.slice(0, 16)}… · 🧬 foto {k.face_hash.slice(0, 16)}…
                           </p>
+                          {/* 🤖 V21 · Score de Confianza Forense con Gemini Vision:
+                              cruza el texto del documento con el nombre y NIT/cédula */}
+                          <button
+                            onClick={() => void runKybForensic(k)}
+                            disabled={kybForensicBusy === k.merchant_id}
+                            className="pressable mt-2 flex w-full items-center justify-center gap-1.5 rounded-xl border border-impulso-gold/40 bg-impulso-gold/10 py-2 text-xs font-extrabold text-impulso-gold disabled:opacity-50"
+                          >
+                            {kybForensicBusy === k.merchant_id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5" />}
+                            Score de Confianza Forense (IA)
+                          </button>
+                          {kybForensic?.merchantId === k.merchant_id && (
+                            <div
+                              className={cx(
+                                'mt-2 rounded-2xl border p-3',
+                                kybForensic.result.score >= 70
+                                  ? 'border-impulso-emerald/40 bg-impulso-emerald/10'
+                                  : kybForensic.result.score >= 40
+                                    ? 'border-impulso-gold/40 bg-impulso-gold/10'
+                                    : 'border-impulso-rose/40 bg-impulso-rose/10',
+                              )}
+                            >
+                              <p className="flex items-baseline gap-2">
+                                <span className="text-2xl font-black leading-none text-white">{kybForensic.result.score}</span>
+                                <span className="text-[10px] font-extrabold uppercase tracking-widest text-slate-400">/ 100 confianza</span>
+                                <span className="ml-auto text-[10px] font-bold text-slate-300">
+                                  {kybForensic.result.docReadable ? (kybForensic.result.docType ?? 'documento') : 'ilegible'} ·{' '}
+                                  {kybForensic.result.nameMatch ? 'nombre coincide' : 'nombre NO coincide'}
+                                </span>
+                              </p>
+                              <p className="mt-1.5 text-xs font-semibold leading-relaxed text-slate-200">{kybForensic.result.summary}</p>
+                              {kybForensic.result.warnings.length > 0 && (
+                                <ul className="mt-1.5 space-y-0.5">
+                                  {kybForensic.result.warnings.map((w, i) => (
+                                    <li key={i} className="text-[11px] font-semibold text-impulso-rose/90">⚠ {w}</li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                          )}
                           <div className="mt-2 grid grid-cols-2 gap-2">
                             <button
                               onClick={() => void reviewKybExpedient(k.merchant_id, true)}

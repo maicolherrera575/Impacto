@@ -338,8 +338,15 @@ export default function App() {
   // del mapa lanza una lectura fresca: al llegar la señal exacta, todo se
   // activa solo (sin recargar la página). ───────────────────────────────────
   useEffect(() => {
-    if (geo.status === 'inexact') setGpsGuideOpen(true);
-  }, [geo.status]);
+    if (geo.status === 'inexact') {
+      setGpsGuideOpen(true);
+      // ⚖️ V21 · Aviso legal + técnico (Ley 1581): la ubicación llegó APROXIMADA
+      toast.info('Para el correcto funcionamiento del radar, requerimos tu ubicación exacta. Por favor configúralo en los permisos de tu navegador.');
+    }
+    if (geo.status === 'denied') {
+      toast.info('Ubicación no compartida: el radar sigue activo en Gachetá. Puedes activarla cuando quieras.');
+    }
+  }, [geo.status, toast]);
 
   useEffect(() => {
     if (geo.status === 'active' && gpsGuideOpen) {

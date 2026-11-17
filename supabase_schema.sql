@@ -2562,6 +2562,26 @@ end;
 $$;
 grant execute on function public.cleanup_expired_data_rpc() to authenticated;
 
+-- 11.6 Alias de compatibilidad (V21): la instrucción de ingeniería llama a
+--     la RPC con el nombre `submit_kyb_docs_rpc`. Se delega 1:1 en la
+--     canónica `submit_kyb_verification_rpc` (misma firma, mismo blindaje).
+create or replace function public.submit_kyb_docs_rpc(
+  p_doc_image text,
+  p_face_image text,
+  p_doc_hash text,
+  p_face_hash text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  return public.submit_kyb_verification_rpc(p_doc_image, p_face_image, p_doc_hash, p_face_hash);
+end;
+$$;
+grant execute on function public.submit_kyb_docs_rpc(text, text, text, text) to authenticated;
+
 -- 🔄 V19 · Refresca el caché de PostgREST automáticamente al correr el script:
 -- sin esto, funciones nuevas (como admin_reports_list_rpc) pueden seguir
 -- "no encontradas" hasta 1-2 minutos por caché del esquema.

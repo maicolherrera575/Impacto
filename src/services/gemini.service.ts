@@ -426,6 +426,101 @@ export interface MerchantTrustResult {
   warnings: string[];
 }
 
+/** Resultado de la auditoría forense Vision del expediente KYB. */
+export interface KybForensicResult {
+  /** 0–100: confianza de que el documento es real y coincide con el negocio. */
+  score: number;
+  docReadable: boolean;
+  docType: string | null;
+  nameMatch: boolean;
+  summary: string;
+  warnings: string[];
+}
+
+const KYB_PROMPT = `Eres el auditor forense de identidad de Impulso (Gachetá, Colombia). Analiza la imagen del DOCUMENTO de identidad de un comerciante (cédula colombiana, RUT o NIT) que envió para obtener el sello "Comercio Verificado".
+Devuelve ÚNICAMENTE este JSON:
+{"doc_readable": true|false, "doc_type": "cédula|RUT|NIT|otro|null", "name_detected": "nombres propios legibles del titular o del negocio tal como aparecen" o null, "document_number_digits": "últimos dígitos visibles del número de documento" o null, "edited_signals": true|false, "score": 0-100, "summary": "frase corta para el administrador (máx 140 caracteres)", "warnings": ["señal 1", "señal 2"]}
+
+Criterios:
+- doc_readable: true solo si es una foto nítida de un documento oficial donde se leen campos.
+- edited_signals: true si detectas recortes extraños, texto re-escrito, letras con distinta fuente o brillo, o pantallas de otro teléfono.
+- score: 0-100 de confianza. 90-100 si se lee claro y sin señales de edición; 60-89 si se lee parcialmente; 0-59 si es borroso, es otra cosa, o hay señales de manipulación.
+- summary y warnings en español, sobrios y útiles para un administrador humano.`;
+
+/**
+ * 🤖 V21 · Auditoría IA forense del expediente KYB: cruza el texto del
+ * documento con el nombre registrado del comercio y el NIT/cédula que el
+ * comerciante declaró, y devuelve un Score de Confianza Forense (0–100)
+ * para que el administrador apruebe o rechace con fundamento.
+ */
+export async function analyzeKybForensic(input: {
+  docImageDataUrl: string;
+  merchantName: string;
+  declaredId?: string | null;
+}): Promise<KybForensicResult> {
+  const imageDataUrl = input.docImageDataUrl;
+  const mimeType = imageDataUrl.startsWith('data:image/png')
+    ? 'image/png'
+    : imageDataUrl.startsWith('data:image/jpeg')
+      ? 'image/jpeg'
+      : 'image/webp';
+  const base64 = imageDataUrl.split(',')[1] ?? '';
+  if (base64.length < 100) {
+    throw new Error('El documento no se pudo leer. Pide al comercio que lo suba de nuevo');
+  }
+
+  const context = [
+    `Nombre del negocio registrado: ${input.merchantName}`,
+    input.declaredId ? `NIT o cédula que el comercio declaró: ${input.declaredId}` : 'El comercio no declaró NIT/cédula (verifica coherencia solo con el nombre).',
+  ].join('\n');
+
+  const jsonText = await callGemini({
+    prompt: KYB_PROMPT + `\nDatos del comercio para cruzar:\n${context}`,
+    image: { mimeType, data: base64 },
+    temperature: 0.1,
+  });
+
+  interface ParsedKyb {
+    doc_readable?: boolean;
+    doc_type?: string | null;
+    name_detected?: string | null;
+    document_number_digits?: string | null;
+    edited_signals?: boolean;
+    score?: number;
+    summary?: string;
+    warnings?: string[];
+  }
+  const parsed = parseAiJson<ParsedKyb>(jsonText);
+
+  // Cruce de coherencia: el nombre detectado en el documento debe compartir
+  // palabras con el nombre registrado (o con el titular declarado).
+  const nameDetected = (parsed.name_detected ?? '').toLowerCase();
+  const merchantWords = `${input.merchantName} ${input.declaredId ?? ''}`.toLowerCase().split(/\s+/).filter((w) => w.length >= 4);
+  const nameMatch = nameDetected !== '' && merchantWords.some((w) => nameDetected.includes(w));
+  const edited = parsed.edited_signals === true;
+  let score = typeof parsed.score === 'number' ? Math.min(100, Math.max(0, Math.round(parsed.score))) : 50;
+  if (!nameMatch && parsed.doc_readable === true) score = Math.min(score, 45);
+  if (edited) score = Math.min(score, 30);
+
+  return {
+    score,
+    docReadable: parsed.doc_readable === true,
+    docType: typeof parsed.doc_type === 'string' ? parsed.doc_type.slice(0, 20) : null,
+    nameMatch,
+    summary:
+      typeof parsed.summary === 'string' && parsed.summary.trim() !== ''
+        ? parsed.summary.trim().slice(0, 180)
+        : nameMatch
+          ? 'Documento coherente con los datos del comercio'
+          : 'Documento revisado: verifica el nombre contra el registro antes de aprobar',
+    warnings: Array.isArray(parsed.warnings)
+      ? parsed.warnings.filter((w): w is string => typeof w === 'string' && w.trim() !== '').slice(0, 4)
+      : edited
+        ? ['Señales de edición detectadas en la imagen']
+        : [],
+  };
+}
+
 const TRUST_PROMPT = `Eres el auditor de seguridad de Impulso, una plataforma de ofertas locales en municipios rurales de Colombia (Gachetá, Cundinamarca).
 Evalúa si un negocio registrado es coherente y seguro para operar frente a la comunidad, o si requiere revisión manual antes de otorgar la insignia de "Verificado".
 
@@ -452,8 +547,7 @@ export async function analyzeMerchantTrust(input: {
   nitOrCedula?: string | null;
   socialOrMapsLink?: string | null;
   offerTitles: string[];
-}): Promise<MerchantTrustResult> {
-  const facts = [
+}): Promise<MerchantTrustResult> {  const facts = [
     `Negocio: ${input.businessName}`,
     `Categoría: ${input.category}`,
     `WhatsApp: ${input.whatsapp}`,
@@ -530,7 +624,14 @@ const INDUSTRY_IDS: IndustryType[] = [
 ];
 
 const THEME_IDS = ['wood', 'marble', 'cyber', 'kraft', 'ember', 'emerald', 'obsidian', 'clinic', 'terracotta', 'pop', 'aurora', 'slate'] as const;
-const LAYOUT_IDS = ['bento', 'magazine', 'diagonal', 'polaroid', 'arc', 'portal', 'swiss', 'split', 'brutal', 'vip', 'cyber', 'rustic', 'retail', 'eco', 'cinema', 'float'] as const;
+const LAYOUT_IDS = [
+  'bento', 'magazine', 'diagonal', 'polaroid', 'arc', 'portal', 'swiss', 'split',
+  'brutal', 'vip', 'cyber', 'rustic', 'retail', 'eco', 'cinema', 'float',
+  // 🚀 V19 · futuristas (17–24)
+  'hud', 'resort', 'menu', 'clinic', 'agro', 'diamond', 'flash', 'bento3d',
+  // 💥 V21 · asimétricos disruptivos (25–28)
+  'diagx', 'orbits', 'bleed', 'zen',
+] as const;
 
 /** Dirección de arte por defecto de cada rubro (nunca siempre el mismo tema). */
 export const INDUSTRY_ART: Record<IndustryType, { themeId: string; layoutId: string }> = {
@@ -795,20 +896,20 @@ export async function generateArtDirection(input: CampaignInput): Promise<ArtDir
 const COPY_SYSTEM_PROMPT = `Eres el Copywriter Senior y Director Creativo de una agencia de publicidad experta en municipios rurales de Colombia (Gachetá, Cundinamarca).
 Recibirás la ESTRATEGIA de la campaña (rubro, promesa de valor, tema y layout) y los datos del negocio. Escribes la campaña completa. Devuelve ÚNICAMENTE un JSON con esta estructura exacta:
 {
- "badge_text": "sello superior ESPECÍFICO del giro: máximo 4 palabras en MAYÚSCULAS con 1 emoji al inicio (ej: '🚀 IMPULSA TUS VENTAS', '💎 ALTA PRECISIÓN', '🔥 SABOR ARTESANAL')",
+ "badge_text": "sello superior ESPECÍFICO del giro: máximo 4 palabras en MAYÚSCULAS, SIN emojis ni iconos (el diseño dibuja su propio icono vectorial de agencia). Ej: 'IMPULSA TUS VENTAS', 'ALTA PRECISIÓN', 'SABOR ARTESANAL'",
  "headline": {
    "plain": "3 a 6 palabras IMPACTANTES que irán en blanco, SIEMPRE separadas por espacios correctos (ej: 'Multiplica tus clientes y')",
    "highlight": "3 a 5 palabras de cierre poderoso con espacios correctos, irán resaltadas en el color de acento (ej: 'domina las redes hoy')"
  },
  "sub": "una línea ejecutiva elegante que explica el servicio/producto",
- "benefits": ["3 beneficios 100% ESPECÍFICOS del negocio, cada uno empieza con 1 emoji ideal del rubro (nada genérico)"],
+ "benefits": ["3 beneficios 100% ESPECÍFICOS del negocio, texto limpio SIN emojis ni iconos (el diseño los acompaña con iconografía vectorial propia)"],
  "cta": "llamado a la acción urgente y claro",
  "price_label": "si el negocio NO maneja precio fijo: texto inteligente de cotización/acción (ej: 'Diagnóstico digital gratis', 'Agenda tu asesoría hoy', 'Valoración sin costo'). Si SÍ hay precio de oferta devuelve null",
  "visualHooks": {
    "slide1_hook": "titular magnético de 4 a 7 palabras que detiene el scroll",
    "slide1_sub": "subtítulo provocador corto",
    "slide2_headline": "promesa de valor + beneficio irresistible (máx 10 palabras)",
-   "slide2_bullets": ["beneficio corto con emoji", "beneficio corto con emoji", "beneficio corto con emoji"],
+   "slide2_bullets": ["beneficio corto, texto limpio sin emojis", "beneficio corto, texto limpio sin emojis", "beneficio corto, texto limpio sin emojis"],
    "slide3_cta": "llamado a la acción urgente con gatillo de escasez"
  },
  "whatsappStatusSequence": {
@@ -840,10 +941,20 @@ Recibirás la ESTRATEGIA de la campaña (rubro, promesa de valor, tema y layout)
 REGLAS DE ORO:
 - PROHIBIDO copiar frases literales del brief del usuario ni rellenar con plantillas genéricas: todo el copy debe nacer de la promesa de valor de la estrategia.
 - PROHIBIDO el patrón "¿Te sumamos ...?" en dispatchUpsell: la confirmación de despacho es ejecutiva (confirma el pedido, la entrega y ofrece el trato de cliente fiel con naturalidad).
+- 🎯 CERO EMOJIS en badge_text, headline, sub, benefits y cta: el afiche usa iconografía vectorial propia de agencia. Los emojis solo se permiten en los textos de WhatsApp/redes (status, pas, aida, dispatch).
 - Los beneficios deben describir algo que SOLO ese negocio puede decir.
 - headlines y textos SIEMPRE con espacios correctos entre palabras (jamás palabras pegadas tipo 'ImpulsoHOY').
 - PROHIBIDO usar el nombre 'Impulso' como marca del cliente.
 - Español colombiano cercano y honesto; adapta el tono al enfoque psicológico indicado.`;
+
+/** 🎯 V21 · Estética de agencia: elimina CUALQUIER pictográfico/emoji de un
+ *  texto del afiche (los iconos los dibuja el sistema con SVG vectorial). */
+function stripPictographics(text: string): string {
+  return text
+    .replace(/\p{Extended_Pictographic}[\uFE0F\u200D]?/gu, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
 
 /** Normaliza la respuesta de la PASADA 2 contra el contrato V8. */
 function normalizeCampaign(raw: Partial<MarketingCampaign> & Record<string, unknown>, input: CampaignInput, art: ArtDirection): MarketingCampaign {
@@ -861,7 +972,11 @@ function normalizeCampaign(raw: Partial<MarketingCampaign> & Record<string, unkn
     throw new Error('La IA (pasada 2) no devolvió un titular completo. Pulsa ✨ de nuevo.');
   }
   const benefits = Array.isArray(raw.benefits)
-    ? (raw.benefits as unknown[]).filter((b): b is string => typeof b === 'string' && b.trim() !== '').slice(0, 3)
+    ? (raw.benefits as unknown[])
+        .filter((b): b is string => typeof b === 'string' && b.trim() !== '')
+        .map((b) => stripPictographics(b))
+        .filter((b) => b !== '')
+        .slice(0, 3)
     : [];
   if (benefits.length < 3) {
     throw new Error('La IA (pasada 2) no devolvió los 3 beneficios del negocio. Pulsa ✨ de nuevo.');
@@ -880,7 +995,7 @@ function normalizeCampaign(raw: Partial<MarketingCampaign> & Record<string, unkn
     themeId: art.themeId,
     layoutId: art.layoutId,
     valueProposition: art.valueProposition,
-    badgeText: normSpaces(raw.badge_text) || `⭐ ${input.municipality ? `${input.municipality.toUpperCase()}` : 'NEGOCIO DESTACADO'}`,
+    badgeText: stripPictographics(normSpaces(raw.badge_text)) || (input.municipality ? `${input.municipality.toUpperCase()}` : 'NEGOCIO DESTACADO'),
     headline: { plain, highlight },
     sub: normSpaces(raw.sub) || art.valueProposition,
     benefits,
@@ -1451,10 +1566,12 @@ export function synthesizeCampaign(input: CampaignInput, art: ArtDirection): Mar
     themeId: art.themeId,
     layoutId: art.layoutId,
     valueProposition: art.valueProposition,
-    badgeText: rotate(niche.badges, Math.floor(seed / 11)),
+    badgeText: stripPictographics(rotate(niche.badges, Math.floor(seed / 11))) || 'NEGOCIO DESTACADO',
     headline: { plain, highlight },
     sub: rotate(niche.subs, Math.floor(seed / 5)),
-    benefits: [b0, b1, b2],
+    // 🎯 V21 · Cero emojis en el afiche: el motor sintético limpia los
+    // pictográficos de nicho (los íconos los dibuja el sistema vectorial).
+    benefits: [stripPictographics(b0), stripPictographics(b1), stripPictographics(b2)],
     cta: isService ? '💬 Agenda hoy por WhatsApp' : '👉 Pide el tuyo HOY por WhatsApp',
     priceLabel: isService
       ? input.priceLabel.trim() || `💬 ${art.productTitle} · Cotiza sin compromiso`
@@ -1464,7 +1581,7 @@ export function synthesizeCampaign(input: CampaignInput, art: ArtDirection): Mar
       slide1_hook: `${product}${price ? ' con oferta de hoy' : ''}: ${hook.charAt(0).toUpperCase()}${hook.slice(1)}`,
       slide1_sub: `Conoce por qué en ${place} ya lo están eligiendo`,
       slide2_headline: `${b0.replace(/^[^\p{L}\p{N}]+/u, '')} y ${b1.replace(/^[^\p{L}\p{N}]+/u, '').toLowerCase()}`,
-      slide2_bullets: [b0, b1, b2],
+      slide2_bullets: [stripPictographics(b0), stripPictographics(b1), stripPictographics(b2)],
       slide3_cta: `Últimos cupos de hoy 👉 Escríbenos al WhatsApp de ${brand}`,
     },
     whatsappStatusSequence: {

@@ -178,10 +178,11 @@ interface LiveMapProps {
 }
 
 /**
- * Mapa interactivo inteligente: pide ubicación al entrar y, apenas la
- * aceptan, vuela directo al punto azul con zoom de calle. Si se niega,
- * se centra en el casco urbano mostrando todas las ofertas activas.
- * Un clic en un pin abre la reserva en segundos.
+ * Mapa interactivo inteligente: solo activa el punto azul con el
+ * consentimiento explícito del usuario (botón verde del radar o 🎯 del
+ * mapa) y, apenas la aceptan, vuela directo al punto con zoom de calle.
+ * Si se niega, se centra en el casco urbano mostrando todas las ofertas
+ * activas. Un clic en un pin abre la reserva en segundos.
  */
 export function LiveMap({
   offers,
