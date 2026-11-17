@@ -64,10 +64,10 @@ export function AuthModal({ open, onClose, onAuthed, onOpenLegal }: AuthModalPro
       if (
         msg === WEBAUTHN_CROSS_DEVICE_MSG ||
         msg === WEBAUTHN_CANCELLED_MSG ||
-        /cancel|NotAllowed|no hay llaves|equipo nuevo|dispositivo/i.test(msg)
+        /cancel|NotAllowed|no hay llaves|no se encontró la llave|equipo nuevo|dispositivo/i.test(msg)
       ) {
         setErrorMsg(WEBAUTHN_CROSS_DEVICE_MSG);
-        toast.info('Ingresa con tu contraseña para continuar o vincular este dispositivo.');
+        toast.info('Ingresa con tu contraseña para continuar o sincroniza tu cuenta Google/Apple.');
       } else {
         setErrorMsg(msg);
       }

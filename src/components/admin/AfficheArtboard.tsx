@@ -476,21 +476,10 @@ function Badge({ text, t, s, align = 'center' }: { text: string; t: AfficheTheme
 }
 
 /**
- * Construye una sombra larga direccional multicapa para el modo "Tipografía Inmersiva".
- */
-function buildLongShadow(s: number, accentHex: string): string {
-  const steps = [1, 2, 3, 4, 5, 6, 7, 8, 9];
-  const depthShadow = steps
-    .map((n) => `${(n * 1.4 * s).toFixed(1)}px ${(n * 1.4 * s).toFixed(1)}px 0 rgba(4,7,15,0.68)`)
-    .join(', ');
-  return `${depthShadow}, 0 ${(14 * s).toFixed(1)}px ${(32 * s).toFixed(1)}px ${accentHex}66`;
-}
-
-/**
- * 📣 Titular Display Monumental (V22.0):
- *  - Elimina background-clip:text / color:transparent para erradicar el bug de
- *    cajas sólidas sobre el texto en navegador y en html-to-image (foreignObject).
- *  - zIndex: 10 garantizado + contraste calculado por luminancia real en cada acento.
+ * 📣 Titular Display Monumental (V26.0):
+ *  - Simplificación total compatible con html-to-image (foreignObject): cero bg-clip-text,
+ *    cero gradientes en texto, cero mix-blend-mode; solo tintas sólidas de alto contraste
+ *    y rotulador sólido limpio.
  */
 function Headline({
   texts,
@@ -519,14 +508,13 @@ function Headline({
   const eff = typo.effect;
   const computedSize = size * 1.12 * typo.opticalBoost * scale * s;
   const isLight = Boolean(t.light);
-  const readableAccent = ensureReadableAccent(t.accent, isLight);
   const readableAccent2 = ensureReadableAccent(t.accent2, isLight);
   const baseInk = color ?? (isLight ? t.text : '#ffffff');
   const shadowColor = longShadow
-    ? buildLongShadow(s, readableAccent2)
-    : isLight && !color && eff !== 'neon' && eff !== 'sticker'
+    ? `0 ${5 * s}px ${14 * s}px rgba(0,0,0,0.85), 0 0 ${18 * s}px ${readableAccent2}44`
+    : isLight && !color && eff !== 'neon'
       ? '0 2px 10px rgba(255,255,255,0.45)'
-      : '0 10px 28px rgba(0,0,0,0.72), 0 2px 8px rgba(0,0,0,0.55)';
+      : '0 4px 12px rgba(0,0,0,0.78)';
 
   const base: CSSProperties = {
     margin: 0,
@@ -534,10 +522,10 @@ function Headline({
     zIndex: 10,
     fontFamily: `"${typo.font || t.font}", system-ui, sans-serif`,
     fontSize: Number(computedSize.toFixed(1)),
-    lineHeight: 0.92,
+    lineHeight: eff === 'caja' ? 1.08 : 0.96,
     fontWeight: 900,
     textTransform: 'uppercase',
-    letterSpacing: -1.35 * s,
+    letterSpacing: -1.1 * s,
     color: baseInk,
     textShadow: shadowColor,
   };
@@ -545,43 +533,24 @@ function Headline({
   const highlight = (): ReactElement => {
     const hl = cleanPosterCopy(texts.highlight);
     if (!hl) return <></>;
+    // Color sólido puro de rotulador + tinta sólida contrastante (cero bg-clip-text, gradientes o superposiciones)
     const markerBg = ensureReadableAccent(t.accent2, false);
     const cajaInk = contrastTextOn(markerBg);
 
     switch (eff) {
       case 'caja':
-        // Fix V25.0: rotulador con backgroundColor sólido puro y texto en alto contraste (sin gradientes ni clip-path)
         return (
           <span
             style={{
-              position: 'relative',
-              zIndex: 10,
               backgroundColor: markerBg,
               color: cajaInk,
-              padding: `${1.5 * s}px ${9 * s}px`,
+              padding: `${2 * s}px ${9 * s}px`,
               borderRadius: 6 * s,
-              display: 'inline',
-              boxDecorationBreak: 'clone',
-              WebkitBoxDecorationBreak: 'clone',
-              lineHeight: 1.08,
+              display: 'inline-block',
+              lineHeight: 1.04,
+              marginTop: 3 * s,
               fontWeight: 900,
               textShadow: 'none',
-            }}
-          >
-            {hl}
-          </span>
-        );
-      case 'neon':
-        return (
-          <span
-            style={{
-              position: 'relative',
-              zIndex: 10,
-              backgroundColor: 'transparent',
-              color: readableAccent2,
-              textShadow: longShadow
-                ? buildLongShadow(s, readableAccent2)
-                : `0 0 ${14 * s}px ${readableAccent}dd, 0 0 ${28 * s}px ${readableAccent2}88, 0 4px ${8 * s}px rgba(0,0,0,0.65)`,
             }}
           >
             {hl}
@@ -591,27 +560,10 @@ function Headline({
         return (
           <span
             style={{
-              position: 'relative',
-              zIndex: 10,
-              display: 'inline',
-              backgroundColor: 'transparent',
               color: baseInk,
               borderBottom: `${4.5 * s}px solid ${readableAccent2}`,
-              paddingBottom: 1.5 * s,
-            }}
-          >
-            {hl}
-          </span>
-        );
-      case 'sticker':
-        return (
-          <span
-            style={{
-              position: 'relative',
-              zIndex: 10,
-              backgroundColor: 'transparent',
-              color: readableAccent2,
-              textShadow: `0 ${4 * s}px ${12 * s}px rgba(0,0,0,0.85)`,
+              paddingBottom: 2 * s,
+              display: 'inline-block',
             }}
           >
             {hl}
@@ -621,10 +573,7 @@ function Headline({
         return (
           <span
             style={{
-              position: 'relative',
-              zIndex: 10,
               display: 'inline-block',
-              backgroundColor: 'transparent',
               borderLeft: `${6 * s}px solid ${readableAccent2}`,
               paddingLeft: `${11 * s}px`,
               color: readableAccent2,
@@ -634,19 +583,14 @@ function Headline({
           </span>
         );
       default:
-        // Color sólido puro de alto contraste sin gradientes de fondo ni bg-clip-text
+        // Color sólido puro + sombra de texto simple 100% compatible con html-to-image
         return (
           <span
             style={{
-              position: 'relative',
-              zIndex: 10,
-              backgroundColor: 'transparent',
               color: readableAccent2,
-              textShadow: longShadow
-                ? buildLongShadow(s, readableAccent2)
-                : isLight
-                  ? `0 2px 12px ${readableAccent}33`
-                  : `0 0 ${18 * s}px ${readableAccent}66, 0 ${6 * s}px ${16 * s}px rgba(0,0,0,0.75)`,
+              textShadow: isLight
+                ? '0 2px 8px rgba(15,23,42,0.18)'
+                : `0 4px 12px rgba(0,0,0,0.82)`,
             }}
           >
             {hl}
@@ -2104,40 +2048,55 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
             POR QUÉ ELEGIR <span style={{ color: neonNumColor }}>{cleanPosterCopy(brand.product || brand.name || 'HOY')}</span>
           </p>
 
-          {/* Bento Grid Glassmorphism: capa de fondo Display 01/02/03 opacity 0.10 + tarjetas sobrepuestas con iconos masivos */}
-          <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 10 * s }}>
+          {/* Bento Grid Asimétrico / Columnas Escalonadas: 01 protagonista arriba + 02/03 en columnas abajo */}
+          <div
+            style={{
+              flex: 1,
+              minHeight: 0,
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gridTemplateRows: isSquare ? '1fr 1.08fr' : '1.05fr 1.25fr',
+              gap: 10 * s,
+            }}
+          >
             {infoItems.map((item, idx) => {
               const rowNeon = idx % 2 === 0 ? neonNumColor : secondaryNeon;
+              const isHeroTile = idx === 0;
               return (
                 <div
                   key={item.num}
                   style={{
-                    flex: 1,
+                    gridColumn: isHeroTile ? '1 / -1' : undefined,
                     position: 'relative',
                     overflow: 'hidden',
                     ...glassCard,
-                    borderLeft: `4px solid ${rowNeon}`,
+                    borderTop: isHeroTile ? undefined : `3.5px solid ${rowNeon}`,
+                    borderLeft: isHeroTile ? `4.5px solid ${rowNeon}` : undefined,
                     borderRadius: 22 * s,
-                    padding: `${12 * s}px ${16 * s}px`,
+                    padding: `${(isSquare ? 12 : 16) * s}px ${(isSquare ? 14 : 18) * s}px`,
                     display: 'flex',
-                    alignItems: 'center',
-                    gap: 15 * s,
+                    flexDirection: isHeroTile ? 'row' : 'column',
+                    alignItems: isHeroTile ? 'center' : 'flex-start',
+                    justifyContent: isHeroTile ? 'flex-start' : 'space-between',
+                    gap: (isHeroTile ? 16 : 10) * s,
                     minHeight: 0,
+                    marginTop: idx === 2 ? 6 * s : 0,
+                    marginBottom: idx === 1 ? 6 * s : 0,
                   }}
                 >
-                  {/* Número Display gigante en capa de fondo (opacity 0.10) */}
+                  {/* Número Display gigante en capa de fondo (opacity 0.14) */}
                   <span
                     aria-hidden="true"
                     style={{
                       position: 'absolute',
-                      right: 14 * s,
-                      bottom: -14 * s,
+                      right: 10 * s,
+                      bottom: isHeroTile ? -14 * s : -10 * s,
                       fontFamily: `"${boardDisplayFont}", system-ui, sans-serif`,
-                      fontSize: (isSquare ? 96 : 126) * s,
+                      fontSize: (isHeroTile ? (isSquare ? 102 : 138) : (isSquare ? 82 : 112)) * s,
                       fontWeight: 900,
                       lineHeight: 0.85,
                       color: '#ffffff',
-                      opacity: 0.1,
+                      opacity: 0.14,
                       pointerEvents: 'none',
                       userSelect: 'none',
                     }}
@@ -2145,13 +2104,13 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
                     {item.num}
                   </span>
 
-                  {/* Tarjeta sobrepuesta con icono masivo */}
+                  {/* Icono vectorial grande lucide-react */}
                   <span
                     style={{
                       position: 'relative',
                       zIndex: 2,
-                      width: (isSquare ? 50 : 62) * s,
-                      height: (isSquare ? 50 : 62) * s,
+                      width: (isHeroTile ? (isSquare ? 54 : 68) : (isSquare ? 44 : 56)) * s,
+                      height: (isHeroTile ? (isSquare ? 54 : 68) : (isSquare ? 44 : 56)) * s,
                       borderRadius: 18 * s,
                       background: `linear-gradient(145deg, ${t.accent}, ${t.accent2})`,
                       display: 'flex',
@@ -2161,7 +2120,11 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
                       boxShadow: `0 12px 28px ${t.accent}55`,
                     }}
                   >
-                    <GlyphIcon kind={idx} size={(isSquare ? 28 : 34) * s} color={contrastTextOn(t.accent, t.accent2)} />
+                    <GlyphIcon
+                      kind={idx}
+                      size={(isHeroTile ? (isSquare ? 30 : 38) : (isSquare ? 24 : 30)) * s}
+                      color={contrastTextOn(t.accent, t.accent2)}
+                    />
                   </span>
 
                   <div style={{ position: 'relative', zIndex: 2, flex: 1, minWidth: 0 }}>
@@ -2173,24 +2136,32 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
                         fontWeight: 900,
                         letterSpacing: 1.8 * s,
                         color: rowNeon,
-                        marginBottom: 2 * s,
+                        marginBottom: 3 * s,
                       }}
                     >
                       CLAVE {item.num}
                     </span>
-                    <p style={{ margin: 0, fontSize: (isSquare ? 15.5 : 18) * s, fontWeight: 900, lineHeight: 1.14, color: uiInk }}>
+                    <p
+                      style={{
+                        margin: 0,
+                        fontSize: (isHeroTile ? (isSquare ? 17 : 20) : (isSquare ? 14 : 16.5)) * s,
+                        fontWeight: 900,
+                        lineHeight: 1.12,
+                        color: uiInk,
+                      }}
+                    >
                       {item.title}
                     </p>
                     <p
                       style={{
                         margin: 0,
-                        marginTop: 4 * s,
-                        fontSize: (isSquare ? 11 : 12.5) * s,
+                        marginTop: 5 * s,
+                        fontSize: (isSquare ? 10.5 : 12.5) * s,
                         fontWeight: 600,
                         lineHeight: 1.25,
                         color: uiMuted,
                         display: '-webkit-box',
-                        WebkitLineClamp: 2,
+                        WebkitLineClamp: isHeroTile ? 2 : 3,
                         WebkitBoxOrient: 'vertical',
                         overflow: 'hidden',
                       }}

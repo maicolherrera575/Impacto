@@ -254,7 +254,6 @@ export interface PreparedPasskeyEnrollment {
   accessToken: string;
   email: string;
   vaultPassword: string;
-  hasPlatformAuthenticator: boolean;
   begin: PasskeyBeginRegisterData;
 }
 
@@ -264,7 +263,7 @@ export const PASSKEY_LINKED_SUCCESS_MSG =
 export const WEBAUTHN_CANCELLED_MSG = 'Autenticación cancelada. Puedes seguir usando tu contraseña.';
 
 export const WEBAUTHN_CROSS_DEVICE_MSG =
-  'Si estás en un equipo nuevo o diferente al que registraste tu huella, por favor ingresa con tu contraseña. Podrás vincular la huella de este nuevo equipo desde tu panel.';
+  'No se encontró la llave de acceso en este dispositivo. Si registraste la huella en otro equipo, por favor inicia sesión con tu contraseña o asegúrate de usar la misma cuenta de Google/Apple para sincronizar las llaves.';
 
 // ── Validación de contraseña previa + registro WebAuthn (navigator.credentials.create) ───
 
@@ -296,17 +295,13 @@ export async function verifyPasswordAndPreparePasskey(
     throw new Error('Contraseña incorrecta. Verifica tu clave actual antes de vincular tu huella.');
   }
 
-  const [{ data: beginRaw, error: beginErr }, hasPlatformAuthenticator] = await Promise.all([
-    supabase.rpc('webauthn_begin_register_rpc'),
-    isPlatformAuthenticatorReady(),
-  ]);
+  const { data: beginRaw, error: beginErr } = await supabase.rpc('webauthn_begin_register_rpc');
   if (beginErr) throw beginErr;
 
   return {
     accessToken: authData.session.access_token,
     email: userEmail,
     vaultPassword: currentPassword,
-    hasPlatformAuthenticator,
     begin: beginRaw as unknown as PasskeyBeginRegisterData,
   };
 }
@@ -314,14 +309,20 @@ export async function verifyPasswordAndPreparePasskey(
 /**
  * 2) Dispara `navigator.credentials.create()` con un reto ya autorizado y
  *    registra la clave pública en el servidor (`/api/webauthn`).
+ *    Omite `authenticatorAttachment` para permitir llaves sincronizadas (Google/Apple)
+ *    y roaming cross-device móvil -> PC.
  */
 export async function completePreparedPasskeyEnrollment(
   prepared: PreparedPasskeyEnrollment,
   options?: { deviceLabel?: string },
 ): Promise<{ id: string; credentialId: string; deviceLabel: string }> {
-  const { begin, accessToken, vaultPassword, hasPlatformAuthenticator } = prepared;
+  const { begin, accessToken, vaultPassword } = prepared;
   const rpId = window.location.hostname;
-  const userIdBytes = new TextEncoder().encode(begin.userId);
+  const stableUserId = begin.userId.trim().toLowerCase();
+  if (!stableUserId) {
+    throw new Error('No se encontró identificador constante de usuario para registrar la llave.');
+  }
+  const userIdBytes = new TextEncoder().encode(stableUserId);
 
   let cred: Credential | null;
   try {
@@ -334,7 +335,7 @@ export async function completePreparedPasskeyEnrollment(
         },
         user: {
           id: toArrayBuffer(userIdBytes),
-          name: begin.email || begin.businessName,
+          name: (begin.email || begin.businessName).trim().toLowerCase(),
           displayName: begin.businessName || begin.email,
         },
         pubKeyCredParams: [
@@ -342,7 +343,7 @@ export async function completePreparedPasskeyEnrollment(
           { type: 'public-key', alg: -257 }, // RS256
         ],
         authenticatorSelection: {
-          ...(hasPlatformAuthenticator ? { authenticatorAttachment: 'platform' as const } : {}),
+          // Omitimos authenticatorAttachment para habilitar sincronización en la nube (Google/Apple) y roaming cross-device
           residentKey: 'required',
           requireResidentKey: true,
           userVerification: 'required',
@@ -363,6 +364,11 @@ export async function completePreparedPasskeyEnrollment(
       if (err.name === 'InvalidStateError') {
         throw new Error('Este dispositivo ya tiene registrada una llave biométrica para tu cuenta.');
       }
+      if (err.name === 'SecurityError' || err.name === 'NotSupportedError') {
+        throw new Error(
+          'Tu navegador actual bloqueó el guardado de la huella. Abre la app directamente en Chrome o Safari (no dentro de WhatsApp/Instagram) e intenta de nuevo.',
+        );
+      }
     }
     throw err;
   }
@@ -373,8 +379,8 @@ export async function completePreparedPasskeyEnrollment(
 
   const response = cred.response as AuthenticatorAttestationResponse;
   const credentialId = bufferToBase64Url(cred.rawId);
-  const rawTransports = typeof response.getTransports === 'function' ? response.getTransports() : ['internal'];
-  const transports = Array.from(new Set([...rawTransports, 'internal']));
+  const rawTransports = typeof response.getTransports === 'function' ? response.getTransports() : ['internal', 'hybrid'];
+  const transports = Array.from(new Set(rawTransports));
 
   const extracted = extractAuthDataFromAttestation(response.attestationObject);
   const nativeSpki = typeof response.getPublicKey === 'function' ? response.getPublicKey() : null;
