@@ -1,5 +1,113 @@
 import { supabase } from './supabase';
 import type { CreditOrder, PaymentConfig } from '../types';
+import type { ReceiptVerification } from './gemini.service';
+
+export interface ServerVerifyReceiptResult {
+  receiptHash: string;
+  alreadyUsed: boolean;
+  usedReason: string;
+  officialNequi: string;
+  verification: ReceiptVerification | null;
+}
+
+export interface ServerSubmitCreditResult {
+  order: CreditOrder;
+  receiptHash: string;
+  iaStatusOk: boolean;
+  autoApproved: boolean;
+  approvedCredits: number;
+  verification: ReceiptVerification | null;
+}
+
+async function getAuthAccessToken(): Promise<string> {
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) throw new Error('Debes iniciar sesión para validar comprobantes.');
+  return token;
+}
+
+/**
+ * 🛡️ V20.0 · Verificación forense estricta en servidor (/api/verify-receipt):
+ * calcula el SHA-256 real en el servidor, ejecuta Gemini Vision + OCR sobre la captura,
+ * valida el Nequi oficial (`3158942112`) y verifica unicidad sin confiar en datos del cliente.
+ */
+export async function verifyReceiptOnServer(input: {
+  imageDataUrl: string;
+  referenceCode?: string;
+  qrPayload?: string | null;
+}): Promise<ServerVerifyReceiptResult> {
+  const token = await getAuthAccessToken();
+  const res = await fetch('/api/verify-receipt', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      action: 'verify',
+      imageDataUrl: input.imageDataUrl,
+      referenceCode: input.referenceCode ?? '',
+      qrPayload: input.qrPayload ?? null,
+    }),
+  });
+  const payload = (await res.json().catch(() => null)) as
+    | ({ ok?: boolean; error?: { message?: string } } & Partial<ServerVerifyReceiptResult>)
+    | null;
+  if (!res.ok || !payload?.ok) {
+    throw new Error(payload?.error?.message || 'No se pudo auditar el comprobante en el servidor.');
+  }
+  return {
+    receiptHash: String(payload.receiptHash ?? ''),
+    alreadyUsed: payload.alreadyUsed === true,
+    usedReason: String(payload.usedReason ?? ''),
+    officialNequi: String(payload.officialNequi ?? '3158942112'),
+    verification: payload.verification ?? null,
+  };
+}
+
+/**
+ * 🛡️ V20.0 · Envío y auto-aprobación ejecutados 100% desde el servidor:
+ * el servidor calcula SHA-256, aplica tarifas canónicas por `packageId`, verifica
+ * el destino `3158942112` con Gemini Vision/OCR e invoca `submit_credit_order_rpc`.
+ */
+export async function submitVerifiedCreditOrderOnServer(input: {
+  packageId: string;
+  paymentMethod: 'Nequi' | 'Daviplata' | 'Bancolombia' | 'Llave';
+  imageDataUrl: string;
+  referenceCode: string;
+  qrPayload?: string | null;
+}): Promise<ServerSubmitCreditResult> {
+  const token = await getAuthAccessToken();
+  const res = await fetch('/api/verify-receipt', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      action: 'submit',
+      packageId: input.packageId,
+      paymentMethod: input.paymentMethod,
+      imageDataUrl: input.imageDataUrl,
+      referenceCode: input.referenceCode,
+      qrPayload: input.qrPayload ?? null,
+    }),
+  });
+  const payload = (await res.json().catch(() => null)) as
+    | ({ ok?: boolean; error?: { message?: string } } & Partial<ServerSubmitCreditResult>)
+    | null;
+  if (!res.ok || !payload?.ok || !payload.order) {
+    throw new Error(payload?.error?.message || 'No se pudo procesar tu recarga en el servidor.');
+  }
+  return {
+    order: payload.order,
+    receiptHash: String(payload.receiptHash ?? ''),
+    iaStatusOk: payload.iaStatusOk === true,
+    autoApproved: payload.autoApproved === true,
+    approvedCredits: Number(payload.approvedCredits ?? 0),
+    verification: payload.verification ?? null,
+  };
+}
 
 export interface SubmitCreditOrderInput {
   packageName: string;

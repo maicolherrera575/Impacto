@@ -30,6 +30,26 @@ function localApiDevPlugin(env: Record<string, string>): Plugin {
           next();
         }
       });
+      server.middlewares.use('/api/gemini', async (req, res, next) => {
+        try {
+          const mod = (await server.ssrLoadModule('/api/gemini.ts')) as {
+            default: (r: unknown, s: unknown) => void | Promise<void>;
+          };
+          await mod.default(req, res);
+        } catch {
+          next();
+        }
+      });
+      server.middlewares.use('/api/verify-receipt', async (req, res, next) => {
+        try {
+          const mod = (await server.ssrLoadModule('/api/verify-receipt.ts')) as {
+            default: (r: unknown, s: unknown) => void | Promise<void>;
+          };
+          await mod.default(req, res);
+        } catch {
+          next();
+        }
+      });
     },
   };
 }

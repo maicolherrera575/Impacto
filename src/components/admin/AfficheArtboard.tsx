@@ -12,6 +12,10 @@
  */
 
 import type { CSSProperties, ReactElement } from 'react';
+import { QRCodeSVG } from 'qrcode.react';
+import { ArrowUpRight, Check, MapPin, Phone, ShieldCheck, Zap } from 'lucide-react';
+import { extractInitials, themeQrPalette } from '../../utils/styledQr';
+import type { QrStyle } from '../../utils/styledQr';
 
 export type AfficheFormat = 'story' | 'square';
 export type AfficheLayout =
@@ -183,20 +187,21 @@ export interface AfficheTypo {
   label: string;
   hint: string;
   font: string;
+  bodyFont: string;
   effect: 'gradiente' | 'caja' | 'neon' | 'subrayado' | 'sticker' | 'barra';
   /** Multiplicador óptico para fuentes display condensadas (Bebas / Anton). */
   opticalBoost: number;
 }
 
 export const AFFICHE_TYPOS: AfficheTypo[] = [
-  { id: 'impacto', label: '01 · Impacto Display', hint: 'Bebas/Anton condensada', font: 'Anton', effect: 'gradiente', opticalBoost: 1.14 },
-  { id: 'moderna', label: '02 · Agencia Moderna', hint: 'Space Grotesk geométrica', font: 'Space Grotesk', effect: 'gradiente', opticalBoost: 1.04 },
-  { id: 'revista', label: '03 · Revista Editorial', hint: 'Playfair Display lujo', font: 'Playfair Display', effect: 'gradiente', opticalBoost: 1.02 },
-  { id: 'marcador', label: '04 · Marcador Resaltado', hint: 'Archivo Black bloque', font: 'Archivo Black', effect: 'caja', opticalBoost: 0.98 },
-  { id: 'neon', label: '05 · Bebas Monumental', hint: 'Bebas Neue 90% ancho', font: 'Bebas Neue', effect: 'neon', opticalBoost: 1.24 },
-  { id: 'gruesa', label: '06 · Montserrat Black', hint: 'Ultra-gruesa comercial', font: 'Montserrat', effect: 'subrayado', opticalBoost: 1.0 },
-  { id: 'suiza', label: '07 · Suiza Arquitectónica', hint: 'Filete lateral editorial', font: 'Archivo Black', effect: 'barra', opticalBoost: 1.0 },
-  { id: 'pop', label: '08 · Pop Sticker Urbano', hint: 'Trazo + sombra sólida', font: 'Archivo Black', effect: 'sticker', opticalBoost: 0.98 },
+  { id: 'impacto', label: '01 · Bebas + Montserrat', hint: 'Display monumental + geométrica', font: 'Bebas Neue', bodyFont: 'Montserrat', effect: 'gradiente', opticalBoost: 1.24 },
+  { id: 'revista', label: '02 · Playfair + Outfit', hint: 'Editorial de lujo + orgánica', font: 'Playfair Display', bodyFont: 'Outfit', effect: 'gradiente', opticalBoost: 1.04 },
+  { id: 'moderna', label: '03 · Space + Jakarta', hint: 'Tech minimalista + UI limpia', font: 'Space Grotesk', bodyFont: 'Plus Jakarta Sans', effect: 'neon', opticalBoost: 1.06 },
+  { id: 'anton', label: '04 · Anton + Outfit', hint: 'Poster urbano + cuerpo limpio', font: 'Anton', bodyFont: 'Outfit', effect: 'gradiente', opticalBoost: 1.15 },
+  { id: 'gruesa', label: '05 · Montserrat Black', hint: 'Ultra-gruesa + Plus Jakarta', font: 'Montserrat', bodyFont: 'Plus Jakarta Sans', effect: 'subrayado', opticalBoost: 1.02 },
+  { id: 'marcador', label: '06 · Archivo + Montserrat', hint: 'Bloque de acento + cuerpo Pro', font: 'Archivo Black', bodyFont: 'Montserrat', effect: 'caja', opticalBoost: 1.0 },
+  { id: 'suiza', label: '07 · Suiza Arquitectónica', hint: 'Bebas + Space Grotesk', font: 'Bebas Neue', bodyFont: 'Space Grotesk', effect: 'barra', opticalBoost: 1.22 },
+  { id: 'pop', label: '08 · Pop Editorial Urbano', hint: 'Archivo + Outfit sólido', font: 'Archivo Black', bodyFont: 'Outfit', effect: 'sticker', opticalBoost: 1.0 },
 ];
 
 export interface AfficheBrand {
@@ -232,6 +237,8 @@ export interface AfficheProps {
   showQr: boolean;
   photoUrl: string | null;
   qrUrl: string | null;
+  qrValue?: string;
+  qrStyle?: QrStyle;
   photoZoom: number;
   photoPosY: number;
   qrLabel?: string;
@@ -246,6 +253,14 @@ export interface AfficheProps {
 
 const money = (v: number): string => `$${v.toLocaleString('es-CO')}`;
 
+function cleanPosterCopy(text: string): string {
+  return text
+    .replace(/\p{Extended_Pictographic}[\uFE0F\u200D]?/gu, '')
+    .replace(/^[•·\-–—→👉✅✨🔥💎🚀💬📲⚡]+\s*/u, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
 function ht(plain: string, highlight: string): AfficheTexts {
   return { plain, highlight, sub: '', benefits: [], cta: '', hook: '' };
 }
@@ -253,9 +268,8 @@ function ht(plain: string, highlight: string): AfficheTexts {
 function splitBenefit(b: string): { icon: string; body: string } {
   const m = /^\p{Extended_Pictographic}[\uFE0F\u200D]?/u.exec(b.trim());
   const icon = m ? m[0] : '';
-  const raw = m ? b.trim().slice(icon.length).trim() : b.trim();
-  const body = raw.replace(/\p{Extended_Pictographic}[\uFE0F\u200D]?/gu, '').replace(/\s{2,}/g, ' ').trim();
-  return { icon, body };
+  const body = cleanPosterCopy(m ? b.trim().slice(icon.length) : b);
+  return { icon: '', body };
 }
 
 function glass(t: AfficheTheme): { card: CSSProperties; chip: CSSProperties } {
@@ -292,62 +306,14 @@ function glass(t: AfficheTheme): { card: CSSProperties; chip: CSSProperties } {
 
 function GlyphIcon({ kind, size, color }: { kind: number; size: number; color: string }) {
   const k = kind % 4;
-  const common = {
-    width: size,
-    height: size,
-    viewBox: '0 0 24 24',
-    fill: 'none' as const,
-    stroke: color,
-    strokeWidth: 2.3,
-    strokeLinecap: 'round' as const,
-    strokeLinejoin: 'round' as const,
-  };
-  if (k === 0) {
-    return (
-      <svg {...common} aria-hidden>
-        <path d="M2.5 12.5l5 5L19 6" />
-      </svg>
-    );
-  }
-  if (k === 1) {
-    return (
-      <svg {...common} aria-hidden>
-        <path d="M13 2L4.5 13.5H11L10 22l8.5-11.5H12L13 2z" />
-      </svg>
-    );
-  }
-  if (k === 2) {
-    return (
-      <svg {...common} aria-hidden>
-        <path d="M12 21s7-5.5 7-11a7 7 0 10-14 0c0 5.5 7 11 7 11z" />
-        <circle cx="12" cy="10" r="2.6" />
-      </svg>
-    );
-  }
-  return (
-    <svg {...common} aria-hidden>
-      <path d="M12 2.5l8 3v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10v-6l8-3z" />
-      <path d="M8.6 12l2.4 2.4 4.4-4.8" />
-    </svg>
-  );
+  if (k === 0) return <Check size={size} color={color} strokeWidth={2.5} aria-hidden />;
+  if (k === 1) return <Zap size={size} color={color} strokeWidth={2.3} aria-hidden />;
+  if (k === 2) return <MapPin size={size} color={color} strokeWidth={2.3} aria-hidden />;
+  return <ShieldCheck size={size} color={color} strokeWidth={2.3} aria-hidden />;
 }
 
 function PhoneIcon({ size, color }: { size: number; color: string }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke={color}
-      strokeWidth={2.3}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z" />
-    </svg>
-  );
+  return <Phone size={size} color={color} strokeWidth={2.3} aria-hidden />;
 }
 
 function Photo({ url, zoom, posY }: { url: string | null; zoom: number; posY: number }) {
@@ -436,7 +402,8 @@ function ScenicBg({ url, t, frame = false }: { url: string | null; t: AfficheThe
 }
 
 function Badge({ text, t, s, align = 'center' }: { text: string; t: AfficheTheme; s: number; align?: 'center' | 'left' }) {
-  if (!text.trim()) return null;
+  const clean = cleanPosterCopy(text);
+  if (!clean) return null;
   const g = glass(t);
   return (
     <div style={{ display: 'flex', justifyContent: align === 'left' ? 'flex-start' : 'center', flexShrink: 0 }}>
@@ -445,33 +412,33 @@ function Badge({ text, t, s, align = 'center' }: { text: string; t: AfficheTheme
           ...g.chip,
           display: 'inline-flex',
           alignItems: 'center',
-          gap: 6 * s,
+          gap: 7 * s,
           padding: `${6.5 * s}px ${15 * s}px`,
           borderRadius: 999,
-          fontSize: 11.5 * s,
+          fontSize: 11 * s,
           fontWeight: 800,
-          letterSpacing: 1.6,
+          letterSpacing: 1.8,
           textTransform: 'uppercase',
           whiteSpace: 'nowrap',
           boxShadow: `0 10px 24px -6px ${t.accent}35`,
         }}
       >
         <span style={{ width: 6 * s, height: 6 * s, borderRadius: '50%', background: t.accent2, flexShrink: 0 }} />
-        {text}
+        {clean}
       </span>
     </div>
   );
 }
 
 /**
- * 📣 Titular Display Monumental: ocupa el 90% del ancho (100% en modos sangrados)
- * con compensación óptica según la fuente Display elegida.
+ * 📣 Titular Display Monumental (V20.0): ocupa de borde a borde (96–100%),
+ * interlineado negativo compacto (0.90), peso ultra-black y contraste sólido + degradado/resplandor.
  */
 function Headline({
   texts,
   t,
   s,
-  size = 48,
+  size = 50,
   align = 'center',
   color,
   styleId,
@@ -490,24 +457,25 @@ function Headline({
 }) {
   const typo = AFFICHE_TYPOS.find((x) => x.id === styleId) ?? AFFICHE_TYPOS[0];
   const eff = typo.effect;
-  const computedSize = size * typo.opticalBoost * scale * s;
+  const computedSize = size * 1.12 * typo.opticalBoost * scale * s;
   const base: CSSProperties = {
     margin: 0,
     fontFamily: `"${typo.font || t.font}", system-ui, sans-serif`,
     fontSize: Number(computedSize.toFixed(1)),
-    lineHeight: 0.96,
+    lineHeight: 0.90,
     fontWeight: 900,
     textTransform: 'uppercase',
-    letterSpacing: -1.1 * s,
+    letterSpacing: -1.35 * s,
     color: color ?? (t.light ? t.text : '#ffffff'),
     textShadow:
       t.light && !color && eff !== 'neon' && eff !== 'sticker'
-        ? '0 2px 8px rgba(255,255,255,0.45)'
-        : '0 8px 24px rgba(0,0,0,0.68), 0 2px 6px rgba(0,0,0,0.55)',
+        ? '0 2px 10px rgba(255,255,255,0.45)'
+        : '0 10px 28px rgba(0,0,0,0.72), 0 2px 8px rgba(0,0,0,0.55)',
   };
 
   const highlight = (): ReactElement => {
-    const hl = texts.highlight.trim();
+    const hl = cleanPosterCopy(texts.highlight);
+    if (!hl) return <></>;
     switch (eff) {
       case 'caja':
         return (
@@ -531,7 +499,7 @@ function Headline({
           <span
             style={{
               color: t.accent2,
-              textShadow: `0 0 ${12 * s}px ${t.accent}cc, 0 0 ${28 * s}px ${t.accent2}88, 0 4px ${8 * s}px rgba(0,0,0,0.65)`,
+              textShadow: `0 0 ${14 * s}px ${t.accent}dd, 0 0 ${30 * s}px ${t.accent2}99, 0 4px ${8 * s}px rgba(0,0,0,0.65)`,
             }}
           >
             {hl}
@@ -542,8 +510,8 @@ function Headline({
           <span
             style={{
               display: 'inline-block',
-              color: color ?? t.text,
-              boxShadow: `inset 0 -${12 * s}px 0 0 ${t.accent2}80`,
+              color: color ?? (t.light ? t.text : '#ffffff'),
+              boxShadow: `inset 0 -${12 * s}px 0 0 ${t.accent2}88`,
             }}
           >
             {hl}
@@ -583,6 +551,7 @@ function Headline({
               WebkitBackgroundClip: 'text',
               backgroundClip: 'text',
               color: 'transparent',
+              filter: `drop-shadow(0 0 ${14 * s}px ${t.accent}55)`,
               textShadow: 'none',
             }}
           >
@@ -596,14 +565,14 @@ function Headline({
     <div
       style={{
         textAlign: align,
-        width: fullWidth ? '100%' : '90%',
+        width: fullWidth ? '100%' : '96%',
         marginLeft: align === 'left' || fullWidth ? 0 : 'auto',
         marginRight: 'auto',
         flexShrink: 0,
       }}
     >
       <p style={base}>
-        {texts.plain.trim()} {highlight()}
+        {cleanPosterCopy(texts.plain)} {highlight()}
       </p>
     </div>
   );
@@ -622,21 +591,22 @@ function SubHead({
   align?: 'center' | 'left';
   color?: string;
 }) {
-  if (!text.trim()) return null;
+  const clean = cleanPosterCopy(text);
+  if (!clean) return null;
   return (
     <p
       style={{
         margin: 0,
-        fontSize: 16.5 * s,
+        fontSize: 16 * s,
         fontWeight: 600,
-        lineHeight: 1.32,
+        lineHeight: 1.3,
         color: color ?? t.sub,
         textAlign: align,
         opacity: 0.94,
         flexShrink: 0,
       }}
     >
-      {text.trim()}
+      {clean}
     </p>
   );
 }
@@ -975,7 +945,8 @@ function PricePill({ brand, t, s, big = false }: { brand: AfficheBrand; t: Affic
 }
 
 function CtaButton({ label, s, bg = '#10b981', color = '#ffffff' }: { label: string; s: number; bg?: string; color?: string }) {
-  if (!label.trim()) return null;
+  const clean = cleanPosterCopy(label);
+  if (!clean) return null;
   return (
     <div style={{ display: 'flex', justifyContent: 'center', flexShrink: 0 }}>
       <span
@@ -983,10 +954,10 @@ function CtaButton({ label, s, bg = '#10b981', color = '#ffffff' }: { label: str
           background: bg,
           color,
           borderRadius: 999,
-          padding: `${10 * s}px ${22 * s}px`,
-          fontSize: 15 * s,
+          padding: `${9.5 * s}px ${22 * s}px`,
+          fontSize: 14.5 * s,
           fontWeight: 900,
-          letterSpacing: 0.3,
+          letterSpacing: 0.4,
           display: 'inline-flex',
           alignItems: 'center',
           gap: 7 * s,
@@ -994,37 +965,149 @@ function CtaButton({ label, s, bg = '#10b981', color = '#ffffff' }: { label: str
           whiteSpace: 'nowrap',
         }}
       >
-        {label}
+        {clean}
+        <ArrowUpRight size={15 * s} color={color} strokeWidth={2.8} aria-hidden />
       </span>
     </div>
   );
 }
 
 /**
- * 💎 V19.0 · DOCK GLASSMORPHISM ARQUITECTÓNICO (ERRADICACIÓN DEL PARCHE BLANCO):
- *  - Nunca un rectángulo blanco opaco sobre diseños oscuros.
- *  - Panel translúcido con `backdrop-filter: blur(20px)`, borde luminoso sutil
- *    y sombra difusa tintada con el acento del tema.
- *  - QR protagonista, con margen blanco mínimo ajustado estrictamente al código.
- *  - Alineación tipográfica precisa entre Nombre, Ubicación y WhatsApp, con
- *    respiración generosa respecto al QR.
+ * 💎 V20.0 · QR ORGÁNICO VECTORIAL (`qrcode.react`):
+ *  - Render SVG puro (<QRCodeSVG>) con `marginSize={0}` (el blanco vive SOLO
+ *    debajo estricto de los módulos QR — cero parches blancos gigantes).
+ *  - Chasis exterior de cristal o metal cepillado redondeado + sombra difusa.
+ *  - Insignia central minimalista con las iniciales de la marca.
+ */
+function QrOrganicToken({
+  qrValue,
+  qrUrl,
+  size,
+  t,
+  s,
+  businessName,
+  qrStyle = 'rounded',
+}: {
+  qrValue?: string;
+  qrUrl: string | null;
+  size: number;
+  t: AfficheTheme;
+  s: number;
+  businessName: string;
+  qrStyle?: QrStyle;
+}) {
+  const value = qrValue?.trim() || '';
+  if (!value && !qrUrl) return null;
+  const palette = themeQrPalette(t.id);
+  const initials = extractInitials(businessName || 'Impulso');
+  const outerRadius = (qrStyle === 'sharp' ? 14 : 20) * s;
+  const innerRadius = (qrStyle === 'sharp' ? 9 : 13) * s;
+  const bezelPad = 4 * s;
+  const matrixPad = 3 * s;
+  const svgSize = Math.max(48, Math.round(size - (bezelPad + matrixPad) * 2));
+  const badgeSize = Math.round(svgSize * 0.24);
+  const isLight = Boolean(t.light);
+
+  return (
+    <div
+      style={{
+        width: size,
+        height: size,
+        padding: bezelPad,
+        borderRadius: outerRadius,
+        background: isLight
+          ? `linear-gradient(145deg, rgba(255,255,255,0.92), rgba(226,232,240,0.72))`
+          : `linear-gradient(145deg, rgba(255,255,255,0.22), rgba(255,255,255,0.05))`,
+        backdropFilter: 'blur(16px)',
+        border: `1.5px solid ${t.accent2}80`,
+        boxShadow: `0 22px 44px -10px rgba(0,0,0,0.58), 0 0 ${22 * s}px ${t.accent2}35`,
+        boxSizing: 'border-box',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <div
+        style={{
+          position: 'relative',
+          background: '#ffffff',
+          borderRadius: innerRadius,
+          padding: matrixPad,
+          lineHeight: 0,
+          overflow: 'hidden',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        {value ? (
+          <>
+            <QRCodeSVG
+              value={value}
+              size={svgSize}
+              level="H"
+              marginSize={0}
+              bgColor="#ffffff"
+              fgColor={palette.dark}
+            />
+            <div
+              style={{
+                position: 'absolute',
+                width: badgeSize,
+                height: badgeSize,
+                borderRadius: qrStyle === 'dots' ? '50%' : qrStyle === 'sharp' ? 5 * s : 8 * s,
+                background: palette.badgeBg,
+                color: palette.badgeText,
+                border: `${Math.max(1.5, 2 * s)}px solid #ffffff`,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontWeight: 900,
+                fontSize: Math.max(8, Math.round(badgeSize * 0.44)),
+                letterSpacing: -0.3,
+                boxShadow: '0 4px 12px rgba(0,0,0,0.28)',
+              }}
+            >
+              {initials}
+            </div>
+          </>
+        ) : qrUrl ? (
+          <img src={qrUrl} alt="QR" style={{ width: svgSize, height: svgSize, display: 'block', borderRadius: innerRadius * 0.7 }} />
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 💎 V20.0 · DOCK GLASSMORPHISM ARQUITECTÓNICO:
+ *  - Cero parches blancos: panel translúcido con backdrop-blur, filete superior
+ *    luminoso, jerarquía tipográfica amplia y QR orgánico en cristal/metal.
  */
 function Dock({
   brand,
   t,
   s,
   qrUrl,
+  qrValue,
+  qrStyle,
   size,
   qrLabel,
+  displayFont,
+  bodyFont,
 }: {
   brand: AfficheBrand;
   t: AfficheTheme;
   s: number;
   qrUrl: string | null;
+  qrValue?: string;
+  qrStyle?: QrStyle;
   size: number;
   qrLabel?: string;
+  displayFont?: string;
+  bodyFont?: string;
 }) {
-  const phone = (brand.phoneDisplay || 'Escríbenos').replace(/^📲\s*/, '');
+  const phone = (brand.phoneDisplay || 'Escríbenos').replace(/^[^\p{L}\p{N}+]+/u, '').trim();
   const isLight = Boolean(t.light);
 
   const dockSurface: CSSProperties = isLight
@@ -1035,14 +1118,14 @@ function Dock({
         boxShadow: `0 22px 48px -12px rgba(15,23,42,0.18), 0 8px 24px -8px ${t.accent}28`,
       }
     : {
-        background: 'linear-gradient(135deg, rgba(9,13,25,0.76), rgba(16,23,42,0.58))',
+        background: 'linear-gradient(135deg, rgba(9,13,25,0.78), rgba(16,23,42,0.58))',
         backdropFilter: 'blur(22px) saturate(140%)',
         border: '1px solid rgba(255,255,255,0.16)',
         boxShadow: `0 24px 54px -12px rgba(0,0,0,0.68), 0 8px 26px -8px ${t.accent}35`,
       };
 
   const ink = isLight ? '#0f172a' : '#f8fafc';
-  const inkMuted = isLight ? 'rgba(15,23,42,0.68)' : 'rgba(226,232,240,0.72)';
+  const inkMuted = isLight ? 'rgba(15,23,42,0.68)' : 'rgba(226,232,240,0.74)';
   const eyebrowColor = isLight ? t.accent : t.accent2;
   const waBg = isLight ? 'rgba(5,150,105,0.12)' : 'rgba(16,185,129,0.16)';
   const waBorder = isLight ? 'rgba(5,150,105,0.34)' : 'rgba(52,211,153,0.40)';
@@ -1055,11 +1138,12 @@ function Dock({
         borderRadius: 24 * s,
         position: 'relative',
         overflow: 'hidden',
-        padding: `${12 * s}px ${14 * s}px`,
+        padding: `${13 * s}px ${16 * s}px`,
         display: 'flex',
         alignItems: 'center',
-        gap: 16 * s,
+        gap: 18 * s,
         flexShrink: 0,
+        fontFamily: `"${bodyFont || 'Inter'}", system-ui, sans-serif`,
       }}
     >
       {/* Filete de luz superior */}
@@ -1075,14 +1159,14 @@ function Dock({
         }}
       />
 
-      {/* Columna de identidad tipográfica */}
-      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 5 * s }}>
+      {/* Columna de identidad tipográfica (amplia, jerárquica y sin apretujones) */}
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 5.5 * s }}>
         <p
           style={{
             margin: 0,
             fontSize: 9.5 * s,
             fontWeight: 800,
-            letterSpacing: 1.8 * s,
+            letterSpacing: 1.9 * s,
             textTransform: 'uppercase',
             color: eyebrowColor,
             whiteSpace: 'nowrap',
@@ -1090,33 +1174,33 @@ function Dock({
             textOverflow: 'ellipsis',
           }}
         >
-          {(brand.slogan || 'COMERCIO LOCAL').toUpperCase()}
+          {cleanPosterCopy(brand.slogan || 'COMERCIO LOCAL').toUpperCase()}
         </p>
 
         <p
           style={{
             margin: 0,
-            fontFamily: `"${t.font}", system-ui, sans-serif`,
-            fontSize: 24 * s,
+            fontFamily: `"${displayFont || t.font}", system-ui, sans-serif`,
+            fontSize: 25 * s,
             fontWeight: 900,
             color: ink,
-            lineHeight: 1.03,
-            letterSpacing: -0.4 * s,
+            lineHeight: 0.98,
+            letterSpacing: -0.3 * s,
             display: '-webkit-box',
             WebkitLineClamp: 2,
             WebkitBoxOrient: 'vertical',
             overflow: 'hidden',
           }}
         >
-          {brand.name || 'Tu Negocio'}
+          {cleanPosterCopy(brand.name || 'Tu Negocio')}
         </p>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 5 * s, minWidth: 0 }}>
-          <GlyphIcon kind={2} size={12 * s} color={inkMuted} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5.5 * s, minWidth: 0 }}>
+          <MapPin size={12 * s} color={inkMuted} strokeWidth={2.2} style={{ flexShrink: 0 }} aria-hidden />
           <p
             style={{
               margin: 0,
-              fontSize: 11.5 * s,
+              fontSize: 12 * s,
               fontWeight: 600,
               color: inkMuted,
               whiteSpace: 'nowrap',
@@ -1124,76 +1208,74 @@ function Dock({
               textOverflow: 'ellipsis',
             }}
           >
-            {brand.address || brand.municipality || 'Gachetá'}
+            {cleanPosterCopy(brand.address || brand.municipality || 'Casco Urbano')}
           </p>
         </div>
 
         <div
           style={{
-            marginTop: 2 * s,
+            marginTop: 2.5 * s,
             alignSelf: 'flex-start',
             display: 'inline-flex',
             alignItems: 'center',
-            gap: 6 * s,
+            gap: 6.5 * s,
             background: waBg,
             border: `1px solid ${waBorder}`,
             borderRadius: 999,
-            padding: `${5.5 * s}px ${11 * s}px`,
+            padding: `${5.5 * s}px ${12 * s}px`,
             maxWidth: '100%',
           }}
         >
-          <PhoneIcon size={12.5 * s} color={waInk} />
+          <PhoneIcon size={12 * s} color={waInk} />
           <span
             style={{
               fontSize: 13.5 * s,
               fontWeight: 900,
               color: waInk,
               fontVariantNumeric: 'tabular-nums',
-              letterSpacing: 0.3 * s,
+              letterSpacing: 0.35 * s,
               whiteSpace: 'nowrap',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
             }}
           >
-            {phone}
+            {phone || 'WhatsApp Directo'}
           </span>
         </div>
       </div>
 
-      {/* QR Gigante con marco mínimo estrictamente ceñido al código */}
-      {qrUrl && (
+      {/* QR Orgánico integrado como pieza de cristal/metal */}
+      {(qrValue || qrUrl) && (
         <div
           style={{
             flexShrink: 0,
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
-            gap: 4.5 * s,
+            gap: 5 * s,
           }}
         >
-          <div
-            style={{
-              background: '#ffffff',
-              borderRadius: 13 * s,
-              padding: 3.5 * s,
-              border: `1.5px solid ${t.accent2}88`,
-              boxShadow: `0 12px 28px -6px rgba(0,0,0,0.45), 0 0 ${16 * s}px ${t.accent2}30`,
-            }}
-          >
-            <img src={qrUrl} alt="QR" style={{ width: size, height: size, display: 'block', borderRadius: 9 * s }} />
-          </div>
+          <QrOrganicToken
+            qrValue={qrValue}
+            qrUrl={qrUrl}
+            size={size}
+            t={t}
+            s={s}
+            businessName={brand.name || 'Impulso'}
+            qrStyle={qrStyle}
+          />
           <p
             style={{
               margin: 0,
               fontSize: 8.5 * s,
               fontWeight: 900,
-              letterSpacing: 1.2 * s,
+              letterSpacing: 1.4 * s,
               textTransform: 'uppercase',
               color: inkMuted,
               whiteSpace: 'nowrap',
             }}
           >
-            {(qrLabel || 'ESCANEA EL QR').replace(/^[^\p{L}\p{N}]+/u, '')}
+            {cleanPosterCopy(qrLabel || 'ESCANEA EL QR').toUpperCase()}
           </p>
         </div>
       )}
@@ -1215,6 +1297,8 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
     showQr,
     photoUrl,
     qrUrl,
+    qrValue,
+    qrStyle = 'rounded',
     photoZoom,
     photoPosY,
     qrLabel,
@@ -1227,11 +1311,14 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
     photoUrl4,
   } = props;
 
-  const hs = headlineScale ?? 1;
+  const hs = headlineScale ?? 1.2;
   const photo2 = photoUrl2 ?? photoUrl;
   const photo3 = photoUrl3 ?? photoUrl;
   const photo4 = photoUrl4 ?? photoUrl;
   const t = AFFICHE_THEMES.find((x) => x.id === themeId) ?? AFFICHE_THEMES[1];
+  const activeTypo = AFFICHE_TYPOS.find((x) => x.id === fontStyle) ?? AFFICHE_TYPOS[0];
+  const boardBodyFont = `"${activeTypo.bodyFont}", system-ui, -apple-system, sans-serif`;
+  const boardDisplayFont = activeTypo.font || t.font;
   const s = format === 'square' ? 0.58 : 1;
   const isSquare = format === 'square';
   const W = 540;
@@ -1244,7 +1331,7 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
   const isService = brand.promoPrice == null;
 
   const PHOTO_MAX = (isSquare ? 220 : 390) * s;
-  const dockQrSize = (isSquare ? 176 : 158) * s;
+  const dockQrSize = (isSquare ? 168 : 154) * s;
   const resolvedBenefitMode: ResolvedBenefitMode =
     benefitStyle === 'auto' ? (LAYOUT_BENEFIT_MAP[layout] ?? 'bento') : benefitStyle;
 
@@ -1292,7 +1379,18 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
   );
 
   const masterDock = showQr ? (
-    <Dock brand={brand} t={t} s={s} qrUrl={qrUrl} size={dockQrSize} qrLabel={qrLabel} />
+    <Dock
+      brand={brand}
+      t={t}
+      s={s}
+      qrUrl={qrUrl}
+      qrValue={qrValue}
+      qrStyle={qrStyle}
+      size={dockQrSize}
+      qrLabel={qrLabel}
+      displayFont={boardDisplayFont}
+      bodyFont={activeTypo.bodyFont}
+    />
   ) : null;
 
   // ═══ PIEZA 2 · GANCHO VIRAL EDITORIAL ════════════════════════════════════
@@ -1310,7 +1408,7 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
           background: t.bg,
           backgroundSize: t.bgSize ?? '100% 100%, 100% 100%, 100% 100%, 100% 100%',
           color: t.text,
-          fontFamily: 'system-ui, -apple-system, sans-serif',
+          fontFamily: boardBodyFont,
           borderRadius: 24 * s,
           overflow: 'hidden',
         }}
@@ -1399,7 +1497,18 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
           </div>
 
           {showQr && (
-            <Dock brand={brand} t={t} s={s} qrUrl={qrUrl} size={qr2} qrLabel={qrLabel} />
+            <Dock
+              brand={brand}
+              t={t}
+              s={s}
+              qrUrl={qrUrl}
+              qrValue={qrValue}
+              qrStyle={qrStyle}
+              size={qr2}
+              qrLabel={qrLabel}
+              displayFont={boardDisplayFont}
+              bodyFont={activeTypo.bodyFont}
+            />
           )}
         </div>
       </div>
@@ -1419,7 +1528,7 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
           background: t.bg,
           backgroundSize: t.bgSize ?? '100% 100%, 100% 100%, 100% 100%, 100% 100%',
           color: t.text,
-          fontFamily: 'system-ui, -apple-system, sans-serif',
+          fontFamily: boardBodyFont,
           borderRadius: 24 * s,
           overflow: 'hidden',
         }}
@@ -1535,7 +1644,20 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
             })}
           </div>
 
-          {showQr && <Dock brand={brand} t={t} s={s} qrUrl={qrUrl} size={qr3} qrLabel={qrLabel} />}
+          {showQr && (
+            <Dock
+              brand={brand}
+              t={t}
+              s={s}
+              qrUrl={qrUrl}
+              qrValue={qrValue}
+              qrStyle={qrStyle}
+              size={qr3}
+              qrLabel={qrLabel}
+              displayFont={boardDisplayFont}
+              bodyFont={activeTypo.bodyFont}
+            />
+          )}
         </div>
       </div>
     );
@@ -1555,7 +1677,7 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
           background: t.bg,
           backgroundSize: t.bgSize ?? '100% 100%, 100% 100%, 100% 100%, 100% 100%',
           color: t.text,
-          fontFamily: 'system-ui, -apple-system, sans-serif',
+          fontFamily: boardBodyFont,
           borderRadius: 24 * s,
           overflow: 'hidden',
         }}
@@ -1593,32 +1715,30 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
 
           <Headline texts={ht('ESCANEA Y', 'CONECTA YA')} t={t} s={s} size={36} styleId={fontStyle} scale={hs} />
 
-          {qrUrl && (
+          {(qrValue || qrUrl) && (
             <div
               style={{
                 ...g.card,
-                borderRadius: 26 * s,
+                borderRadius: 28 * s,
                 padding: `${12 * s}px`,
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
-                gap: 7 * s,
+                gap: 8 * s,
                 flexShrink: 0,
               }}
             >
-              <div
-                style={{
-                  background: '#ffffff',
-                  borderRadius: 16 * s,
-                  padding: 4.5 * s,
-                  border: `2px solid ${t.accent2}99`,
-                  boxShadow: `0 16px 36px rgba(0,0,0,0.45)`,
-                }}
-              >
-                <img src={qrUrl} alt="QR" style={{ width: qrBig, height: qrBig, display: 'block', borderRadius: 12 * s }} />
-              </div>
-              <p style={{ margin: 0, fontSize: 10.5 * s, fontWeight: 900, letterSpacing: 1.4 * s, color: t.accent2, textTransform: 'uppercase' }}>
-                {(qrLabel || 'ESCANEA EL QR').replace(/^[^\p{L}\p{N}]+/u, '')}
+              <QrOrganicToken
+                qrValue={qrValue}
+                qrUrl={qrUrl}
+                size={qrBig}
+                t={t}
+                s={s}
+                businessName={brand.name || 'Impulso'}
+                qrStyle={qrStyle}
+              />
+              <p style={{ margin: 0, fontSize: 10.5 * s, fontWeight: 900, letterSpacing: 1.6 * s, color: t.accent2, textTransform: 'uppercase' }}>
+                {cleanPosterCopy(qrLabel || 'ESCANEA EL QR').toUpperCase()}
               </p>
             </div>
           )}
@@ -1666,7 +1786,20 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
               <BenefitsShowcase items={benefits} t={{ ...t, light: false, text: '#ffffff' }} s={s} mode={benefitStyle === 'auto' ? 'editorial' : resolvedBenefitMode} align="left" />
             )}
             {isService && priceLabel && <CtaButton label={priceLabel} s={s} bg={t.accent2} color="#0b0f18" />}
-            {showQr && <Dock brand={brand} t={{ ...t, light: false, text: '#ffffff', sub: 'rgba(255,255,255,0.75)' }} s={s} qrUrl={qrUrl} size={dockQrSize} qrLabel={qrLabel} />}
+            {showQr && (
+              <Dock
+                brand={brand}
+                t={{ ...t, light: false, text: '#ffffff', sub: 'rgba(255,255,255,0.75)' }}
+                s={s}
+                qrUrl={qrUrl}
+                qrValue={qrValue}
+                qrStyle={qrStyle}
+                size={dockQrSize}
+                qrLabel={qrLabel}
+                displayFont={boardDisplayFont}
+                bodyFont={activeTypo.bodyFont}
+              />
+            )}
           </div>
         </div>
       );
@@ -2358,7 +2491,7 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
         background: t.bg,
         backgroundSize: t.bgSize ?? '100% 100%, 100% 100%, 100% 100%, 100% 100%',
         color: t.text,
-        fontFamily: 'system-ui, -apple-system, sans-serif',
+        fontFamily: boardBodyFont,
         borderRadius: 24 * s,
         overflow: 'hidden',
       }}

@@ -416,16 +416,16 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
   const [detectedCategory, setDetectedCategory] = useState('');
 
   // ── Textos del afiche ──
-  const [texts, setTexts] = useState<Texts>({ plain: '', highlight: '', sub: '', benefits: ['', '', ''], cta: '', priceLabel: '💬 Cotiza gratis por WhatsApp' });
+  const [texts, setTexts] = useState<Texts>({ plain: '', highlight: '', sub: '', benefits: ['', '', ''], cta: '', priceLabel: 'Cotiza sin costo · WhatsApp' });
   const [copied, setCopied] = useState<string | null>(null);
   const [copyTab, setCopyTab] = useState<CopyTab>('post');
 
   // ── Estudio gráfico (V11: artboard HTML en vez de canvas 2D) ──
   const [themeIdx, setThemeIdx] = useState(1);
-  /** V14: estilo tipográfico elegido (índice en AFFICHE_TYPOS). */
+  /** V14/V20: emparejamiento tipográfico elegido (índice en AFFICHE_TYPOS). */
   const [fontIdx, setFontIdx] = useState(0);
   /** 🔍 V18: escala del titular en el afiche (0.8 a 1.5 — slider en vivo). */
-  const [headlineScale, setHeadlineScale] = useState(1.15);
+  const [headlineScale, setHeadlineScale] = useState(1.2);
   const [format, setFormat] = useState<Format>('story');
   const [layout, setLayout] = useState<Layout>('bento');
   const [piece, setPiece] = useState<Piece>(0);
@@ -450,9 +450,11 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
   /** Refs de los 2 artboards dedicados al lanzador (story 9:16 y square 1:1). */
   const socialRefs = useRef<{ story: HTMLDivElement | null; square: HTMLDivElement | null }>({ story: null, square: null });
 
-  // ── V13 · ROTACIÓN GARANTIZADA: jamás repetir tema, arquitectura, QR o foto ──
+  // ── V20 · VARIACIÓN INFINITA GARANTIZADA: jamás repetir tema, layout, fuente, beneficios, QR o foto ──
   const lastThemeIdxRef = useRef(themeIdx);
   const lastLayoutIdxRef = useRef<Layout>(layout);
+  const lastFontIdxRef = useRef(fontIdx);
+  const lastBenefitStyleRef = useRef<Exclude<BenefitPresentation, 'auto'>>('bento');
   const lastQrStyleRef = useRef<QrStyle>(qrStyle);
   const lastPhotoUrlRef = useRef<string | null>(null);
 
@@ -894,6 +896,8 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     photoUrl3: piecePhotos[2],
     photoUrl4: piecePhotos[3],
     qrUrl,
+    qrValue: qrTarget,
+    qrStyle,
     photoZoom,
     photoPosY,
     qrLabel: qrMeta.label,
@@ -974,27 +978,52 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       setDetectedCategory(art.categoryLabel);
       const bizName = brand.name.trim() || art.brandName;
       const product = brand.product.trim() || art.productTitle;
-      // ── V13 · ROTACIÓN GARANTIZADA: el tema y la arquitectura NUNCA se
-      // repiten respecto a la generación anterior (morado + arco jamás 2×).
+      // ── V20.0 · VARIACIÓN INFINITA POR SEMILLA ALEATORIA (PROHIBIDO REPETIR):
+      // cada clic asigna nueva arquitectura, paleta/textura, emparejamiento
+      // tipográfico, estilo de beneficios y QR completamente distintos. ──
+      const seedMix = Math.random();
       let ti = AFFICHE_THEMES.findIndex((x) => x.id === art.themeId);
-      if (ti < 0) ti = Math.floor(Math.random() * AFFICHE_THEMES.length);
-      if (AFFICHE_THEMES.length > 1 && ti === lastThemeIdxRef.current) {
+      if (ti < 0 || seedMix > 0.35) {
+        const themePool = AFFICHE_THEMES.map((_, idx) => idx).filter((idx) => idx !== lastThemeIdxRef.current);
+        ti = themePool[Math.floor(Math.random() * themePool.length)] ?? 0;
+      } else if (AFFICHE_THEMES.length > 1 && ti === lastThemeIdxRef.current) {
         const skip = 1 + Math.floor(Math.random() * (AFFICHE_THEMES.length - 1));
         ti = (ti + skip) % AFFICHE_THEMES.length;
       }
       setThemeIdx(ti);
       lastThemeIdxRef.current = ti;
 
+      const eliteDynamicLayouts: Layout[] = [
+        'diagx', 'orbits', 'bleed', 'magazine', 'float', 'bento3d', 'zen', 'diamond',
+        'diagonal', 'split', 'portal', 'hud', 'menu', 'arc', 'polaroid', 'swiss',
+        'cyber', 'vip', 'retail', 'eco', 'cinema', 'flash', 'resort', 'bento',
+      ];
       const validLayoutIds = AFFICHE_LAYOUTS.map((l) => l.id);
       let nextLayout: Layout = validLayoutIds.includes(art.layoutId as Layout)
         ? (art.layoutId as Layout)
-        : validLayoutIds[Math.floor(Math.random() * validLayoutIds.length)];
-      if (nextLayout === lastLayoutIdxRef.current) {
-        const others = validLayoutIds.filter((id) => id !== lastLayoutIdxRef.current);
-        nextLayout = others[Math.floor(Math.random() * others.length)];
+        : eliteDynamicLayouts[Math.floor(Math.random() * eliteDynamicLayouts.length)];
+      if (nextLayout === lastLayoutIdxRef.current || Math.random() > 0.45) {
+        const layoutPool = eliteDynamicLayouts.filter((id) => id !== lastLayoutIdxRef.current);
+        nextLayout = layoutPool[Math.floor(Math.random() * layoutPool.length)] ?? validLayoutIds[0];
       }
       setLayout(nextLayout);
       lastLayoutIdxRef.current = nextLayout;
+
+      const fontPool = AFFICHE_TYPOS.map((_, idx) => idx).filter((idx) => idx !== lastFontIdxRef.current);
+      const nextFontIdx = fontPool[Math.floor(Math.random() * fontPool.length)] ?? 0;
+      setFontIdx(nextFontIdx);
+      lastFontIdxRef.current = nextFontIdx;
+
+      const benefitModes: Array<Exclude<BenefitPresentation, 'auto'>> = ['badges', 'bento', 'editorial', 'ribbons'];
+      const benefitPool = benefitModes.filter((m) => m !== lastBenefitStyleRef.current);
+      const nextBenefit = benefitPool[Math.floor(Math.random() * benefitPool.length)] ?? 'editorial';
+      setBenefitStyle(nextBenefit);
+      lastBenefitStyleRef.current = nextBenefit;
+
+      const qrPool = QR_STYLES.filter((q) => q.id !== lastQrStyleRef.current);
+      const nextQr = qrPool[Math.floor(Math.random() * qrPool.length)] ?? QR_STYLES[0];
+      setQrStyle(nextQr.id);
+      lastQrStyleRef.current = nextQr.id;
 
       // ── Auto-imagen paso 1: foto HD real NUEVA del BANCO COMERCIAL (V13:
       // garantizada distinta a la foto anterior) ──
@@ -1171,7 +1200,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     }
   }
 
-  /** 🎲 V11/V19 · Sorpréndeme: cambia fondo + arquitectura + estilo QR en un clic,
+  /** 🎲 V11/V20 · Sorpréndeme: cambia fondo + arquitectura + tipografía + beneficios + QR,
    *  SIEMPRE evitando el diseño actual, y trae una foto NUEVA del banco HD. */
   function surpriseDesign(): void {
     let ni = themeIdx;
@@ -1184,6 +1213,14 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       setLayout(nl.id);
       lastLayoutIdxRef.current = nl.id;
     }
+    const fontPool = AFFICHE_TYPOS.map((_, idx) => idx).filter((idx) => idx !== lastFontIdxRef.current);
+    const nf = fontPool[Math.floor(Math.random() * fontPool.length)] ?? 0;
+    setFontIdx(nf);
+    lastFontIdxRef.current = nf;
+    const benefitModes: Array<Exclude<BenefitPresentation, 'auto'>> = ['badges', 'bento', 'editorial', 'ribbons'];
+    const nb = benefitModes.filter((m) => m !== lastBenefitStyleRef.current)[Math.floor(Math.random() * 3)] ?? 'editorial';
+    setBenefitStyle(nb);
+    lastBenefitStyleRef.current = nb;
     const otherQrs = QR_STYLES.filter((q) => q.id !== lastQrStyleRef.current);
     const nq = otherQrs[Math.floor(Math.random() * otherQrs.length)];
     if (nq) {

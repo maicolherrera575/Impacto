@@ -5,8 +5,9 @@ import { AlertTriangle, Loader2, LocateFixed } from 'lucide-react';
 import 'leaflet/dist/leaflet.css';
 import type { Offer } from '../../types';
 import { formatCOP } from '../../utils/format';
-import { ACCURACY_LIMIT_M, EXACT_GPS_OPTIONS, EXACT_GPS_WARNING, haversineMeters } from '../../utils/geo';
+import { EXACT_GPS_WARNING, ACCURACY_LIMIT_M, haversineMeters } from '../../utils/geo';
 import type { GeoStatus, LatLng } from '../../utils/geo';
+import { useToast } from '../ui/Toast';
 
 /** Tiles libres de OpenStreetMap — sin llaves ni costos, con estilo oscuro vía CSS. */
 const TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
@@ -198,6 +199,7 @@ export function LiveMap({
   locating: externalLocating = false,
   recenterToken = 0,
 }: LiveMapProps) {
+  const toast = useToast();
   const [localGeoPos, setLocalGeoPos] = useState<LatLng | null>(null);
   const [localStatus, setLocalStatus] = useState<GeoStatus>('idle');
   const [localLocating, setLocalLocating] = useState(false);
@@ -237,6 +239,7 @@ export function LiveMap({
           setLocalGeoPos(null);
           setLocalStatus('inexact');
           setLocalWarning(EXACT_GPS_WARNING);
+          toast.info(EXACT_GPS_WARNING);
           return;
         }
         setLocalGeoPos({ lat: p.coords.latitude, lng: p.coords.longitude });
@@ -247,12 +250,12 @@ export function LiveMap({
         setLocalLocating(false);
         setLocalStatus('denied');
         setLocalWarning(
-          err.code === err.PERMISSION_DENIED
+          err.code === 1
             ? 'Activa el permiso de "Ubicación exacta" en el candado 🔒 del navegador para calcular distancias reales.'
             : 'No pudimos obtener señal GPS exacta. Verifica que la ubicación del dispositivo esté encendida.',
         );
       },
-      EXACT_GPS_OPTIONS,
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 },
     );
   }
 

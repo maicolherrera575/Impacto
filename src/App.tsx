@@ -333,22 +333,20 @@ export default function App() {
     }
   }, [toast]);
 
-  // ── Ubicación EXACTA únicamente: si el navegador solo concedió "aproximada",
-  // la app NO la usa, muestra la advertencia exacta y abre la guía paso a paso.
+  // ── Ubicación EXACTA nativa:
+  //   • Solo si error.code === 1 (PERMISSION_DENIED) se abre el modal del candadito 🔒.
+  //   • Si accuracy > 1500m, se muestra ÚNICAMENTE el toast sin modal bloqueante.
   useEffect(() => {
     if (geo.requestSeq === 0) return;
-    if (geo.status === 'inexact') {
-      setGpsGuideOpen(true);
-      toast.info(
-        'Para usar el radar de proximidad, requerimos tu ubicación exacta. La ubicación aproximada no permite calcular distancias reales.',
-      );
-    } else if (geo.status === 'denied') {
+    if (geo.errorCode === 1) {
       setGpsGuideOpen(true);
       toast.info(geo.errorMessage || 'Ubicación bloqueada: activa los permisos en el navegador para usar el radar exacto.');
+    } else if (geo.status === 'inexact') {
+      toast.info('Para calcular distancias reales, tu dispositivo debe permitir la ubicación exacta, no aproximada.');
     } else if (geo.errorMessage) {
       toast.info(geo.errorMessage);
     }
-  }, [geo.requestSeq, geo.status, geo.errorMessage, toast]);
+  }, [geo.requestSeq, geo.status, geo.errorCode, geo.errorMessage, toast]);
 
   useEffect(() => {
     if (geo.status === 'active' && gpsGuideOpen) {

@@ -209,6 +209,28 @@ create policy "Perfiles lectura pública"
   to anon, authenticated
   using (true);
 
+-- V20.0 Anti-Tampering: revoca escritura directa del cliente y protege columnas sensibles
+revoke insert, update, delete on public.profiles from anon, authenticated;
+
+create or replace function public.guard_profiles_anti_tamper_fn()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if current_user in ('anon', 'authenticated') then
+    raise exception 'ANTI_TAMPER: Modificación directa de perfiles bloqueada. Usa las funciones oficiales.';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_guard_profiles_anti_tamper on public.profiles;
+create trigger trg_guard_profiles_anti_tamper
+  before insert or update on public.profiles
+  for each row execute function public.guard_profiles_anti_tamper_fn();
+
 -- (Sin políticas INSERT/UPDATE/DELETE: ninguna modificación directa del cliente.
 --  El trigger y las funciones SECURITY DEFINER gestionan todo.)
 
@@ -2051,8 +2073,25 @@ create table if not exists public.credit_orders (
   created_at           timestamptz not null default now()
 );
 
+alter table public.credit_orders drop constraint if exists credit_orders_payment_method_check;
+alter table public.credit_orders add constraint credit_orders_payment_method_check
+  check (payment_method in ('Nequi', 'Daviplata', 'Bancolombia', 'Llave'));
+
 alter table public.credit_orders enable row level security;
--- (Sin políticas: lectura y escritura SOLO vía funciones SECURITY DEFINER.)
+revoke insert, update, delete on public.credit_orders from anon, authenticated;
+
+drop policy if exists "Comercio ve sus ordenes" on public.credit_orders;
+create policy "Comercio ve sus ordenes"
+  on public.credit_orders for select
+  to authenticated
+  using (merchant_id = auth.uid() or public.is_admin());
+
+drop policy if exists "Nadie escribe ordenes directo" on public.credit_orders;
+create policy "Nadie escribe ordenes directo"
+  on public.credit_orders for all
+  to anon
+  using (false)
+  with check (false);
 
 -- Candado anti-doble cobro: una misma referencia de comprobante solo existe una vez
 create unique index if not exists credit_orders_reference_active_idx
@@ -2116,20 +2155,25 @@ begin
   if auth.uid() is null then
     raise exception 'Debes iniciar sesión';
   end if;
-  if p_credits_requested is null or p_credits_requested < 1 or p_credits_requested > 100 then
-    raise exception 'El paquete de créditos no es válido';
-  end if;
-  if p_amount_cop is null or p_amount_cop < 1000 then
-    raise exception 'El valor reportado no es válido';
+  -- 🛡️ V20.0 Anti-Tampering: solo paquetes oficiales exactos (el cliente no puede inyectar créditos/montos)
+  if not (
+       (p_credits_requested = 5  and p_amount_cop = 10000)
+    or (p_credits_requested = 15 and p_amount_cop = 24000)
+    or (p_credits_requested = 35 and p_amount_cop = 45000)
+  ) then
+    raise exception 'PAQUETE_INVALIDO: el paquete y valor no coinciden con las tarifas oficiales de Impulso.';
   end if;
   if p_payment_method not in ('Nequi', 'Daviplata', 'Bancolombia', 'Llave') then
     raise exception 'Método de pago inválido';
   end if;
-  if p_receipt_thumb is not null and char_length(p_receipt_thumb) > 35000 then
+  if p_receipt_thumb is null or left(p_receipt_thumb, 11) <> 'data:image/' then
+    raise exception 'ADJUNTA_LA_CAPTURA: para validar tu recarga envía la captura original del pago.';
+  end if;
+  if char_length(p_receipt_thumb) > 35000 then
     raise exception 'El comprobante es demasiado pesado. Intenta con otra captura';
   end if;
-  if p_receipt_hash is not null and char_length(p_receipt_hash) <> 64 then
-    raise exception 'Huella del comprobante inválida. Vuelve a subir la captura';
+  if coalesce(p_receipt_hash, '') !~ '^[0-9a-f]{64}$' then
+    raise exception 'Huella SHA-256 del comprobante inválida o ausente. Vuelve a subir la captura';
   end if;
 
   -- Normalización: sin espacios, mayúsculas — un código es un código exacto
@@ -2185,27 +2229,20 @@ begin
     raise exception 'CODIGO_INVALIDADO: ese comprobante ya fue revisado y rechazado por otra cuenta. Envía el pago que acabas de hacer tú';
   end if;
 
-  -- 🛡️ V22 · DESTINO OFICIAL EXACTO (automático, leído de la BD): el dinero
-  -- debe haber llegado al Nequi o a la Llave OFICIAL del administrador. Si la
-  -- IA leyó un destino distinto, el canje se rechaza AL INSTANTE — nadie
-  -- puede colar un pago hecho a un número ajeno.
-  select coalesce((select value from public.app_settings where key = 'nequi_phone'), ''),
-         coalesce((select value from public.app_settings where key = 'payment_llave'), '')
+  -- 🛡️ V22/V20 · DESTINO OFICIAL EXACTO (Nequi oficial 3158942112 o config BD)
+  select coalesce(nullif(btrim((select value from public.app_settings where key = 'nequi_phone')), ''), '3158942112'),
+         coalesce(nullif(btrim((select value from public.app_settings where key = 'payment_llave')), ''), '@impulso3158942112')
     into v_nequi, v_llave;
-  v_nequi_digits := coalesce(regexp_replace(v_nequi, '\D', '', 'g'), '');
-  v_llave_digits := coalesce(regexp_replace(v_llave, '\D', '', 'g'), '');
+  v_nequi_digits := right(coalesce(regexp_replace(v_nequi, '\D', '', 'g'), '3158942112'), 10);
+  v_llave_digits := right(coalesce(regexp_replace(v_llave, '\D', '', 'g'), ''), 10);
 
   v_dest        := upper(btrim(coalesce(p_destination_detected, '')));
-  v_dest_digits := coalesce(regexp_replace(v_dest, '\D', '', 'g'), '');
+  v_dest_digits := right(coalesce(regexp_replace(v_dest, '\D', '', 'g'), ''), 10);
   if v_dest <> '' then
-    if v_dest_digits = ''
-       or ((v_nequi_digits = '' and v_llave_digits = '')
-           or (position(v_nequi_digits in v_dest_digits) = 0
-               and (v_llave_digits = '' or position(v_llave_digits in v_dest_digits) = 0))) then
-      raise exception 'DESTINO_INVALIDO: el comprobante indica un destino distinto a la cuenta oficial de Impulso. Haz el pago EXACTAMENTE al Nequi/Llave que muestra la app y vuelve a intentarlo';
+    if (v_dest_digits = '' or (v_dest_digits <> v_nequi_digits and (v_llave_digits = '' or v_dest_digits <> v_llave_digits)))
+       and position(upper(btrim(v_llave)) in v_dest) = 0 then
+      raise exception 'DESTINO_INVALIDO: el comprobante indica un destino distinto a la cuenta oficial de Impulso (%). Haz el pago al Nequi oficial y vuelve a intentarlo.', v_nequi_digits;
     end if;
-  elsif p_receipt_thumb is null then
-    raise exception 'ADJUNTA_LA_CAPTURA: para validar tu recarga envía la captura del pago (o el QR de confirmación). Sin comprobante no hay validación posible';
   end if;
 
   insert into public.credit_orders (
@@ -2297,34 +2334,51 @@ declare
   v_nequi_digits  text;
   v_llave_digits  text;
 begin
-  select value into v_admin from public.app_settings where key = 'nequi_phone';
+  select coalesce(nullif(btrim((select value from public.app_settings where key = 'nequi_phone')), ''), '3158942112') into v_admin;
   select value into v_prices from public.app_settings where key = 'credit_package_prices';
   if coalesce((select value from public.app_settings where key = 'auto_approve_credits'), 'off') <> 'on' then
     return jsonb_build_object('approved', false, 'reason', 'AUTO_APROBACION_OFF');
+  end if;
+
+  if auth.uid() is null then
+    raise exception 'Debes iniciar sesión';
   end if;
 
   select * into v_order from public.credit_orders where id = p_order_id for update;
   if not found then
     raise exception 'Orden no encontrada';
   end if;
+  if v_order.merchant_id <> auth.uid() and not public.is_admin() then
+    raise exception 'No autorizado para procesar esta orden';
+  end if;
   if v_order.status <> 'pending' then
     return jsonb_build_object('approved', false, 'reason', 'YA_PROCESADA');
   end if;
 
-  -- El dictamen IA debe venir completo y exitoso
-  if v_order.ia_status_ok is not true or v_order.destination_detected is null then
+  -- El dictamen IA y la huella SHA-256 deben venir completos y válidos
+  if v_order.ia_status_ok is not true
+     or v_order.destination_detected is null
+     or coalesce(v_order.receipt_hash, '') !~ '^[0-9a-f]{64}$' then
     return jsonb_build_object('approved', false, 'reason', 'IA_INCOMPLETA');
   end if;
 
-  -- El destino leído debe contener el número oficial del Admin (Nequi o
-  -- Llave, ambos leídos de la BD — jamás del cliente)
-  v_dest_digits  := coalesce(regexp_replace(v_order.destination_detected, '\D', '', 'g'), '');
-  v_nequi_digits := coalesce(regexp_replace(coalesce(v_admin, ''), '\D', '', 'g'), '');
-  v_llave_digits := coalesce(regexp_replace(coalesce((select value from public.app_settings where key = 'payment_llave'), ''), '\D', '', 'g'), '');
+  -- Paquete y monto canónicos verificados del lado del servidor
+  if not (
+       (v_order.credits_requested = 5  and v_order.amount_cop = 10000)
+    or (v_order.credits_requested = 15 and v_order.amount_cop = 24000)
+    or (v_order.credits_requested = 35 and v_order.amount_cop = 45000)
+  ) then
+    return jsonb_build_object('approved', false, 'reason', 'PAQUETE_NO_OFICIAL');
+  end if;
+
+  -- El destino leído debe contener los 10 dígitos del Nequi oficial (3158942112 o config BD)
+  v_dest_digits  := right(coalesce(regexp_replace(v_order.destination_detected, '\D', '', 'g'), ''), 10);
+  v_nequi_digits := right(coalesce(regexp_replace(coalesce(v_admin, '3158942112'), '\D', '', 'g'), '3158942112'), 10);
+  v_llave_digits := right(coalesce(regexp_replace(coalesce((select value from public.app_settings where key = 'payment_llave'), ''), '\D', '', 'g'), ''), 10);
   if char_length(v_dest_digits) < 7
      or (v_nequi_digits = '' and v_llave_digits = '')
-     or (position(v_nequi_digits in v_dest_digits) = 0
-         and (v_llave_digits = '' or position(v_llave_digits in v_dest_digits) = 0)) then
+     or (v_dest_digits <> v_nequi_digits
+         and (v_llave_digits = '' or v_dest_digits <> v_llave_digits)) then
     return jsonb_build_object('approved', false, 'reason', 'DESTINO_NO_COINCIDE');
   end if;
 
@@ -2479,6 +2533,7 @@ create table if not exists public.app_settings (
 );
 
 alter table public.app_settings enable row level security;
+revoke all on public.app_settings from anon, authenticated;
 -- (Sin políticas directas: lectura SOLO vía RPCs SECURITY DEFINER y
 --  escritura SOLO vía admin_set_payment_contact_rpc.)
 

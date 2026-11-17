@@ -137,7 +137,7 @@ export function RadarTab({
                 <p className="text-xs font-bold leading-relaxed">{warningText}</p>
                 {geoStatus === 'inexact' && geoAccuracy != null && (
                   <p className="mt-1 text-[11px] font-semibold text-amber-200/80">
-                    Señal detectada con margen de error de ±{geoAccuracy.toLocaleString('es-CO')} m (máximo permitido: 1.000 m).
+                    Señal detectada con margen de error de ±{geoAccuracy.toLocaleString('es-CO')} m (máximo permitido: 1.500 m).
                   </p>
                 )}
               </div>

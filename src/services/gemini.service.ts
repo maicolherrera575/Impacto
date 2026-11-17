@@ -573,6 +573,112 @@ export async function analyzeMerchantTrust(input: {
   };
 }
 
+/** 🔍 V20.0 · Resultado de auditoría forense IA sobre una denuncia comunitaria. */
+export interface ReportFraudAuditResult {
+  /** 1 = denuncia real crítica; 10 = ataque falso / reporte por envidia casi seguro. */
+  fraudScore: number;
+  classification: 'fake_envy' | 'suspicious' | 'real_alert';
+  conclusion: string;
+  signals: string[];
+  recommendedAction: string;
+}
+
+const REPORT_AUDIT_PROMPT = `Eres el Auditor Forense Antifraude de Impulso (Colombia). Analizas denuncias comunitarias contra ofertas locales para distinguir si es un ataque por envidia de competencia/troll o si el usuario reporta una estafa/incumplimiento real.
+
+Devuelve ÚNICAMENTE este JSON exacto:
+{
+  "fraud_score": entero del 1 al 10 (10 = altísima probabilidad de reporte FALSO/envidia/ataque coordinado; 5 = dudoso; 1 = denuncia REAL CRÍTICA con evidencia concreta de estafa/peligro),
+  "classification": "fake_envy" | "suspicious" | "real_alert",
+  "conclusion": "dictamen ejecutivo en español (máx 180 chars, ej: 'Alta probabilidad de reporte falso por envidia (IP duplicada, lenguaje genérico)' o 'Alerta crítica: El usuario detalla un intento de estafa real')",
+  "signals": ["señal forense 1", "señal forense 2", "señal forense 3"],
+  "recommended_action": "acción sugerida al admin (ej: 'Absolver y limpiar denuncia' o 'Suspender oferta y revisar comercio')"
+}
+
+Criterios forenses clave:
+- Señales de REPORTE FALSO / ENVIDIA (fraud_score 7 a 10): visitante sin reserva previa, IP o device_id repetido en múltiples reportes, redacción vaga/genérica sin hechos verificables ("es estafa", "malísimo", "no compren"), comercio verificado sin quejas previas.
+- Señales de ALERTA REAL (fraud_score 1 a 4): comprador real verificado con reserva previa, relato específico con montos/platos/fechas/ubicaciones o pedidos de giros anticipados, lenguaje coherente de víctima.`;
+
+/**
+ * 🧠 V20.0 · Envía texto del reporte, IP, historial de reservas y datos de la oferta
+ * a Gemini 2.5 Flash (/api/gemini) y devuelve Score de Fraude (1–10) + dictamen.
+ */
+export async function auditCommunityReportWithAI(input: {
+  reason: string;
+  detail: string | null;
+  clientIp: string | null;
+  deviceId: string | null;
+  isVerifiedBuyer: boolean;
+  sameIpReportsCount: number;
+  sameDeviceReportsCount: number;
+  reservationsHistorySummary: string[];
+  offerTitle: string;
+  offerDescription?: string;
+  offerPromoPrice?: number;
+  merchantName: string | null;
+  merchantVerified?: boolean;
+  totalOfferReports: number;
+}): Promise<ReportFraudAuditResult> {
+  const dossier = [
+    `Motivo seleccionado: ${input.reason}`,
+    `Detalle escrito por el reportante: ${input.detail ? `"${input.detail}"` : '(sin detalle)'}`,
+    `Comprador con reserva verificada: ${input.isVerifiedBuyer ? 'SÍ (tiene reserva real)' : 'NO (visitante anónimo sin reserva)'}`,
+    `IP del reportante: ${input.clientIp ?? '(desconocida)'} · Reportes recientes desde esa IP: ${input.sameIpReportsCount}`,
+    `Dispositivo: ${input.deviceId ?? '(desconocido)'} · Reportes recientes desde ese dispositivo: ${input.sameDeviceReportsCount}`,
+    `Historial de reservas ligado al dispositivo/IP: ${input.reservationsHistorySummary.length > 0 ? input.reservationsHistorySummary.join(' | ') : 'Ninguna reserva asociada'}`,
+    `Oferta denunciada: "${input.offerTitle}"${input.offerPromoPrice != null ? ` ($${input.offerPromoPrice.toLocaleString('es-CO')})` : ''}`,
+    input.offerDescription ? `Descripción de la oferta: "${input.offerDescription}"` : '',
+    `Comercio: ${input.merchantName ?? 'Desconocido'} (${input.merchantVerified ? 'Verificado KYB' : 'No verificado'}) · Reportes totales en oferta: ${input.totalOfferReports}`,
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  const jsonText = await callGemini({
+    systemInstruction: REPORT_AUDIT_PROMPT,
+    prompt: dossier,
+    temperature: 0.15,
+  });
+
+  const parsed = parseAiJson<{
+    fraud_score?: number;
+    classification?: string;
+    conclusion?: string;
+    signals?: string[];
+    recommended_action?: string;
+  }>(jsonText);
+
+  const score = Math.min(10, Math.max(1, Math.round(Number(parsed.fraud_score) || 5)));
+  const classification: ReportFraudAuditResult['classification'] =
+    parsed.classification === 'fake_envy' || parsed.classification === 'suspicious' || parsed.classification === 'real_alert'
+      ? parsed.classification
+      : score >= 7
+        ? 'fake_envy'
+        : score <= 4
+          ? 'real_alert'
+          : 'suspicious';
+
+  return {
+    fraudScore: score,
+    classification,
+    conclusion:
+      typeof parsed.conclusion === 'string' && parsed.conclusion.trim() !== ''
+        ? parsed.conclusion.trim().slice(0, 220)
+        : score >= 7
+          ? 'Alta probabilidad de reporte falso por envidia.'
+          : score <= 4
+            ? 'Alerta crítica: posible incumplimiento o riesgo real.'
+            : 'Caso dudoso: revisar evidencia antes de decidir.',
+    signals: Array.isArray(parsed.signals)
+      ? parsed.signals.filter((s): s is string => typeof s === 'string' && s.trim() !== '').slice(0, 4)
+      : [],
+    recommendedAction:
+      typeof parsed.recommended_action === 'string' && parsed.recommended_action.trim() !== ''
+        ? parsed.recommended_action.trim().slice(0, 100)
+        : score >= 7
+          ? 'Borrar denuncia y absolver oferta'
+          : 'Verificar con comercio o pausar oferta',
+  };
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // 🚀 AGENCIA IA V8 — Pipeline multi-pasada: PASADA 1 (estrategia y dirección
 // de arte) → PASADA 2 (copywriting senior). PROHIBIDO el fallback tonto:
@@ -623,7 +729,7 @@ const INDUSTRY_IDS: IndustryType[] = [
   'construccion_hogar',
 ];
 
-const THEME_IDS = ['wood', 'marble', 'cyber', 'kraft', 'ember', 'emerald', 'obsidian', 'clinic', 'terracotta', 'pop', 'aurora', 'slate'] as const;
+const THEME_IDS = ['wood', 'marble', 'cyber', 'kraft', 'ember', 'emerald', 'obsidian', 'clinic', 'terracotta', 'pop', 'aurora', 'slate', 'arena', 'vino', 'oceano', 'carbon'] as const;
 const LAYOUT_IDS = [
   'bento', 'magazine', 'diagonal', 'polaroid', 'arc', 'portal', 'swiss', 'split',
   'brutal', 'vip', 'cyber', 'rustic', 'retail', 'eco', 'cinema', 'float',
@@ -798,8 +904,8 @@ Analizarás el brief y definirás la ESTRATEGIA VISUAL y COMERCIAL. Devuelve ÚN
  "brand_name": "nombre comercial corto y potente del negocio (1 a 3 palabras): si el brief ya lo da, devuélvelo limpio; si NO lo da, crea uno creíble y memorable para el giro deducido. PROHIBIDO usar la palabra 'Impulso'",
  "product_title": "título del servicio o producto estrella DEDUCIDO del brief (máx 6 palabras, reescrito con vocabulario de agencia, no literal)",
  "category_label": "rubro/categoría COMERCIAL y VISIBLE del afiche en español (2 a 5 palabras, específico del giro, ej: 'Marketing Digital & Ventas', 'Comida Rápida Casera', 'Odontología Moderna', 'Insumos Agropecuarios'). PROHIBIDO genéricos tipo 'Servicios' o 'Comercio'",
- "theme_id": uno de [wood, marble, cyber, kraft, ember, emerald, obsidian, clinic, terracotta, pop, aurora, slate]. Elige el que mejor pegue con el giro y VARÍA entre generaciones: comida/asaderos/panadería/café/agro → wood; salud/odontología/estética/moda/servicios VIP → marble; marketing digital/tecnología/negocios modernos → cyber; artesanías/eco/editorial/panadería artesanal → kraft; asados gourmet/parrilla/noche → ember; naturaleza/turismo/veterinaria → emerald; servicios premium/abogados/finanzas → obsidian; clínicas/droguerías/laboratorios → clinic; promociones y comercio local → terracotta; ofertas relámpago/ferreterías/retail → pop; agencias creativas/moda/eventos → aurora; construcción/logística/industrial → slate. NUNCA elijas siempre el mismo.
- "layout_id": uno de [bento, magazine, diagonal, polaroid, arc, portal, swiss, split, brutal, vip, cyber, rustic, retail, eco, cinema, float]. Rota la composición según el giro para que cada generación sea visualmente única.
+ "theme_id": uno de [wood, marble, cyber, kraft, ember, emerald, obsidian, clinic, terracotta, pop, aurora, slate, arena, vino, oceano, carbon]. Varía entre las 4 familias estéticas (Neón Cyber: cyber/aurora/oceano; Editorial Minimalista: marble/clinic/slate/arena; Rústico Gourmet: wood/kraft/ember/terracotta/emerald; Lujo Dorado: obsidian/vino/pop) según el brief y NUNCA repitas el anterior.
+ "layout_id": uno de [bento, magazine, diagonal, polaroid, arc, portal, swiss, split, brutal, vip, cyber, rustic, retail, eco, cinema, float, hud, resort, menu, clinic, agro, diamond, flash, bento3d, diagx, orbits, bleed, zen]. Prioriza composiciones asimétricas y orgánicas (diagx, orbits, bleed, magazine, float, bento3d, zen, diamond, diagonal, split, portal) y NUNCA repitas el anterior.
  "value_proposition": "la promesa comercial de alto calibre del negocio: transforma la idea básica del brief en un beneficio concreto, específico y creíble. PROHIBIDO copiar frases literales del brief: reescríbelas con vocabulario de agencia senior",
  "image_prompt_en": "hyper-detailed commercial editorial photography prompt IN ENGLISH of EXACTLY what the brief describes (its real products, workspace or service in action): subject, environment, cinematic 8k lighting setup, lens and mood. The image must NEVER contain text, logos or watermarks"
 }
@@ -1518,17 +1624,29 @@ export function synthesizeArtDirection(
   input: CampaignInput,
   opts?: { previousThemeId?: string; previousLayoutId?: string; seed?: number },
 ): ArtDirection {
-  const seed = Math.floor(Math.random() * 100000);
-  void opts;
+  const seed = opts?.seed ?? Math.floor(Math.random() * 100000);
   const niche = detectNiche(`${input.brief} ${input.slogan} ${input.product} ${input.businessName}`, input.categoryHint);
   const industry = niche.industry;
+
+  // V20.0 Aleatoriedad Forzada: excluye el tema y layout anteriores y rota entre familias visuales élite
+  const dynamicLayouts = [
+    'diagx', 'orbits', 'bleed', 'magazine', 'float', 'bento3d', 'zen', 'diamond',
+    'diagonal', 'split', 'portal', 'hud', 'menu', 'arc', 'polaroid', 'swiss', 'bento',
+  ];
+  const candidateThemes = THEME_IDS.filter((id) => id !== opts?.previousThemeId);
+  const pickedTheme =
+    candidateThemes[Math.floor(Math.random() * candidateThemes.length)] || niche.theme;
+  const candidateLayouts = dynamicLayouts.filter((id) => id !== opts?.previousLayoutId);
+  const pickedLayout =
+    candidateLayouts[Math.floor(Math.random() * candidateLayouts.length)] || niche.layout;
+
   return {
     industryType: industry,
     brandName: input.businessName.trim() || rotate(niche.names, seed),
     productTitle: input.product.trim() || rotate(niche.products, seed),
     categoryLabel: rotate(niche.labels, Math.floor(seed / 7)),
-    themeId: niche.theme,
-    layoutId: niche.layout,
+    themeId: pickedTheme,
+    layoutId: pickedLayout,
     valueProposition: rotate(niche.subs, Math.floor(seed / 3)),
     imagePromptEn: INDUSTRY_PHOTO_PROMPTS[industry],
   };

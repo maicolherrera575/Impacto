@@ -7,13 +7,12 @@ import { CREDIT_PACKAGES } from '../../types';
 import { ModalShell } from '../ui/ModalShell';
 import { useToast } from '../ui/Toast';
 import { compressImageToMicroWebP, compressionSummary } from '../../services/imageCompressor';
-import { verifyNequiReceiptWithAI } from '../../services/gemini.service';
 import type { ReceiptVerification } from '../../services/gemini.service';
 import {
-  autoApproveCreditOrder,
   checkReceiptAlreadyUsed,
   fetchPaymentConfig,
-  submitCreditOrder,
+  submitVerifiedCreditOrderOnServer,
+  verifyReceiptOnServer,
 } from '../../services/credits.service';
 import { friendlyError } from '../../services/supabase';
 import { cx, formatCOP } from '../../utils/format';
@@ -107,38 +106,6 @@ export function CreditsModal({ open, onClose, profile, onCreditsApproved }: Cred
     };
   }, [open, adminQr, nequiLocal, holderName, method]);
 
-  /** 🔐 Paso 1 · Huella SHA-256 de los píxeles normalizados de la imagen. */
-  async function hashReceiptImage(dataUrl: string): Promise<string | null> {
-    try {
-      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-        const el = new Image();
-        el.onload = () => resolve(el);
-        el.onerror = () => reject(new Error('img'));
-        el.src = dataUrl;
-      });
-      const size = 64;
-      const off = document.createElement('canvas');
-      off.width = size;
-      off.height = size;
-      const ctx = off.getContext('2d');
-      if (!ctx) return null;
-      ctx.drawImage(img, 0, 0, size, size);
-      const data = ctx.getImageData(0, 0, size, size).data;
-      // Normalizado: luminancia en pasos de 8 (resistente a recompresión leve)
-      const bytes = new Uint8Array(size * size);
-      for (let i = 0; i < size * size; i++) {
-        const r = data[i * 4];
-        const g = data[i * 4 + 1];
-        const b = data[i * 4 + 2];
-        bytes[i] = Math.min(31, Math.floor((0.299 * r + 0.587 * g + 0.114 * b) / 8));
-      }
-      const digest = await crypto.subtle.digest('SHA-256', bytes.buffer);
-      return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
-    } catch {
-      return null;
-    }
-  }
-
   /** 🔍 Decodifica un QR dentro de una imagen subida (jsQR sobre canvas). */
   async function decodeQrFromImage(dataUrl: string): Promise<string | null> {
     try {
@@ -173,7 +140,7 @@ export function CreditsModal({ open, onClose, profile, onCreditsApproved }: Cred
     return true;
   }
 
-  /** 📤 Paso 2 · Auditoría forense IA tras subir/escanear la captura. */
+  /** 📤 Paso 2 · Auditoría forense IA + SHA-256 estrictamente en servidor (/api/verify-receipt). */
   async function pickReceipt(file: File | undefined) {
     if (!file) return;
     setCompressing(true);
@@ -185,38 +152,42 @@ export function CreditsModal({ open, onClose, profile, onCreditsApproved }: Cred
       const thumb = await compressImageToMicroWebP(file, 420, 0.6);
       setReceipt(thumb);
       toast.success(compressionSummary(file, thumb));
-      // 🔐 Huella única de imagen (SHA-256 normalizado)
-      const hash = await hashReceiptImage(thumb);
-      if (hash) setReceiptHash(hash);
-      // 🔍 QR embebido en la captura, si lo tiene
+      // 🔍 QR embebido en la captura, si lo tiene (el servidor recalcula SHA-256 + OCR)
       const qr = await decodeQrFromImage(thumb);
       if (qr) setQrPayload(qr);
-      // 🤖 Auditoría forense con IA Vision (destino oficial 3158942112)
       setAnalyzing(true);
       try {
-        const result = await verifyNequiReceiptWithAI(thumb, { adminPhone: nequiLocal, adminKey: llave });
+        const srv = await verifyReceiptOnServer({
+          imageDataUrl: thumb,
+          referenceCode: reference.trim(),
+          qrPayload: qr,
+        });
+        setReceiptHash(srv.receiptHash);
+        const result = srv.verification;
         setAiResult(result);
-        if (result.reference) setReference(result.reference);
-        if (qr && !result.reference) setReference(qr.replace(/[^A-Za-z0-9.\-]/g, '').slice(0, 40));
-        if (!result.looksReal) {
-          setErrorMsg('🤖 La IA no reconoció un comprobante válido. Sube la captura original de tu app de pago.');
-        } else if (result.suspicious) {
-          setErrorMsg('🚨 La IA detectó señales de captura editada o pago no confirmado. Envía la captura original.');
-        } else if (result.amountCop != null && result.amountCop !== plan.priceCop) {
+        if (result?.reference) setReference(result.reference);
+        else if (qr && !reference.trim()) setReference(qr.replace(/[^A-Za-z0-9.\-]/g, '').slice(0, 40));
+
+        if (srv.alreadyUsed) {
+          setErrorMsg(srv.usedReason || '🚫 ESTE COMPROBANTE YA FUE UTILIZADO: cada pago solo puede canjearse una única vez.');
+        } else if (result && !result.looksReal) {
+          setErrorMsg('🤖 La IA del servidor no reconoció un comprobante válido. Sube la captura original de tu app.');
+        } else if (result?.suspicious) {
+          setErrorMsg('🚨 El auditor IA detectó señales de captura editada o pago no confirmado. Envía la captura original.');
+        } else if (result && result.amountCop != null && result.amountCop !== plan.priceCop) {
           setErrorMsg(`⚠️ La IA leyó ${formatCOP(result.amountCop)} pero el plan elegido cuesta ${formatCOP(plan.priceCop)}. Verifica el monto.`);
-        } else if (result.destinationDetected && !result.isValidDestination) {
-          setErrorMsg(`🚨 El comprobante muestra destino ${result.destinationDetected} pero la cuenta oficial es ${nequiPretty}. Ese pago NO fue a Impulso.`);
-        } else {
+        } else if (result && result.destinationDetected && !result.isValidDestination) {
+          setErrorMsg(`🚨 El comprobante muestra destino ${result.destinationDetected} pero la cuenta oficial es ${srv.officialNequi || nequiPretty}. Ese pago NO fue a Impulso.`);
+        } else if (result) {
           const partes = [
-            `🤖 IA: pago ${result.amountCop ? formatCOP(result.amountCop) : 'sin monto legible'}`,
-            result.isValidDestination ? `✅ destino ${nequiLocal} confirmado` : '⚠️ destino no legible',
+            `🤖 Servidor IA: pago ${result.amountCop ? formatCOP(result.amountCop) : 'sin monto legible'}`,
+            result.isValidDestination ? `✅ destino ${srv.officialNequi || nequiLocal} confirmado` : '⚠️ destino no legible',
             result.statusOk ? '✅ estado exitoso' : '⚠️ estado no confirmado',
           ];
           toast.success(partes.join(' · '));
         }
-      } catch (aiErr) {
-        toast.error('🤖 La IA no pudo leer la captura. Puedes escribir el código manualmente');
-        void aiErr;
+      } catch {
+        toast.error('🤖 El servidor no pudo leer automáticamente la captura. Verifica tu código manualmente');
       } finally {
         setAnalyzing(false);
       }
@@ -287,61 +258,44 @@ export function CreditsModal({ open, onClose, profile, onCreditsApproved }: Cred
     toast.success('📥 QR de pago descargado');
   }
 
-  /** 📤 Paso final: envío con todas las guardias + auto-aprobación instantánea. */
+  /** 📤 Paso final: procesamiento y anti-tampering 100% en el servidor (/api/verify-receipt). */
   async function submit() {
     setErrorMsg('');
+    if (!receipt) {
+      setErrorMsg('Adjunta primero la captura de tu pago Nequi/Llave para calcular la huella SHA-256 en el servidor.');
+      return;
+    }
     if (reference.trim().length < 4) {
       setErrorMsg('Escribe o escanea el código del comprobante (aparece en tu app tras confirmar el pago).');
       return;
     }
     setSubmitting(true);
     try {
-      // Guardia instantánea ANTES de gastar el intento
       if (!(await guardNotUsed(reference.trim()))) {
         setSubmitting(false);
         return;
       }
-      const ok = aiResult?.looksReal && !aiResult?.suspicious && aiResult?.statusOk && aiResult?.isValidDestination && aiResult?.amountCop === plan.priceCop;
-      const note = aiResult
-        ? [
-            aiResult.looksReal ? 'Comprobante válido' : 'IA no lo reconoce',
-            aiResult.suspicious ? '🚨 POSIBLE FRAUDE (captura editada/pendiente)' : '',
-            aiResult.amountCop ? `monto leído ${aiResult.amountCop}` : 'monto no legible',
-            aiResult.destinationDetected ? `destino ${aiResult.destinationDetected}` : 'destino no legible',
-            aiResult.isValidDestination ? '✅ destino oficial confirmado' : '⚠️ destino no confirmado',
-            aiResult.statusOk ? '✅ pago exitoso' : '⚠️ estado no confirmado',
-            aiResult.dateDetected ? `fecha ${aiResult.dateDetected}` : '',
-            aiResult.note,
-          ].filter(Boolean).join(' · ')
-        : null;
 
-      const order = await submitCreditOrder({
-        packageName: plan.name,
-        creditsRequested: plan.credits,
-        amountCop: plan.priceCop,
-        referenceCode: reference.trim(),
+      const srv = await submitVerifiedCreditOrderOnServer({
+        packageId: plan.id,
         paymentMethod: method,
-        receiptThumb: receipt,
-        aiNote: note,
-        receiptHash,
-        destinationDetected: aiResult?.destinationDetected ?? null,
+        imageDataUrl: receipt,
+        referenceCode: reference.trim(),
         qrPayload,
-        iaStatusOk: Boolean(ok),
       });
 
-      // ⚡ Auto-aprobación instantánea (si el Admin la activó y todo cuadra)
-      if (ok && autoApproveOn) {
-        const res = await autoApproveCreditOrder(order.id);
-        if (res.approved) {
-          setSuccessMsg(`⚡ ¡CRÉDITOS Acreditados AL INSTANTE! +${res.credits ?? plan.credits} créditos ya están en tu cuenta. ¡A publicar!`);
-          toast.success(`⚡ +${res.credits ?? plan.credits} créditos añadidos automáticamente`);
-          onCreditsApproved?.((profile.credits ?? 0) + (res.credits ?? plan.credits));
-          setSubmitting(false);
-          return;
-        }
+      setReceiptHash(srv.receiptHash);
+      if (srv.verification) setAiResult(srv.verification);
+
+      if (srv.autoApproved) {
+        const added = srv.approvedCredits || plan.credits;
+        setSuccessMsg(`⚡ ¡CRÉDITOS Acreditados AL INSTANTE! +${added} créditos ya están en tu cuenta. ¡A publicar!`);
+        toast.success(`⚡ +${added} créditos añadidos automáticamente`);
+        onCreditsApproved?.((profile.credits ?? 0) + added);
+        return;
       }
 
-      setSuccessMsg('✅ Comprobante validado y registrado con huella única: el administrador lo confirmará en minutos.');
+      setSuccessMsg('✅ Comprobante validado y sellado con SHA-256 en servidor: el administrador lo confirmará en minutos.');
       openWhatsApp(
         nequiDigits,
         `Hola! Soy ${profile.business_name} (${profile.municipality}). Envié el comprobante ${method} por ${formatCOP(plan.priceCop)} — ${plan.name} (${plan.credits} créditos), código ${reference.trim()}. ¡Quedo atento a la activación! 🙌`,

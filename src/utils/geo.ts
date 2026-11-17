@@ -39,24 +39,24 @@ export function distanceText(meters: number): string {
 export type GeoStatus = 'idle' | 'active' | 'inexact' | 'denied';
 
 /** Límite máximo de radio de error permitido (en metros) para considerar la señal exacta. */
-export const ACCURACY_LIMIT_M = 1000;
+export const ACCURACY_LIMIT_M = 1500;
 
 export const EXACT_GPS_WARNING =
-  'Para usar el radar de proximidad, requerimos tu ubicación exacta. La ubicación aproximada no permite calcular distancias reales.';
+  'Para calcular distancias reales, tu dispositivo debe permitir la ubicación exacta, no aproximada.';
 
 export const EXACT_GPS_OPTIONS: PositionOptions = {
   enableHighAccuracy: true,
-  timeout: 10_000,
+  timeout: 8000,
   maximumAge: 0,
 };
 
 /**
- * ⚖️ V19.0 · Geolocalización EXACTA y VOLUNTARIA (Ley 1581 de 2012):
- *  1. Nunca solicita GPS al abrir sin consentimiento previo e informado.
- *  2. Invoca `getCurrentPosition` con `{ enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }`.
- *  3. Rechaza lecturas aproximadas (`accuracy > 1000` m) con mensaje claro.
+ * ⚖️ V20.0 · Geolocalización EXACTA y VOLUNTARIA (Ley 1581 de 2012):
+ *  1. Invoca `navigator.geolocation.getCurrentPosition` directamente con
+ *     `{ enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }`.
+ *  2. Solo expone `errorCode === 1` cuando el permiso fue realmente denegado.
+ *  3. Rechaza lecturas aproximadas (`accuracy > 1500` m) con aviso toast sin bloquear modal.
  *  4. Mantiene las coordenadas exclusivamente en el estado efímero de React (jamás en BD).
- *  5. Permite revocar el acceso en 1 clic.
  */
 export function useGeolocation() {
   const [pos, setPos] = useState<LatLng | null>(null);
@@ -64,6 +64,7 @@ export function useGeolocation() {
   const [locating, setLocating] = useState(false);
   const [accuracy, setAccuracy] = useState<number | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<number | null>(null);
   const [requestSeq, setRequestSeq] = useState(0);
   const watchIdRef = useRef<number | null>(null);
 
@@ -74,10 +75,11 @@ export function useGeolocation() {
     }
   }, []);
 
-  /** Regla de oro: solo adoptamos lecturas con accuracy <= 1000 m. */
+  /** Regla de oro: solo adoptamos lecturas con accuracy <= 1500 m. */
   const adoptFix = useCallback(
     (p: GeolocationPosition) => {
       setLocating(false);
+      setErrorCode(null);
       const acc = Math.round(p.coords.accuracy);
       setAccuracy(acc);
 
@@ -106,30 +108,33 @@ export function useGeolocation() {
           setPos({ lat: p.coords.latitude, lng: p.coords.longitude });
           setStatus('active');
           setErrorMessage(null);
+          setErrorCode(null);
         }
       },
       (err) => {
-        if (err.code === err.PERMISSION_DENIED) {
+        if (err.code === 1) {
           setStatus('denied');
+          setErrorCode(1);
           setPos(null);
           stop();
         }
       },
-      { enableHighAccuracy: true, timeout: 12_000, maximumAge: 5_000 },
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 5_000 },
     );
   }, [stop]);
 
   const onError = useCallback(
     (err: GeolocationPositionError) => {
       setLocating(false);
-      if (err.code === err.PERMISSION_DENIED) {
+      setErrorCode(err.code);
+      if (err.code === 1) {
         setPos(null);
         setStatus('denied');
         setErrorMessage(
           'Permiso de ubicación denegado. Toca el candado 🔒 en la barra del navegador, activa "Ubicación" y selecciona "Ubicación exacta".',
         );
         stop();
-      } else if (err.code === err.POSITION_UNAVAILABLE) {
+      } else if (err.code === 2) {
         setErrorMessage(
           'No pudimos obtener señal GPS del dispositivo. Verifica que el GPS / Ubicación del celular esté encendido e intenta de nuevo.',
         );
@@ -144,29 +149,23 @@ export function useGeolocation() {
   );
 
   /**
-   * Lanza una lectura fresca de alta precisión directamente en el gesto de clic
-   * para asegurar que el navegador muestre el diálogo de permiso exacto.
+   * Invoca directamente `navigator.geolocation.getCurrentPosition` dentro del
+   * gesto del usuario para disparar la alerta nativa del navegador sin fricción.
    */
   const request = useCallback(() => {
     if (typeof navigator === 'undefined' || !('geolocation' in navigator)) {
       setStatus('denied');
+      setErrorCode(null);
       setErrorMessage('Este navegador no soporta geolocalización GPS.');
       setRequestSeq((n) => n + 1);
       return;
     }
     if (typeof window !== 'undefined' && !window.isSecureContext) {
       setStatus('denied');
+      setErrorCode(null);
       setErrorMessage('El navegador bloqueó el GPS porque la página no está bajo HTTPS seguro.');
       setRequestSeq((n) => n + 1);
       return;
-    }
-
-    setLocating(true);
-    setErrorMessage(null);
-    try {
-      localStorage.setItem('impulso_gps_consent', 'granted');
-    } catch {
-      /* sin almacenamiento */
     }
 
     navigator.geolocation.getCurrentPosition(
@@ -177,8 +176,17 @@ export function useGeolocation() {
         }
       },
       onError,
-      EXACT_GPS_OPTIONS,
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 },
     );
+
+    setLocating(true);
+    setErrorMessage(null);
+    setErrorCode(null);
+    try {
+      localStorage.setItem('impulso_gps_consent', 'granted');
+    } catch {
+      /* sin almacenamiento */
+    }
   }, [adoptFix, onError, startWatch]);
 
   /** Revoca el uso efímero del GPS (Ley 1581 de 2012). */
@@ -189,6 +197,7 @@ export function useGeolocation() {
     setStatus('idle');
     setLocating(false);
     setErrorMessage(null);
+    setErrorCode(null);
     try {
       localStorage.setItem('impulso_gps_consent', 'denied');
     } catch {
@@ -213,6 +222,7 @@ export function useGeolocation() {
     locating,
     accuracy,
     errorMessage,
+    errorCode,
     requestSeq,
     request,
     revoke,

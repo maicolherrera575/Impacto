@@ -41,8 +41,8 @@ import {
   setPaymentConfig,
 } from '../../services/credits.service';
 import { fetchActiveOffers } from '../../services/offers.service';
-import { analyzeKybForensic, analyzeMerchantTrust } from '../../services/gemini.service';
-import type { KybForensicResult } from '../../services/gemini.service';
+import { analyzeKybForensic, analyzeMerchantTrust, auditCommunityReportWithAI } from '../../services/gemini.service';
+import type { KybForensicResult, ReportFraudAuditResult } from '../../services/gemini.service';
 import { friendlyError } from '../../services/supabase';
 import { compressImageToMicroWebP, compressionSummary } from '../../services/imageCompressor';
 import { cx, formatCOP, timeAgo } from '../../utils/format';
@@ -95,6 +95,11 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
   const [blockDevice, setBlockDevice] = useState('');
   const [blockIp, setBlockIp] = useState('');
   const [query, setQuery] = useState('');
+  /** 🔍 V20.0 · Buscador universal dentro de la pestaña Radar (ofertas, comercios, denuncias e IDs). */
+  const [radarQuery, setRadarQuery] = useState('');
+  /** 🧠 V20.0 · Auditorías IA antifraude/antienvidia por ID de denuncia. */
+  const [reportAudits, setReportAudits] = useState<Record<string, ReportFraudAuditResult>>({});
+  const [reportAuditBusyId, setReportAuditBusyId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [offersLoading, setOffersLoading] = useState(false);
@@ -464,11 +469,67 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
     }
   }
 
+  /** 🧠 V20.0 · Audita un reporte comunitario con Gemini 2.5 Flash (/api/gemini). */
+  async function runReportFraudAudit(r: OfferReport) {
+    setReportAuditBusyId(r.id);
+    try {
+      const offer = offers.find((o) => o.id === r.offer_id);
+      const sameIpCount = r.client_ip ? reports.filter((x) => x.client_ip === r.client_ip).length : 0;
+      const sameDeviceCount = r.device_id ? reports.filter((x) => x.device_id === r.device_id).length : 0;
+      const relatedReservations = forensics
+        .filter((f) => (r.client_ip && f.client_ip === r.client_ip) || (r.device_id && f.device_id === r.device_id))
+        .slice(0, 6)
+        .map((f) => `${f.reservation_code} en ${f.merchant_name ?? 'local'} (${f.status})`);
+
+      const audit = await auditCommunityReportWithAI({
+        reason: r.reason,
+        detail: r.detail,
+        clientIp: r.client_ip,
+        deviceId: r.device_id,
+        isVerifiedBuyer: r.is_verified_buyer === true,
+        sameIpReportsCount: sameIpCount,
+        sameDeviceReportsCount: sameDeviceCount,
+        reservationsHistorySummary: relatedReservations,
+        offerTitle: r.offer_title,
+        offerDescription: offer?.description,
+        offerPromoPrice: offer?.promo_price,
+        merchantName: r.merchant_name,
+        merchantVerified: offer?.merchant?.is_verified,
+        totalOfferReports: offer?.reports_count ?? 1,
+      });
+      setReportAudits((prev) => ({ ...prev, [r.id]: audit }));
+    } catch (err) {
+      toast.error(friendlyError(err));
+    } finally {
+      setReportAuditBusyId(null);
+    }
+  }
+
   const filteredMerchants = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return merchants;
     return merchants.filter((m) => `${m.business_name} ${m.whatsapp}`.toLowerCase().includes(q));
   }, [merchants, query]);
+
+  const filteredOffers = useMemo(() => {
+    const q = radarQuery.trim().toLowerCase();
+    if (!q) return offers;
+    return offers.filter((o) =>
+      `${o.id} ${o.title} ${o.description} ${o.category} ${o.municipality} ${o.merchant?.business_name ?? ''} ${o.merchant?.id ?? ''}`
+        .toLowerCase()
+        .includes(q),
+    );
+  }, [offers, radarQuery]);
+
+  const filteredReports = useMemo(() => {
+    const q = radarQuery.trim().toLowerCase();
+    if (!q) return reports;
+    return reports.filter((r) =>
+      `${r.id} ${r.offer_id} ${r.offer_title} ${r.merchant_name ?? ''} ${r.merchant_id ?? ''} ${r.reason} ${r.detail ?? ''} ${r.client_ip ?? ''}`
+        .toLowerCase()
+        .includes(q),
+    );
+  }, [reports, radarQuery]);
 
   if (!open) return null;
 
@@ -776,15 +837,44 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
         {/* ═══ Pestaña 2: Moderación en vivo (kill-switch) ═══ */}
         {tab === 'moderation' && (
           <div className="p-4 lg:grid lg:grid-cols-2 lg:gap-6 lg:items-start">
+            {/* 🔍 V20.0 · Buscador Universal del Radar (nombre de comercio, palabra clave o ID) */}
+            <div className="mb-4 lg:col-span-2 lg:mb-0">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  value={radarQuery}
+                  onChange={(e) => setRadarQuery(e.target.value)}
+                  placeholder="Buscador universal Radar: nombre del comercio, producto, palabra clave o ID…"
+                  aria-label="Buscador universal en Radar"
+                  className="w-full rounded-2xl border border-white/10 bg-slate-950/60 py-3 pl-11 pr-24 text-sm font-medium text-white placeholder:text-slate-500 outline-none focus:border-impulso-gold/60"
+                />
+                {radarQuery.trim() && (
+                  <button
+                    type="button"
+                    onClick={() => setRadarQuery('')}
+                    className="pressable absolute right-3 top-1/2 -translate-y-1/2 rounded-xl border border-white/10 bg-slate-900 px-2.5 py-1 text-[11px] font-bold text-slate-300 hover:text-white"
+                  >
+                    Limpiar ✕
+                  </button>
+                )}
+              </div>
+              <p className="mt-1.5 flex flex-wrap items-center gap-3 text-[11px] font-semibold text-slate-500">
+                <span>📡 Ofertas visibles: {filteredOffers.length} de {offers.length}</span>
+                <span>🚩 Denuncias visibles: {filteredReports.length} de {reports.length}</span>
+              </p>
+            </div>
+
             <div className="space-y-2.5">
             {offersLoading ? (
               <div className="flex justify-center py-10">
                 <Loader2 className="h-7 w-7 animate-spin text-impulso-gold" />
               </div>
-            ) : offers.length === 0 ? (
-              <p className="py-10 text-center text-sm text-slate-400">No hay ofertas activas ahora mismo.</p>
+            ) : filteredOffers.length === 0 ? (
+              <p className="py-10 text-center text-sm text-slate-400">
+                {offers.length === 0 ? 'No hay ofertas activas ahora mismo.' : 'Ninguna oferta coincide con esa búsqueda en el Radar.'}
+              </p>
             ) : (
-              offers.map((o) => (
+              filteredOffers.map((o) => (
                 <article
                   key={o.id}
                   className={cx(
@@ -857,12 +947,15 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
                 <div className="flex justify-center py-4">
                   <Loader2 className="h-5 w-5 animate-spin text-impulso-rose" />
                 </div>
-              ) : reports.length === 0 ? (
-                <p className="py-3 text-center text-[11px] text-slate-500">Aún no hay reportes. Radar limpio ✨</p>
+              ) : filteredReports.length === 0 ? (
+                <p className="py-3 text-center text-[11px] text-slate-500">
+                  {reports.length === 0 ? 'Aún no hay reportes. Radar limpio ✨' : 'Sin denuncias para esa búsqueda.'}
+                </p>
               ) : (
                 <div className="mt-2.5 space-y-2">
-                  {reports.map((r) => {
+                  {filteredReports.map((r) => {
                     const meta = reportReasonMeta(r.reason);
+                    const audit = reportAudits[r.id];
                     return (
                       <div key={r.id} className="rounded-xl border border-white/10 bg-slate-950/50 px-3 py-2.5">
                         <div className="flex items-center justify-between gap-2">
@@ -892,7 +985,69 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
                         <p className="truncate font-mono text-[10px] font-semibold text-slate-500">
                           💻 {tail(r.device_id)} · 🌐 {r.client_ip ?? '—'} · ⏱️ {timeAgo(r.created_at, Date.now())}
                         </p>
+
+                        {/* 🧠 V20.0 · Dictamen Forense Gemini 2.5 Flash */}
+                        {audit && (
+                          <div
+                            className={cx(
+                              'mt-2 rounded-xl border p-2.5',
+                              audit.classification === 'fake_envy'
+                                ? 'border-impulso-emerald/40 bg-impulso-emerald/10'
+                                : audit.classification === 'real_alert'
+                                  ? 'border-impulso-rose/50 bg-impulso-rose/15'
+                                  : 'border-amber-400/40 bg-amber-400/10',
+                            )}
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-1.5">
+                              <span className="rounded-md bg-slate-950/70 px-2 py-0.5 font-mono text-[10px] font-black text-white">
+                                [Score de Fraude: {audit.fraudScore}/10]
+                              </span>
+                              <span
+                                className={cx(
+                                  'text-[10px] font-extrabold uppercase tracking-wide',
+                                  audit.classification === 'fake_envy'
+                                    ? 'text-impulso-mint'
+                                    : audit.classification === 'real_alert'
+                                      ? 'text-impulso-rose'
+                                      : 'text-amber-300',
+                                )}
+                              >
+                                {audit.classification === 'fake_envy'
+                                  ? '🛡️ Probable envidia / ataque falso'
+                                  : audit.classification === 'real_alert'
+                                    ? '🚨 Alerta crítica real'
+                                    : '⚠️ Revisión recomendada'}
+                              </span>
+                            </div>
+                            <p className="mt-1.5 text-[11px] font-bold leading-snug text-white">{audit.conclusion}</p>
+                            {audit.signals.length > 0 && (
+                              <ul className="mt-1 space-y-0.5">
+                                {audit.signals.map((sig, idx) => (
+                                  <li key={idx} className="text-[10px] font-medium text-slate-300">
+                                    • {sig}
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                            <p className="mt-1 text-[10px] font-extrabold text-slate-400">
+                              👉 Sugerencia: {audit.recommendedAction}
+                            </p>
+                          </div>
+                        )}
+
                         <div className="mt-2 flex flex-wrap gap-1.5">
+                          <button
+                            onClick={() => void runReportFraudAudit(r)}
+                            disabled={reportAuditBusyId === r.id}
+                            className="pressable flex items-center gap-1 rounded-lg border border-violet-400/40 bg-violet-500/15 px-2.5 py-1 text-[10px] font-extrabold text-violet-200 disabled:opacity-50"
+                          >
+                            {reportAuditBusyId === r.id ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              '🧠'
+                            )}{' '}
+                            Analizar Reporte con IA
+                          </button>
                           <button
                             onClick={() => void handleDismissReport(r)}
                             disabled={busyId === r.id}

@@ -241,34 +241,80 @@ export async function revokePasskey(passkeyId: string, credentialId?: string): P
   }
 }
 
-// ── Registro criptográfico de dispositivo (navigator.credentials.create) ───
+export interface PasskeyBeginRegisterData {
+  challengeId: string;
+  challenge: string;
+  userId: string;
+  email: string;
+  businessName: string;
+  excludeCredentialIds: string[];
+}
 
-export async function registerDevicePasskey(options?: {
-  deviceLabel?: string;
-  vaultPassword?: string;
-}): Promise<{ id: string; credentialId: string; deviceLabel: string }> {
+export interface PreparedPasskeyEnrollment {
+  accessToken: string;
+  email: string;
+  vaultPassword: string;
+  hasPlatformAuthenticator: boolean;
+  begin: PasskeyBeginRegisterData;
+}
+
+export const PASSKEY_LINKED_SUCCESS_MSG =
+  'Huella vinculada exitosamente a este dispositivo. Si cambias de equipo, inicia sesión con tu contraseña para vincular el nuevo.';
+
+// ── Validación de contraseña previa + registro WebAuthn (navigator.credentials.create) ───
+
+/**
+ * 1) Valida la contraseña actual contra Supabase (`signInWithPassword`) ANTES de
+ *    pedir la biometría al hardware y genera el reto en el servidor.
+ */
+export async function verifyPasswordAndPreparePasskey(
+  currentPassword: string,
+): Promise<PreparedPasskeyEnrollment> {
   if (!isWebAuthnSupported()) {
     throw new Error('Este navegador o conexión no soporta biometría WebAuthn (requiere HTTPS).');
   }
+  if (!currentPassword || currentPassword.length < 6) {
+    throw new Error('Escribe tu contraseña actual (mínimo 6 caracteres) para validar tu identidad.');
+  }
 
-  const { data: sessionData } = await supabase.auth.getSession();
-  const accessToken = sessionData.session?.access_token;
-  if (!accessToken) {
+  const { data: userData, error: userErr } = await supabase.auth.getUser();
+  const userEmail = userData.user?.email?.trim().toLowerCase();
+  if (userErr || !userEmail) {
     throw new Error('Debes iniciar sesión primero para activar la biometría.');
   }
 
-  const { data: beginRaw, error: beginErr } = await supabase.rpc('webauthn_begin_register_rpc');
+  const { data: authData, error: pwdErr } = await supabase.auth.signInWithPassword({
+    email: userEmail,
+    password: currentPassword,
+  });
+  if (pwdErr || !authData.session?.access_token) {
+    throw new Error('Contraseña incorrecta. Verifica tu clave actual antes de vincular tu huella.');
+  }
+
+  const [{ data: beginRaw, error: beginErr }, hasPlatformAuthenticator] = await Promise.all([
+    supabase.rpc('webauthn_begin_register_rpc'),
+    isPlatformAuthenticatorReady(),
+  ]);
   if (beginErr) throw beginErr;
 
-  const begin = beginRaw as unknown as {
-    challengeId: string;
-    challenge: string;
-    userId: string;
-    email: string;
-    businessName: string;
-    excludeCredentialIds: string[];
+  return {
+    accessToken: authData.session.access_token,
+    email: userEmail,
+    vaultPassword: currentPassword,
+    hasPlatformAuthenticator,
+    begin: beginRaw as unknown as PasskeyBeginRegisterData,
   };
+}
 
+/**
+ * 2) Dispara `navigator.credentials.create()` con un reto ya autorizado y
+ *    registra la clave pública en el servidor (`/api/webauthn`).
+ */
+export async function completePreparedPasskeyEnrollment(
+  prepared: PreparedPasskeyEnrollment,
+  options?: { deviceLabel?: string },
+): Promise<{ id: string; credentialId: string; deviceLabel: string }> {
+  const { begin, accessToken, vaultPassword, hasPlatformAuthenticator } = prepared;
   const rpId = window.location.hostname;
   const userIdBytes = new TextEncoder().encode(begin.userId);
 
@@ -291,7 +337,7 @@ export async function registerDevicePasskey(options?: {
           { type: 'public-key', alg: -257 }, // RS256
         ],
         authenticatorSelection: {
-          authenticatorAttachment: 'platform',
+          ...(hasPlatformAuthenticator ? { authenticatorAttachment: 'platform' as const } : {}),
           residentKey: 'preferred',
           userVerification: 'required',
         },
@@ -306,7 +352,7 @@ export async function registerDevicePasskey(options?: {
   } catch (err) {
     if (err instanceof DOMException) {
       if (err.name === 'NotAllowedError') {
-        throw new Error('Registro biométrico cancelado o sin verificación en el dispositivo.');
+        throw new Error('GESTURE_OR_CANCELLED');
       }
       if (err.name === 'InvalidStateError') {
         throw new Error('Este dispositivo ya tiene registrada una llave biométrica para tu cuenta.');
@@ -351,7 +397,7 @@ export async function registerDevicePasskey(options?: {
       deviceLabel: options?.deviceLabel || detectDeviceLabel(),
       clientDataJSON: bufferToBase64Url(response.clientDataJSON),
       authenticatorData: bufferToBase64Url(extracted.authData),
-      vaultPassword: options?.vaultPassword,
+      vaultPassword,
       email: begin.email,
       userId: begin.userId,
     }),
@@ -383,6 +429,21 @@ export async function registerDevicePasskey(options?: {
     credentialId: String(payload.credentialId ?? credentialId),
     deviceLabel: String(payload.deviceLabel ?? detectDeviceLabel()),
   };
+}
+
+export async function registerDevicePasskey(options: {
+  password: string;
+  deviceLabel?: string;
+}): Promise<{ id: string; credentialId: string; deviceLabel: string }> {
+  const prepared = await verifyPasswordAndPreparePasskey(options.password);
+  try {
+    return await completePreparedPasskeyEnrollment(prepared, { deviceLabel: options.deviceLabel });
+  } catch (err) {
+    if (err instanceof Error && err.message === 'GESTURE_OR_CANCELLED') {
+      throw new Error('Registro biométrico cancelado o sin verificación en el dispositivo.');
+    }
+    throw err;
+  }
 }
 
 // ── Inicio de Sesión criptográfico (navigator.credentials.get) ─────────────
