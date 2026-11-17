@@ -1,6 +1,8 @@
 import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
 import { GEMINI_API_KEY } from '../config/env';
 import type { Category, ParsedPromo } from '../types';
+import { buildPaletteFromHexTriplet } from '../utils/colorPalette';
+import type { ExtractedBrandPalette } from '../utils/colorPalette';
 
 const CATEGORY_IDS: Category[] = ['comida', 'transporte_flete', 'agro_mercado', 'servicios_comercios'];
 
@@ -735,8 +737,8 @@ const LAYOUT_IDS = [
   'brutal', 'vip', 'cyber', 'rustic', 'retail', 'eco', 'cinema', 'float',
   // 🚀 V19 · futuristas (17–24)
   'hud', 'resort', 'menu', 'clinic', 'agro', 'diamond', 'flash', 'bento3d',
-  // 💥 V21 · asimétricos disruptivos (25–28)
-  'diagx', 'orbits', 'bleed', 'zen',
+  // 💥 V21/V22 · asimétricos y orgánicos (25–30)
+  'diagx', 'orbits', 'bleed', 'zen', 'immersive', 'collage',
 ] as const;
 
 /** Dirección de arte por defecto de cada rubro (nunca siempre el mismo tema). */
@@ -905,7 +907,7 @@ Analizarás el brief y definirás la ESTRATEGIA VISUAL y COMERCIAL. Devuelve ÚN
  "product_title": "título del servicio o producto estrella DEDUCIDO del brief (máx 6 palabras, reescrito con vocabulario de agencia, no literal)",
  "category_label": "rubro/categoría COMERCIAL y VISIBLE del afiche en español (2 a 5 palabras, específico del giro, ej: 'Marketing Digital & Ventas', 'Comida Rápida Casera', 'Odontología Moderna', 'Insumos Agropecuarios'). PROHIBIDO genéricos tipo 'Servicios' o 'Comercio'",
  "theme_id": uno de [wood, marble, cyber, kraft, ember, emerald, obsidian, clinic, terracotta, pop, aurora, slate, arena, vino, oceano, carbon]. Varía entre las 4 familias estéticas (Neón Cyber: cyber/aurora/oceano; Editorial Minimalista: marble/clinic/slate/arena; Rústico Gourmet: wood/kraft/ember/terracotta/emerald; Lujo Dorado: obsidian/vino/pop) según el brief y NUNCA repitas el anterior.
- "layout_id": uno de [bento, magazine, diagonal, polaroid, arc, portal, swiss, split, brutal, vip, cyber, rustic, retail, eco, cinema, float, hud, resort, menu, clinic, agro, diamond, flash, bento3d, diagx, orbits, bleed, zen]. Prioriza composiciones asimétricas y orgánicas (diagx, orbits, bleed, magazine, float, bento3d, zen, diamond, diagonal, split, portal) y NUNCA repitas el anterior.
+ "layout_id": uno de [bento, magazine, diagonal, polaroid, arc, portal, swiss, split, brutal, vip, cyber, rustic, retail, eco, cinema, float, hud, resort, menu, clinic, agro, diamond, flash, bento3d, diagx, orbits, bleed, zen, immersive, collage]. Prioriza composiciones orgánicas y asimétricas (immersive, collage, diagx, orbits, bleed, magazine, float, bento3d, zen, diamond, diagonal, split, portal) y NUNCA repitas el anterior.
  "value_proposition": "la promesa comercial de alto calibre del negocio: transforma la idea básica del brief en un beneficio concreto, específico y creíble. PROHIBIDO copiar frases literales del brief: reescríbelas con vocabulario de agencia senior",
  "image_prompt_en": "hyper-detailed commercial editorial photography prompt IN ENGLISH of EXACTLY what the brief describes (its real products, workspace or service in action): subject, environment, cinematic 8k lighting setup, lens and mood. The image must NEVER contain text, logos or watermarks"
 }
@@ -953,10 +955,19 @@ const INDUSTRY_CATEGORY_LABELS: Record<IndustryType, string> = {
 };
 
 /** 🧠 PASADA 1: analiza el brief (fuente maestra) y devuelve rubro + marca +
- *  producto + tema + layout + promesa. Con semilla creativa y evitación del
- *  tema/layout anterior para que CADA clic genere algo 100% diferente. */
+ *  producto + tema + layout + promesa. Con semilla creativa, rotación de ángulo
+ *  comercial y evitación del tema/layout anterior para que CADA clic sea único. */
+const CREATIVE_ANGLES = [
+  'Contraste radical e impacto inmediato de escasez (urgencia limpia, sin gritar)',
+  'Editorial aspiracional de lujo local y exclusividad artesanal',
+  'Cercanía humana y orgullo del territorio con beneficio tangible al instante',
+  'Disrupción tecnológica/moderna y rapidez en 1 clic sin complicaciones',
+  'Prueba social y autoridad de experto número 1 en el municipio',
+] as const;
+
 export async function generateArtDirection(input: CampaignInput): Promise<ArtDirection> {
-  const seedLine = `SEMILLA CREATIVA #${Math.floor(Math.random() * 9000 + 1000)}: usa un ángulo creativo, una metáfora y una composición totalmente nuevas en esta generación.`;
+  const angle = CREATIVE_ANGLES[Math.floor(Math.random() * CREATIVE_ANGLES.length)];
+  const seedLine = `SEMILLA CREATIVA #${Math.floor(Math.random() * 9000 + 1000)} · ÁNGULO OBLIGATORIO: ${angle}. Usa una metáfora, un titular y una composición totalmente nuevas.`;
   const avoidLine =
     input.previousThemeId || input.previousLayoutId
       ? `La generación ANTERIOR usó tema "${input.previousThemeId ?? '—'}" y layout "${input.previousLayoutId ?? '—'}": ELIGE tema y layout DIFERENTES esta vez.`
@@ -1753,4 +1764,37 @@ export function synthesizeSmartCampaignFromBrief(
   const art = synthesizeArtDirection(input, opts);
   const campaign = synthesizeCampaign(input, art);
   return { art, campaign };
+}
+
+/**
+ * 🎨 V22.0 · Extracción cromática de marca con Gemini Vision (opcional / respaldo CORS):
+ * Deducirá exactamente los 3 colores hexadecimales principales del logo o imagen del comercio.
+ */
+const PALETTE_SCHEMA: Record<string, unknown> = {
+  type: SchemaType.OBJECT,
+  properties: {
+    colors: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
+  },
+  required: ['colors'],
+};
+
+export async function extractBrandPaletteWithAI(
+  imageDataUrl: string,
+  source: 'logo' | 'photo' = 'logo',
+): Promise<ExtractedBrandPalette | null> {
+  const m = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/.exec(imageDataUrl.trim());
+  if (!m) return null;
+  try {
+    const raw = await callGemini({
+      prompt:
+        'Analiza este logo o fotografía de marca y extrae EXACTAMENTE los 3 colores hexadecimales más representativos (#RRGGBB) ordenados así: [primario_estructural, acento_vibrante, secundario_complementario]. Evita blanco puro (#ffffff) o negro puro (#000000) salvo que sean únicos.',
+      image: { mimeType: m[1], data: m[2] },
+      temperature: 0.15,
+      responseSchema: PALETTE_SCHEMA,
+    });
+    const parsed = parseAiJson<{ colors?: string[] }>(raw);
+    return Array.isArray(parsed.colors) ? buildPaletteFromHexTriplet(parsed.colors, source) : null;
+  } catch {
+    return null;
+  }
 }

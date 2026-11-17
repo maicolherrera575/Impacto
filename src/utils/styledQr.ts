@@ -1,22 +1,23 @@
 import * as QRCode from 'qrcode';
+import { contrastTextOn, mixHex, relativeLuminance } from './colorPalette';
 
 /**
- * 🎨 V19.0 · Generador Dinámico de Códigos QR de Nivel Agencia.
+ * 🎨 V22.0 · Generador Dinámico de Códigos QR de Alta Joyería.
  *
  * - Usa corrección de errores nivel 'H' (30%) para permitir insignia/logo central
  *   sin sacrificar escaneabilidad en cámaras móviles.
- * - Adapta automáticamente el color de los "ojos" (finder patterns) y los
- *   módulos de datos a la paleta del tema elegido, manteniendo contraste ≥ 7:1.
- * - Soporta 4 estilos geométricos ('rounded' | 'dots' | 'luxury' | 'sharp')
- *   e integra el logo del negocio o sus iniciales tipográficas en el centro.
+ * - Soporta paleta dinámica extraída del logo/foto (`brandColors`) o del tema.
+ * - `cyber`: módulos geométricos neón + ojos cuadrados precisos.
+ * - `luxury`: puntos circulares suaves con degradado sutil oro → negro.
  */
 
-export type QrStyle = 'rounded' | 'dots' | 'luxury' | 'sharp';
+export type QrStyle = 'rounded' | 'dots' | 'luxury' | 'cyber' | 'sharp';
 
 export const QR_STYLES: Array<{ id: QrStyle; label: string; hint: string }> = [
   { id: 'rounded', label: '🟣 Orgánico Redondeado', hint: 'Módulos suaves + ojos curvos' },
   { id: 'dots', label: '🔵 Puntos de Precisión', hint: 'Matriz circular moderna' },
-  { id: 'luxury', label: '💎 Facetas de Lujo', hint: 'Diamantes + marco elegante' },
+  { id: 'luxury', label: '💎 Luxury Oro & Noir', hint: 'Puntos circulares + degradado oro a negro' },
+  { id: 'cyber', label: '⚡ Cyber / Tech Neón', hint: 'Bordes cortados + ojos cuadrados de precisión' },
   { id: 'sharp', label: '📐 Suizo Arquitectónico', hint: 'Geometría pura de alto contraste' },
 ];
 
@@ -46,7 +47,27 @@ const THEME_QR_PALETTES: Record<string, QrThemeColors> = {
   carbon: { dark: '#111318', eye: '#b91c1c', badgeBg: '#18181b', badgeText: '#fca5a5' },
 };
 
-export function themeQrPalette(themeId: string): QrThemeColors {
+export function themeQrPalette(
+  themeId: string,
+  brandColors?: { primary: string; accent: string; secondary?: string } | null,
+): QrThemeColors {
+  if (brandColors?.primary && brandColors?.accent) {
+    // Asegura contraste >= 7:1 sobre fondo blanco manteniendo el matiz real de marca
+    const dark =
+      relativeLuminance(brandColors.primary) > 0.16
+        ? mixHex(brandColors.primary, '#070b14', 0.72)
+        : brandColors.primary;
+    const eye =
+      relativeLuminance(brandColors.accent) > 0.38
+        ? mixHex(brandColors.accent, '#0f172a', 0.48)
+        : brandColors.accent;
+    return {
+      dark,
+      eye,
+      badgeBg: brandColors.primary,
+      badgeText: contrastTextOn(brandColors.primary),
+    };
+  }
   return THEME_QR_PALETTES[themeId] ?? THEME_QR_PALETTES.emerald;
 }
 
@@ -99,33 +120,47 @@ function drawFinderEye(
   const innerCut = 5 * cell;
   const pupil = 3 * cell;
 
-  const outerRadius = style === 'sharp' ? cell * 0.35 : style === 'dots' ? cell * 2.2 : cell * 1.65;
-  const cutRadius = style === 'sharp' ? cell * 0.2 : style === 'dots' ? cell * 1.55 : cell * 1.1;
-  const pupilRadius = style === 'sharp' ? cell * 0.15 : style === 'dots' ? cell * 1.45 : cell * 0.85;
+  const outerRadius =
+    style === 'cyber' || style === 'sharp'
+      ? cell * 0.12
+      : style === 'dots' || style === 'luxury'
+        ? cell * 2.15
+        : cell * 1.65;
+  const cutRadius =
+    style === 'cyber' || style === 'sharp'
+      ? cell * 0.08
+      : style === 'dots' || style === 'luxury'
+        ? cell * 1.5
+        : cell * 1.1;
+  const pupilRadius =
+    style === 'cyber' || style === 'sharp'
+      ? 0
+      : style === 'dots' || style === 'luxury'
+        ? cell * 1.4
+        : cell * 0.85;
 
   // Marco exterior del ojo
   ctx.fillStyle = eyeColor;
-  drawRoundedRect(ctx, x, y, outer, outer, outerRadius);
-  ctx.fill();
+  if (style === 'cyber' || style === 'sharp') {
+    ctx.fillRect(x, y, outer, outer);
+  } else {
+    drawRoundedRect(ctx, x, y, outer, outer, outerRadius);
+    ctx.fill();
+  }
 
   // Anillo blanco interior
   ctx.fillStyle = '#ffffff';
-  drawRoundedRect(ctx, x + cell, y + cell, innerCut, innerCut, cutRadius);
-  ctx.fill();
+  if (style === 'cyber' || style === 'sharp') {
+    ctx.fillRect(x + cell, y + cell, innerCut, innerCut);
+  } else {
+    drawRoundedRect(ctx, x + cell, y + cell, innerCut, innerCut, cutRadius);
+    ctx.fill();
+  }
 
   // Pupila central
   ctx.fillStyle = darkColor;
-  if (style === 'luxury') {
-    const cx = x + outer / 2;
-    const cy = y + outer / 2;
-    const rad = pupil * 0.62;
-    ctx.beginPath();
-    ctx.moveTo(cx, cy - rad);
-    ctx.lineTo(cx + rad, cy);
-    ctx.lineTo(cx, cy + rad);
-    ctx.lineTo(cx - rad, cy);
-    ctx.closePath();
-    ctx.fill();
+  if (style === 'cyber' || style === 'sharp') {
+    ctx.fillRect(x + 2 * cell, y + 2 * cell, pupil, pupil);
   } else {
     drawRoundedRect(ctx, x + 2 * cell, y + 2 * cell, pupil, pupil, pupilRadius);
     ctx.fill();
@@ -146,6 +181,7 @@ export interface StyledQrOptions {
   value: string;
   style?: QrStyle;
   themeId?: string;
+  brandColors?: { primary: string; accent: string; secondary?: string } | null;
   logoUrl?: string | null;
   businessName?: string;
   size?: number;
@@ -154,7 +190,7 @@ export interface StyledQrOptions {
 export async function generateStyledQrDataUrl(options: StyledQrOptions): Promise<string> {
   const size = options.size ?? 540;
   const style: QrStyle = options.style ?? 'rounded';
-  const palette = themeQrPalette(options.themeId ?? 'emerald');
+  const palette = themeQrPalette(options.themeId ?? 'emerald', options.brandColors);
   const targetValue = options.value?.trim() || 'https://impacto-tawny.vercel.app';
 
   const qr = QRCode.create(targetValue, { errorCorrectionLevel: 'H' });
@@ -182,7 +218,21 @@ export async function generateStyledQrDataUrl(options: StyledQrOptions): Promise
   const clearRadiusCells = n * 0.145;
 
   // 1. Dibujar módulos de datos (saltando ojos y centro reservado)
-  ctx.fillStyle = palette.dark;
+  if (style === 'luxury') {
+    const grad = ctx.createLinearGradient(0, 0, size, size);
+    grad.addColorStop(0, options.brandColors ? palette.eye : '#9a6b06');
+    grad.addColorStop(0.55, '#1e1608');
+    grad.addColorStop(1, '#0b0a0c');
+    ctx.fillStyle = grad;
+  } else if (style === 'cyber') {
+    const grad = ctx.createLinearGradient(0, 0, size, size);
+    grad.addColorStop(0, options.brandColors ? palette.dark : '#062c43');
+    grad.addColorStop(1, options.brandColors ? palette.eye : '#3b0764');
+    ctx.fillStyle = grad;
+  } else {
+    ctx.fillStyle = palette.dark;
+  }
+
   for (let r = 0; r < n; r += 1) {
     for (let c = 0; c < n; c += 1) {
       if (!data[r * n + c]) continue;
@@ -194,21 +244,13 @@ export async function generateStyledQrDataUrl(options: StyledQrOptions): Promise
       const x = offset + c * cell;
       const y = offset + r * cell;
 
-      if (style === 'dots') {
+      if (style === 'dots' || style === 'luxury') {
         ctx.beginPath();
-        ctx.arc(x + cell / 2, y + cell / 2, cell * 0.42, 0, Math.PI * 2);
+        ctx.arc(x + cell / 2, y + cell / 2, cell * (style === 'luxury' ? 0.43 : 0.42), 0, Math.PI * 2);
         ctx.fill();
-      } else if (style === 'luxury') {
-        const cx = x + cell / 2;
-        const cy = y + cell / 2;
-        const rMod = cell * 0.48;
-        ctx.beginPath();
-        ctx.moveTo(cx, cy - rMod);
-        ctx.lineTo(cx + rMod, cy);
-        ctx.lineTo(cx, cy + rMod);
-        ctx.lineTo(cx - rMod, cy);
-        ctx.closePath();
-        ctx.fill();
+      } else if (style === 'cyber') {
+        const pad = cell * 0.08;
+        ctx.fillRect(x + pad, y + pad, cell - pad * 2, cell - pad * 2);
       } else if (style === 'rounded') {
         const pad = cell * 0.06;
         drawRoundedRect(ctx, x + pad, y + pad, cell - pad * 2, cell - pad * 2, cell * 0.34);
@@ -219,16 +261,24 @@ export async function generateStyledQrDataUrl(options: StyledQrOptions): Promise
     }
   }
 
-  // 2. Dibujar los 3 ojos con el color de acento del tema
-  drawFinderEye(ctx, offset, offset, cell, style, palette.eye, palette.dark);
-  drawFinderEye(ctx, offset + (n - 7) * cell, offset, cell, style, palette.eye, palette.dark);
-  drawFinderEye(ctx, offset, offset + (n - 7) * cell, cell, style, palette.eye, palette.dark);
+  // 2. Dibujar los 3 ojos con el color de acento del tema/marca
+  const cyberEyeColor = style === 'cyber' && !options.brandColors ? '#0284c7' : palette.eye;
+  const luxuryEyeColor = style === 'luxury' && !options.brandColors ? '#b47b09' : palette.eye;
+  const activeEyeColor = style === 'cyber' ? cyberEyeColor : style === 'luxury' ? luxuryEyeColor : palette.eye;
+  drawFinderEye(ctx, offset, offset, cell, style, activeEyeColor, palette.dark);
+  drawFinderEye(ctx, offset + (n - 7) * cell, offset, cell, style, activeEyeColor, palette.dark);
+  drawFinderEye(ctx, offset, offset + (n - 7) * cell, cell, style, activeEyeColor, palette.dark);
 
   // 3. Insignia central (logo del negocio o monograma tipográfico)
   const badgeSize = clearRadiusCells * 2 * cell * 0.88;
   const bx = size / 2 - badgeSize / 2;
   const by = size / 2 - badgeSize / 2;
-  const bRad = style === 'dots' ? badgeSize / 2 : badgeSize * 0.28;
+  const bRad =
+    style === 'dots' || style === 'luxury'
+      ? badgeSize / 2
+      : style === 'cyber' || style === 'sharp'
+        ? badgeSize * 0.12
+        : badgeSize * 0.28;
 
   // Halo blanco de separación para garantizar contraste
   ctx.fillStyle = '#ffffff';

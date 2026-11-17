@@ -51,6 +51,7 @@ import { ForensicInspector } from './ForensicInspector';
 import type { ForensicData } from './ForensicInspector';
 import { MarketingStudio } from './MarketingStudio';
 import { reportReasonMeta } from '../offers/ReportModal';
+import { ImpulsoLogo } from '../ui/ImpulsoLogo';
 
 interface AdminPanelProps {
   open: boolean;
@@ -536,29 +537,28 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
   return (
     <div className="fixed inset-0 z-[9999] flex items-end justify-center sm:items-center" role="dialog" aria-modal="true">
       {/* Sin onClick: tocar el fondo NUNCA cierra el Súper Panel (protege el trabajo del admin). */}
-      <div className="absolute inset-0 bg-slate-950/75 backdrop-blur-md animate-fade-in" aria-hidden="true" />
-      <div className="relative max-h-[94dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl border border-impulso-gold/25 bg-impulso-panel shadow-card sm:rounded-3xl md:w-[96vw] md:max-w-[1440px] md:h-[92dvh] md:max-h-[92dvh] animate-slide-up">
-        {/* Cabecera */}
-        <div className="sticky top-0 z-10 border-b border-white/5 bg-impulso-panel/95 px-5 py-4 backdrop-blur-xl">
-          <div className="flex items-center gap-3">
-            <div className="grid h-10 w-10 place-items-center rounded-xl border border-impulso-gold/40 bg-impulso-gold/10">
-              <ShieldCheck className="h-5 w-5 text-impulso-gold" />
-            </div>
+      <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-md animate-fade-in" aria-hidden="true" />
+      <div className="relative max-h-[94dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-[#070B14] shadow-[0_0_80px_-20px_rgba(59,130,246,0.22)] ring-1 ring-white/[0.07] sm:rounded-3xl md:w-[96vw] md:max-w-[1440px] md:h-[92dvh] md:max-h-[92dvh] animate-slide-up">
+        {/* Cabecera Dark Mode Premium (Apple / Vercel) */}
+        <div className="sticky top-0 z-10 bg-slate-950/85 px-5 py-4 backdrop-blur-2xl">
+          <div className="flex items-center gap-4">
+            <ImpulsoLogo size="sm" />
+            <div className="h-6 w-px bg-white/[0.08] hidden sm:block" />
             <div className="min-w-0 flex-1">
-              <h3 className="text-lg font-extrabold text-white">Súper Panel 👑</h3>
-              <p className="text-xs text-slate-400">Control total del municipio</p>
+              <h3 className="text-base font-extrabold tracking-tight text-white">Súper Panel</h3>
+              <p className="text-[11px] font-medium text-slate-400">Control total del municipio</p>
             </div>
             <button
               onClick={onClose}
               aria-label="Cerrar panel"
-              className="pressable grid h-9 w-9 place-items-center rounded-full border border-white/10 bg-slate-950/60 text-slate-300"
+              className="pressable grid h-9 w-9 place-items-center rounded-full bg-white/[0.05] text-slate-300 transition hover:bg-white/[0.1] hover:text-white"
             >
               <X className="h-5 w-5" />
             </button>
           </div>
 
           {/* Pestañas internas */}
-          <div className="mt-3 grid grid-cols-5 gap-1 rounded-2xl bg-slate-950/60 p-1">
+          <div className="mt-4 grid grid-cols-5 gap-1.5 rounded-2xl bg-slate-900/60 p-1.5">
             {(
               [
                 ['studio', '🚀 Agencia'],
@@ -572,14 +572,14 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
                 key={id}
                 onClick={() => setTab(id)}
                 className={cx(
-                  'pressable rounded-xl py-2 text-[10px] font-extrabold transition',
+                  'pressable rounded-xl py-2.5 text-[10px] font-extrabold transition',
                   tab === id
                     ? id === 'studio'
-                      ? 'bg-impulso-emerald/20 text-impulso-mint'
-                      : 'bg-impulso-gold/20 text-impulso-gold'
+                      ? 'bg-impulso-emerald/20 text-impulso-mint shadow-[0_0_30px_-8px_rgba(16,185,129,0.4)]'
+                      : 'bg-white/[0.08] text-white shadow-[0_0_35px_-12px_rgba(59,130,246,0.35)]'
                     : id === 'studio'
-                      ? 'text-impulso-mint/70 hover:text-impulso-mint'
-                      : 'text-slate-400 hover:text-slate-200'
+                      ? 'text-impulso-mint/70 hover:bg-white/[0.03] hover:text-impulso-mint'
+                      : 'text-slate-400 hover:bg-white/[0.03] hover:text-slate-200'
                 )}
               >
                 {label}
@@ -704,7 +704,7 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
                 </p>
               ) : (
                 filteredMerchants.map((m) => (
-                  <article key={m.id} className="rounded-3xl border border-white/10 bg-impulso-card p-4">
+                  <article key={m.id} className="rounded-3xl bg-slate-900/55 p-5 shadow-[0_0_40px_-18px_rgba(59,130,246,0.14)] ring-1 ring-white/[0.04] transition hover:bg-slate-900/75">
                     {m.role === 'admin' && (
                       <p className="mb-2 flex items-center gap-1.5 rounded-xl bg-impulso-gold/15 px-2.5 py-1.5 text-[11px] font-extrabold text-impulso-gold">
                         👑 Tu Cuenta Admin (Pruebas y Publicaciones)
@@ -878,8 +878,10 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
                 <article
                   key={o.id}
                   className={cx(
-                    'rounded-3xl border bg-impulso-card p-4',
-                    o.reports_count >= 1 ? 'border-impulso-rose/40' : 'border-white/10'
+                    'rounded-3xl bg-slate-900/55 p-4 ring-1 transition hover:bg-slate-900/75',
+                    o.reports_count >= 1
+                      ? 'shadow-[0_0_40px_-15px_rgba(244,63,94,0.24)] ring-impulso-rose/30'
+                      : 'ring-white/[0.04]'
                   )}
                 >
                   <div className="flex items-start gap-3">
@@ -1343,13 +1345,15 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
                 Sin órdenes de recarga por ahora. Cuando un comercio pague, aparecerá aquí 📥
               </p>
             ) : (
-              <div className="grid gap-2.5 md:grid-cols-2 xl:grid-cols-3 md:items-start">
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 md:items-start">
               {creditOrders.map((c) => (
                 <article
                   key={c.id}
                   className={cx(
-                    'rounded-3xl border bg-impulso-card p-4',
-                    c.status === 'pending' ? 'border-impulso-gold/30' : 'border-white/[0.08] opacity-70'
+                    'rounded-3xl bg-slate-900/55 p-4 ring-1 transition',
+                    c.status === 'pending'
+                      ? 'shadow-[0_0_40px_-15px_rgba(245,158,11,0.22)] ring-impulso-gold/25'
+                      : 'opacity-70 ring-white/[0.04]'
                   )}
                 >
                   <div className="flex items-start gap-3">

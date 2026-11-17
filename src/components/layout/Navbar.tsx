@@ -1,4 +1,5 @@
-import { LogOut, MapPin, Radar, ShieldCheck, Store, Zap } from 'lucide-react';
+import { LogOut, MapPin, Radar, ShieldCheck, Store } from 'lucide-react';
+import { ImpulsoLogo } from '../ui/ImpulsoLogo';
 import { MUNICIPIOS, categoryMeta } from '../../types';
 import type { Profile } from '../../types';
 import type { GeoStatus } from '../../utils/geo';
@@ -37,20 +38,12 @@ export function Navbar({
   return (
     <header className="fixed inset-x-0 top-0 z-40 border-b border-white/5 bg-impulso-night/85 backdrop-blur-xl">
       <div className="mx-auto flex h-16 max-w-4xl items-center gap-2 px-3">
-        {/* Logo */}
-        <div className="flex items-center gap-2.5">
-          <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-impulso-emerald to-teal-700 shadow-glow">
-            <Zap className="h-5 w-5 text-white" fill="currentColor" />
-          </div>
-          <div className="hidden leading-tight sm:block">
-            <p className="text-[17px] font-extrabold tracking-tight text-white">
-              Impulso<span className="text-brand-gradient">.</span>
-            </p>
-            <p className="hidden text-[10px] font-medium text-slate-400 md:block">
-              Radar de ofertas y comercios en vivo
-            </p>
-          </div>
-        </div>
+        {/* Logo oficial Impulso */}
+        <ImpulsoLogo
+          size="md"
+          hideTextOnMobile
+          subtitle="Radar de ofertas y comercios en vivo"
+        />
 
         <div className="ml-auto flex items-center gap-1.5">
           {/* Selector de municipio */}

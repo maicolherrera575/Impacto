@@ -27,6 +27,7 @@ import { Check, Copy, Dices, Download, ImagePlus, Loader2, Send, Sparkles, Trash
 import type { Offer, Profile } from '../../types';
 import { categoryMeta } from '../../types';
 import {
+  extractBrandPaletteWithAI,
   generateArtDirection,
   generateCampaignCopy,
   normSpaces,
@@ -35,6 +36,8 @@ import {
 } from '../../services/gemini.service';
 import type { ArtDirection, CampaignFocus, MarketingCampaign, PriceMode } from '../../services/gemini.service';
 import { loadBankPhoto, isPollinationsBlockImage, guessPhotoCategory, PHOTO_BANK, PHOTO_GALLERY_TABS } from '../../utils/commercialPhotoBank';
+import { extractPaletteFromImage } from '../../utils/colorPalette';
+import type { ExtractedBrandPalette } from '../../utils/colorPalette';
 import { generateStyledQrDataUrl, QR_STYLES } from '../../utils/styledQr';
 import type { QrStyle } from '../../utils/styledQr';
 import {
@@ -115,11 +118,13 @@ const AFFICHE_LAYOUTS: Array<{ id: Layout; label: string; hint: string }> = [
   { id: 'diamond', label: '💎 Luxury Diamond Showcase', hint: 'Recorte diamante + oro' },
   { id: 'flash', label: '⚡ Flash Promo Explosion', hint: 'Bandas de oferta relámpago' },
   { id: 'bento3d', label: '🌐 Futuristic Bento 3D', hint: 'Mosaico de cristal neón' },
-  // 💥 V21 · 4 composiciones asimétricas disruptivas (25–28)
+  // 💥 V21/V22 · composiciones asimétricas y orgánicas (25–30)
   { id: 'diagx', label: '📐 Split Diagonal Extremo', hint: 'Corte esquina a esquina + borde neón' },
   { id: 'orbits', label: '🌀 Círculos Intersectados', hint: 'Medallón + disco de precio sólido' },
   { id: 'bleed', label: '📰 Tipografía Sangrada', hint: 'Titular gigante que sangra los bordes' },
   { id: 'zen', label: '🍃 Bento Japonés Zen', hint: 'Cajas de 1px con mucho aire' },
+  { id: 'immersive', label: '🌊 Tipografía Inmersiva', hint: 'Foto + blend tipográfico + Long Shadow' },
+  { id: 'collage', label: '🧩 Collage Asimétrico', hint: 'Múltiples tomas + texto vertical lateral' },
 ];
 
 // 🎯 V21 · Estética de agencia: sellos SIN emojis (el afiche dibuja su
@@ -461,8 +466,13 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
   const lastQrStyleRef = useRef<QrStyle>(qrStyle);
   const lastPhotoUrlRef = useRef<string | null>(null);
 
-  // ── Fotografía ──
+  // ── Fotografía y Paleta Dinámica de Marca (V22) ──
   const [customPhoto, setCustomPhoto] = useState<string | null>(null);
+  const [extLogoUrl, setExtLogoUrl] = useState<string | null>(null);
+  const [brandPalette, setBrandPalette] = useState<ExtractedBrandPalette | null>(null);
+  const [useBrandPalette, setUseBrandPalette] = useState(true);
+  const [paletteBusy, setPaletteBusy] = useState(false);
+  const [surprising, setSurprising] = useState(false);
   const [photoZoom, setPhotoZoom] = useState(1);
   const [photoPosY, setPhotoPosY] = useState(0.5);
   const [photoBusy, setPhotoBusy] = useState(false);
@@ -542,8 +552,16 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     if (typeof d.photoPosY === 'number' && d.photoPosY >= 0 && d.photoPosY <= 1) setPhotoPosY(d.photoPosY);
     if (typeof d.fontIdx === 'number' && d.fontIdx >= 0 && d.fontIdx < AFFICHE_TYPOS.length) setFontIdx(d.fontIdx);
     if (typeof d.headlineScale === 'number' && d.headlineScale >= 0.8 && d.headlineScale <= 1.5) setHeadlineScale(d.headlineScale);
-    if (d.qrStyle === 'rounded' || d.qrStyle === 'dots' || d.qrStyle === 'luxury' || d.qrStyle === 'sharp') setQrStyle(d.qrStyle);
-    if (d.benefitStyle === 'auto' || d.benefitStyle === 'badges' || d.benefitStyle === 'bento' || d.benefitStyle === 'editorial' || d.benefitStyle === 'ribbons') {
+    if (d.qrStyle === 'rounded' || d.qrStyle === 'dots' || d.qrStyle === 'luxury' || d.qrStyle === 'cyber' || d.qrStyle === 'sharp') setQrStyle(d.qrStyle);
+    if (
+      d.benefitStyle === 'auto' ||
+      d.benefitStyle === 'badges' ||
+      d.benefitStyle === 'bento' ||
+      d.benefitStyle === 'editorial' ||
+      d.benefitStyle === 'ribbons' ||
+      d.benefitStyle === 'watermark' ||
+      d.benefitStyle === 'callouts'
+    ) {
       setBenefitStyle(d.benefitStyle);
     }
     if (d.dockVariant === 'auto' || d.dockVariant === 'corner' || d.dockVariant === 'centered' || d.dockVariant === 'glass') {
@@ -635,6 +653,9 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     setCustomWaGreeting('');
     setExternalUrl('');
     setCustomPhoto(null);
+    setExtLogoUrl(null);
+    setBrandPalette(null);
+    setUseBrandPalette(true);
     setPhotoZoom(1);
     setPhotoPosY(0.5);
     setFontIdx(0);
@@ -854,17 +875,41 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     () => (mode === 'plataforma' ? (merchants.find((x) => x.id === merchantId)?.logo_thumb ?? null) : null),
     [mode, merchants, merchantId],
   );
+  const effectiveLogoUrl = mode === 'plataforma' ? selectedMerchantLogo : extLogoUrl;
+  const activeBrandPalette = useBrandPalette ? brandPalette : null;
   const activeThemeId = AFFICHE_THEMES[themeIdx]?.id ?? 'marble';
 
-  // V19: QR vectorial personalizado por tema, con ojos redondeados/diamante,
-  // alto contraste garantizado e iniciales o logo del negocio en el centro.
+  // 🎨 V22.0 · Extracción automática de paleta de color desde el logo del comercio
+  // o logo subido (si hay logo, no forzamos temas genéricos encima de su identidad).
+  useEffect(() => {
+    if (!effectiveLogoUrl) return;
+    let alive = true;
+    void extractPaletteFromImage(effectiveLogoUrl, 'logo').then((pal) => {
+      if (!alive || !pal) return;
+      setBrandPalette(pal);
+      setUseBrandPalette(true);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [effectiveLogoUrl]);
+
+  // V19/V22: QR vectorial personalizado por tema o paleta de marca extraída,
+  // con ojos personalizados, alto contraste e iniciales o logo del negocio en el centro.
   useEffect(() => {
     let alive = true;
     generateStyledQrDataUrl({
       value: qrTarget,
       style: qrStyle,
       themeId: activeThemeId,
-      logoUrl: selectedMerchantLogo,
+      brandColors: activeBrandPalette
+        ? {
+            primary: activeBrandPalette.primary,
+            accent: activeBrandPalette.accent,
+            secondary: activeBrandPalette.secondary,
+          }
+        : null,
+      logoUrl: effectiveLogoUrl,
       businessName: brand.name || 'Impulso',
       size: 540,
     })
@@ -877,7 +922,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     return () => {
       alive = false;
     };
-  }, [qrTarget, qrStyle, activeThemeId, selectedMerchantLogo, brand.name]);
+  }, [qrTarget, qrStyle, activeThemeId, activeBrandPalette, effectiveLogoUrl, brand.name]);
 
   // V11: embebe el CSS de las Google Fonts UNA vez para que la exportación
   // con html-to-image salga con la tipografía de agencia real (no la fallback).
@@ -901,6 +946,8 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     headlineScale,
     benefitStyle,
     dockVariant,
+    brandPalette: activeBrandPalette,
+    logoUrl: effectiveLogoUrl,
     brand: {
       name: brand.name,
       slogan: dockSlogan,
@@ -1003,10 +1050,9 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       setDetectedCategory(art.categoryLabel);
       const bizName = brand.name.trim() || art.brandName;
       const product = brand.product.trim() || art.productTitle;
-      // ── V21.0 · HIPER-VARIABILIDAD COHERENTE POR ARQUETIPOS (PROHIBIDO REPETIR):
-      // Alterna obligatoriamente entre Estilo 1 (Asimétrico Neón + QR esquina),
-      // Estilo 2 (Suizo Mármol Serif + QR centrado) y Estilo 3 (Editorial Full-Bleed + QR cristal).
-      const picked = applyHyperVariability();
+      // ── V21/V22 · HIPER-VARIABILIDAD COHERENTE POR ARQUETIPOS (si hay logo, respeta su paleta):
+      const hasActiveLogo = Boolean(effectiveLogoUrl && useBrandPalette && brandPalette);
+      const picked = applyHyperVariability({ preserveBrandPalette: hasActiveLogo });
       const ti = picked.themeIdx;
       const nextLayout = picked.layout;
 
@@ -1091,8 +1137,12 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       if (synthetic) {
         toast.info('⚡ IA saturada: campaña generada por el motor sintético local (100% completa)');
       }
-      const themeLabel = ti >= 0 ? AFFICHE_THEMES[ti].label : art.themeId;
-      toast.success(`✨ ¡${picked.styleLabel}! Tema ${themeLabel} + layout ${nextLayout.toUpperCase()} aplicados`);
+      const themeLabel = activeBrandPalette
+        ? `Paleta de marca (${activeBrandPalette.primary})`
+        : ti >= 0
+          ? AFFICHE_THEMES[ti].label
+          : art.themeId;
+      toast.success(`✨ ¡${picked.styleLabel}! ${themeLabel} + layout ${nextLayout.toUpperCase()} aplicados`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'No se pudo generar la campaña');
     } finally {
@@ -1100,7 +1150,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     }
   }
 
-  /** 📷 Subida de foto propia: redimensionada y cacheada en memoria. */
+  /** 📷 Subida de foto propia: redimensionada y con extracción automática de paleta. */
   function handlePhotoFile(file: File | undefined): void {
     if (!file) return;
     const reader = new FileReader();
@@ -1115,12 +1165,83 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
         if (!ctx) return;
         ctx.drawImage(img, 0, 0, c.width, c.height);
         photoGenRef.current += 1; // invalida descargas IA en curso
-        setCustomPhoto(c.toDataURL('image/jpeg', 0.88));
-        toast.success('📷 Foto del cliente lista (0 bytes en la base de datos)');
+        const dataUrl = c.toDataURL('image/jpeg', 0.88);
+        setCustomPhoto(dataUrl);
+        if (!effectiveLogoUrl) {
+          void extractPaletteFromImage(dataUrl, 'photo').then((pal) => {
+            if (!pal) return;
+            setBrandPalette(pal);
+            setUseBrandPalette(true);
+            toast.success(`🎨 Paleta armonizada a tu foto (${pal.colors.join(' · ')})`);
+          });
+        } else {
+          toast.success('📷 Foto del cliente lista (0 bytes en la base de datos)');
+        }
       };
       img.src = String(reader.result);
     };
     reader.readAsDataURL(file);
+  }
+
+  /** 🏷️ Subida de logo del cliente externo: extrae sus 3 colores al instante. */
+  function handleLogoFile(file: File | undefined): void {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, 320 / Math.max(img.width, img.height));
+        const c = document.createElement('canvas');
+        c.width = Math.round(img.width * scale);
+        c.height = Math.round(img.height * scale);
+        const ctx = c.getContext('2d');
+        if (!ctx) return;
+        ctx.drawImage(img, 0, 0, c.width, c.height);
+        const dataUrl = c.toDataURL('image/png');
+        setExtLogoUrl(dataUrl);
+        toast.success('🏷️ Logo cargado: extrayendo identidad cromática…');
+      };
+      img.src = String(reader.result);
+    };
+    reader.readAsDataURL(file);
+  }
+
+  /** ✨ Gemini Vision: analiza el logo o foto actual para deducir 3 colores hex exactos. */
+  async function refinePaletteWithAI(): Promise<void> {
+    const src = effectiveLogoUrl || effectivePhoto;
+    if (!src) {
+      toast.info('Sube un logo o fotografía primero para analizar sus colores con Gemini Vision');
+      return;
+    }
+    setPaletteBusy(true);
+    try {
+      let dataUrl = src;
+      if (!src.startsWith('data:')) {
+        const img = await loadImage(src);
+        const off = document.createElement('canvas');
+        off.width = 256;
+        off.height = 256;
+        const octx = off.getContext('2d');
+        if (octx) {
+          octx.drawImage(img, 0, 0, 256, 256);
+          dataUrl = off.toDataURL('image/jpeg', 0.85);
+        }
+      }
+      const sourceKind = effectiveLogoUrl ? 'logo' : 'photo';
+      const aiPal = await extractBrandPaletteWithAI(dataUrl, sourceKind);
+      const pal = aiPal ?? (await extractPaletteFromImage(dataUrl, sourceKind));
+      if (!pal) {
+        toast.error('No se pudieron extraer los colores de esa imagen');
+        return;
+      }
+      setBrandPalette(pal);
+      setUseBrandPalette(true);
+      toast.success(`✨ Paleta de marca aplicada: ${pal.colors.join(' · ')}`);
+    } catch {
+      toast.error('No se pudo analizar la paleta ahora');
+    } finally {
+      setPaletteBusy(false);
+    }
   }
 
   /** 🎨 Foto publicitaria IA (pollinations) CON GUARDIA: si el motor devuelve
@@ -1186,11 +1307,11 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
   }
 
   /**
-   * 🧬 V21.0 · Motor de Hiper-Variabilidad Coherente:
-   * Enlaza Layout + Emparejamiento Tipográfico + Paleta/Textura + Posición de QR + Beneficios
-   * en 3 arquetipos élite irrepetibles (jamás permite dos generaciones consecutivas similares).
+   * 🧬 V22.0 · Motor de Hiper-Variabilidad Coherente:
+   * Enlaza Layout (incluidos los orgánicos immersive/collage) + Emparejamiento Tipográfico
+   * + Paleta/Textura (respetando logo si existe) + Posición de QR + Beneficios fluidos.
    */
-  function applyHyperVariability(): { themeIdx: number; layout: Layout; styleLabel: string } {
+  function applyHyperVariability(opts?: { preserveBrandPalette?: boolean }): { themeIdx: number; layout: Layout; styleLabel: string } {
     const groups: Array<{
       id: 0 | 1 | 2;
       styleLabel: string;
@@ -1199,33 +1320,37 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       fontIndices: number[];
       dockVariant: Exclude<DockVariant, 'auto'>;
       benefits: Array<Exclude<BenefitPresentation, 'auto'>>;
+      qrStyles: QrStyle[];
     }> = [
       {
         id: 0,
-        styleLabel: 'Estilo 1 · Neón Asimétrico',
-        layouts: ['diagx', 'split', 'diagonal', 'bento3d', 'cyber'],
+        styleLabel: 'Estilo 1 · Cyber Neón & Collage',
+        layouts: ['collage', 'diagx', 'split', 'diagonal', 'bento3d', 'cyber'],
         themeIds: ['cyber', 'aurora', 'oceano', 'carbon'],
-        fontIndices: [0, 3, 5], // Display gruesas: Bebas+Montserrat, Anton+Outfit, Archivo+Montserrat
+        fontIndices: [0, 3, 5],
         dockVariant: 'corner',
-        benefits: ['ribbons', 'bento'],
+        benefits: ['ribbons', 'bento', 'watermark'],
+        qrStyles: ['cyber', 'sharp'],
       },
       {
         id: 1,
         styleLabel: 'Estilo 2 · Suizo & Mármol Serif',
         layouts: ['swiss', 'zen', 'vip', 'arc', 'clinic'],
         themeIds: ['marble', 'clinic', 'slate', 'arena'],
-        fontIndices: [1, 6], // Serif elegante / Suiza: Playfair+Outfit, Bebas+Space
+        fontIndices: [1, 6],
         dockVariant: 'centered',
-        benefits: ['editorial', 'bento'],
+        benefits: ['callouts', 'editorial', 'bento'],
+        qrStyles: ['luxury', 'dots'],
       },
       {
         id: 2,
-        styleLabel: 'Estilo 3 · Editorial Full-Bleed',
-        layouts: ['magazine', 'bleed', 'orbits', 'float', 'portal'],
+        styleLabel: 'Estilo 3 · Inmersivo Full-Bleed',
+        layouts: ['immersive', 'magazine', 'bleed', 'orbits', 'float', 'portal'],
         themeIds: ['obsidian', 'emerald', 'wood', 'terracotta', 'vino', 'kraft'],
-        fontIndices: [2, 4, 7], // Sans-Serif limpias: Space+Jakarta, Montserrat+Jakarta, Archivo+Outfit
+        fontIndices: [2, 4, 7],
         dockVariant: 'glass',
-        benefits: ['badges', 'editorial'],
+        benefits: ['callouts', 'watermark', 'badges', 'editorial'],
+        qrStyles: ['luxury', 'rounded', 'dots'],
       },
     ];
 
@@ -1246,8 +1371,10 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       themeCandidates[Math.floor(Math.random() * themeCandidates.length)] ??
       fallbackThemes[Math.floor(Math.random() * fallbackThemes.length)] ??
       { idx: 0 };
-    setThemeIdx(pickedTheme.idx);
-    lastThemeIdxRef.current = pickedTheme.idx;
+    if (!opts?.preserveBrandPalette) {
+      setThemeIdx(pickedTheme.idx);
+      lastThemeIdxRef.current = pickedTheme.idx;
+    }
 
     const fontPool = chosenGroup.fontIndices.filter((idx) => idx !== lastFontIdxRef.current && idx < AFFICHE_TYPOS.length);
     const nextFont =
@@ -1264,28 +1391,131 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
 
     setDockVariant(chosenGroup.dockVariant);
 
-    const qrPool = QR_STYLES.filter((q) => q.id !== lastQrStyleRef.current);
-    const nextQr = qrPool[Math.floor(Math.random() * qrPool.length)] ?? QR_STYLES[0];
-    setQrStyle(nextQr.id);
-    lastQrStyleRef.current = nextQr.id;
+    const qrPool = chosenGroup.qrStyles.filter((id) => id !== lastQrStyleRef.current);
+    const nextQr = qrPool[Math.floor(Math.random() * qrPool.length)] ?? chosenGroup.qrStyles[0] ?? 'rounded';
+    setQrStyle(nextQr);
+    lastQrStyleRef.current = nextQr;
 
-    return { themeIdx: pickedTheme.idx, layout: nextLayout, styleLabel: chosenGroup.styleLabel };
+    return { themeIdx: opts?.preserveBrandPalette ? themeIdx : pickedTheme.idx, layout: nextLayout, styleLabel: chosenGroup.styleLabel };
   }
 
-  /** 🎲 V11/V21 · Sorpréndeme: dispara un arquetipo visual distinto al actual + foto nueva HD. */
-  function surpriseDesign(): void {
-    const picked = applyHyperVariability();
-    void loadBankPhotoFresh(
-      briefText.trim() || `${brand.name} ${brand.slogan} ${brand.product}`,
-      lastPhotoUrlRef.current,
-    ).then((p) => {
-      if (p) {
-        lastPhotoUrlRef.current = p;
-        setCustomPhoto(p);
+  /**
+   * 🎲 V22.0 · Sorpréndeme Implacable:
+   * No solo cambia tema: rota arquitectura orgánica + carga foto diferente + solicita
+   * a Gemini un ángulo comercial fresco, regenera titular, sello y reordena beneficios.
+   */
+  async function surpriseDesign(): Promise<void> {
+    if (surprising) return;
+    setSurprising(true);
+    setPhotoSeed((v) => v + 1);
+    const genId = ++photoGenRef.current;
+
+    const hasActiveLogo = Boolean(effectiveLogoUrl && useBrandPalette && brandPalette);
+    const picked = applyHyperVariability({ preserveBrandPalette: hasActiveLogo });
+
+    const briefQuery = briefText.trim() || `${brand.name} ${brand.slogan} ${brand.product}`.trim();
+    const freshBankPromise = loadBankPhotoFresh(briefQuery || 'comercio local profesional', lastPhotoUrlRef.current).then(
+      (p) => {
+        if (p && photoGenRef.current === genId) {
+          lastPhotoUrlRef.current = p;
+          setCustomPhoto(p);
+        }
+        return p;
+      },
+    );
+
+    const focuses: CampaignFocus[] = ['remate', 'prestigio', 'confianza', 'viral'];
+    const altFocus = focuses.filter((f) => f !== focus)[Math.floor(Math.random() * (focuses.length - 1))] ?? 'viral';
+    const merchantCategory = merchants.find((m) => m.id === merchantId)?.category;
+
+    const input: Parameters<typeof generateArtDirection>[0] = {
+      businessName: brand.name,
+      slogan: brand.slogan,
+      brief: briefText || `${brand.name} ${brand.slogan} ${brand.product}`.trim(),
+      product: brand.product,
+      priceMode,
+      normalPrice: brand.normalPrice,
+      promoPrice: brand.promoPrice,
+      priceLabel: texts.priceLabel,
+      address: brand.address,
+      municipality: brand.municipality || 'Gachetá',
+      focus: altFocus,
+      targetUrl: primaryLink || brand.url,
+      categoryHint: merchantCategory,
+      previousThemeId: AFFICHE_THEMES[lastThemeIdxRef.current]?.id,
+      previousLayoutId: picked.layout,
+    };
+
+    try {
+      toast.info('🎲 Sorpréndeme · Creando nuevo ángulo creativo y póster único con IA…');
+      let art: ArtDirection;
+      let res: MarketingCampaign;
+      try {
+        art = await withTimeout(generateArtDirection(input), 6500);
+        res = await withTimeout(generateCampaignCopy({ ...input, businessName: brand.name || art.brandName, product: brand.product || art.productTitle }, art), 7500);
+      } catch {
+        const smart = synthesizeSmartCampaignFromBrief(input, {
+          previousThemeId: input.previousThemeId,
+          previousLayoutId: picked.layout,
+          seed: Math.floor(Math.random() * 100000),
+        });
+        art = smart.art;
+        res = smart.campaign;
       }
-    });
-    const themeName = AFFICHE_THEMES[picked.themeIdx]?.label.split(' ').slice(1).join(' ') ?? '';
-    toast.success(`🎲 ${picked.styleLabel}: ${themeName} + ${picked.layout.toUpperCase()}`);
+
+      // Reordena los 3 beneficios aleatoriamente para romper simetrías fijas
+      const shuffledBenefits = [...res.benefits];
+      for (let i = shuffledBenefits.length - 1; i > 0; i -= 1) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffledBenefits[i], shuffledBenefits[j]] = [shuffledBenefits[j], shuffledBenefits[i]];
+      }
+
+      setCampaign(res);
+      setTexts((prev) => ({
+        plain: normSpaces(res.headline.plain) || prev.plain,
+        highlight: normSpaces(res.headline.highlight) || prev.highlight,
+        sub: normSpaces(res.sub) || prev.sub,
+        benefits: [
+          normSpaces(shuffledBenefits[0]) || prev.benefits[0] || '',
+          normSpaces(shuffledBenefits[1]) || prev.benefits[1] || '',
+          normSpaces(shuffledBenefits[2]) || prev.benefits[2] || '',
+        ],
+        cta: normSpaces(res.cta) || prev.cta,
+        priceLabel: res.priceLabel ?? prev.priceLabel,
+      }));
+      if (res.badgeText) {
+        setBadgeCustom(normSpaces(res.badgeText));
+        setBadgeMode('custom');
+      }
+
+      // Intenta foto IA a medida en segundo plano con guardia anti-banner
+      void freshBankPromise.then(async () => {
+        try {
+          const seed = Math.floor(Math.random() * 999999);
+          const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(art.imagePromptEn)}?width=1080&height=1080&nologo=true&enhance=true&seed=${seed}`;
+          const img = await loadImage(url);
+          if (isPollinationsBlockImage(img)) return;
+          const off = document.createElement('canvas');
+          off.width = 1080;
+          off.height = 1080;
+          const octx = off.getContext('2d');
+          if (!octx) return;
+          octx.drawImage(img, 0, 0, 1080, 1080);
+          if (photoGenRef.current === genId) {
+            setCustomPhoto(off.toDataURL('image/jpeg', 0.92));
+          }
+        } catch {
+          /* ya colocamos la foto HD distinta del banco */
+        }
+      });
+
+      const themeName = hasActiveLogo
+        ? 'Identidad del Logo'
+        : AFFICHE_THEMES[picked.themeIdx]?.label.split(' ').slice(1).join(' ') ?? '';
+      toast.success(`🎲 ¡Póster reinventado! ${picked.styleLabel} (${themeName} + ${picked.layout.toUpperCase()})`);
+    } finally {
+      setSurprising(false);
+    }
   }
 
   async function copyText(text: string, key: string, label: string): Promise<void> {
@@ -1654,9 +1884,9 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
 
   const hasBrand = mode === 'plataforma' ? merchantId !== '' : extName.trim() !== '';
   const inputCls =
-    'w-full rounded-xl border border-white/10 bg-slate-950/60 px-3.5 py-2.5 text-sm font-medium text-white placeholder:text-slate-600 outline-none focus:border-impulso-emerald/60';
-  const labelCls = 'text-[10px] font-extrabold uppercase tracking-wider text-slate-500';
-  const cardCls = 'space-y-2.5 rounded-3xl border border-white/10 bg-impulso-card p-3.5';
+    'w-full rounded-xl bg-slate-950/75 px-3.5 py-2.5 text-sm font-medium text-white placeholder:text-slate-600 ring-1 ring-white/[0.06] outline-none transition focus:ring-impulso-emerald/60 focus:shadow-[0_0_24px_-8px_rgba(16,185,129,0.28)]';
+  const labelCls = 'text-[10px] font-extrabold uppercase tracking-wider text-slate-400';
+  const cardCls = 'space-y-3.5 rounded-3xl bg-slate-900/55 p-4 backdrop-blur-xl ring-1 ring-white/[0.05]';
 
   // Preview: artboard HTML escalado (540 → 300px de ancho visible).
   const PREVIEW_W = 300;
@@ -1681,36 +1911,38 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
         </div>
       </div>
 
-      {/* Cabecera */}
-      <div className="rounded-3xl border border-impulso-emerald/30 bg-gradient-to-br from-impulso-emerald/10 to-transparent p-4 lg:col-span-12">
-        <p className="flex items-center gap-2 text-base font-extrabold text-impulso-mint">
-          <Sparkles className="h-5 w-5" /> Agencia IA & Multi-WhatsApp Studio
-        </p>
-        <p className="mt-1 text-[11px] leading-relaxed text-slate-400">
-          Motor de diseño editorial HTML a 1080p: 16 fondos de agencia y 8 estilos tipográficos en cascada, 16
-          arquitecturas que cambian el afiche en vivo, letra gigante nivel billboard, galería visual de 160+ fotos HD con
-          miniaturas y lanzador directo a WhatsApp, Instagram, Facebook y TikTok. La IA SIEMPRE llena la campaña — 0 bytes
-          en la base de datos. Todo se autoguarda mientras trabajas.
-        </p>
-        <button
-          onClick={clearAllDraft}
-          className="pressable mt-2 flex items-center gap-1.5 rounded-xl border border-white/10 bg-slate-950/40 px-3 py-1.5 text-[10px] font-bold text-slate-400 hover:text-impulso-rose"
-        >
-          <Trash2 className="h-3 w-3" /> Limpiar borrador (empezar desde cero)
-        </button>
+      {/* Cabecera Apple / Vercel Dark Mode Premium */}
+      <div className="rounded-3xl bg-gradient-to-br from-slate-900/80 via-slate-900/50 to-slate-950/80 p-5 shadow-[0_0_40px_-15px_rgba(59,130,246,0.22)] ring-1 ring-white/[0.06] lg:col-span-12">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="flex items-center gap-2 text-base font-extrabold tracking-tight text-white">
+              <Sparkles className="h-5 w-5 text-impulso-mint" /> Agencia IA & Multi-WhatsApp Studio
+            </p>
+            <p className="mt-1.5 max-w-4xl text-[11px] leading-relaxed text-slate-400">
+              Motor de diseño editorial HTML a 1080p: extracción automática de paleta desde el logo, 30 composiciones
+              orgánicas y asimétricas en vivo, QR de alta joyería y lanzador multired con IA — 0 bytes en base de datos.
+            </p>
+          </div>
+          <button
+            onClick={clearAllDraft}
+            className="pressable flex items-center gap-1.5 rounded-xl bg-white/[0.04] px-3 py-2 text-[10px] font-bold text-slate-400 transition hover:bg-white/[0.08] hover:text-impulso-rose"
+          >
+            <Trash2 className="h-3 w-3" /> Limpiar borrador
+          </button>
+        </div>
       </div>
 
       {/* ═══ COLUMNA IZQUIERDA: datos, brief IA, foto y diseño ═══ */}
-      <div className="space-y-3 lg:col-span-4 lg:max-h-[calc(92dvh-9.5rem)] lg:overflow-y-auto lg:pr-1.5 lg:pb-24 overscroll-contain">
+      <div className="space-y-4 lg:col-span-4 lg:max-h-[calc(92dvh-9.5rem)] lg:overflow-y-auto lg:pr-1.5 lg:pb-24 overscroll-contain">
         {/* Modo dual */}
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-2 gap-2.5">
           <button
             onClick={() => setMode('plataforma')}
             className={cx(
-              'pressable rounded-2xl border px-3 py-3 text-left text-xs font-extrabold transition',
+              'pressable rounded-2xl px-3.5 py-3 text-left text-xs font-extrabold transition',
               mode === 'plataforma'
-                ? 'border-impulso-emerald/60 bg-impulso-emerald/15 text-impulso-mint'
-                : 'border-white/10 bg-slate-950/40 text-slate-300',
+                ? 'bg-impulso-emerald/15 text-impulso-mint shadow-[0_0_40px_-15px_rgba(16,185,129,0.35)] ring-1 ring-impulso-emerald/40'
+                : 'bg-slate-900/50 text-slate-300 hover:bg-slate-900/80',
             )}
           >
             🏪 Comercio registrado
@@ -1719,10 +1951,10 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
           <button
             onClick={() => setMode('externo')}
             className={cx(
-              'pressable rounded-2xl border px-3 py-3 text-left text-xs font-extrabold transition',
+              'pressable rounded-2xl px-3.5 py-3 text-left text-xs font-extrabold transition',
               mode === 'externo'
-                ? 'border-impulso-gold/60 bg-impulso-gold/15 text-impulso-gold'
-                : 'border-white/10 bg-slate-950/40 text-slate-300',
+                ? 'bg-amber-500/15 text-impulso-gold shadow-[0_0_40px_-15px_rgba(245,158,11,0.32)] ring-1 ring-impulso-gold/40'
+                : 'bg-slate-900/50 text-slate-300 hover:bg-slate-900/80',
             )}
           >
             ✨ Cliente externo
@@ -1783,11 +2015,33 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
             </div>
             <input value={extAddress} onChange={(e) => setExtAddress(e.target.value)} placeholder="Ubicación / Ciudad (ej: Gachetá, calle 4)" className={inputCls} />
             <input value={extUrl} onChange={(e) => setExtUrl(e.target.value)} placeholder="WhatsApp del negocio (wa.me/57…) o web" className={inputCls} />
+            <div className="flex items-center gap-2 pt-1">
+              {extLogoUrl && (
+                <img src={extLogoUrl} alt="Logo" className="h-9 w-9 shrink-0 rounded-xl bg-white/10 object-cover" />
+              )}
+              <label className="pressable flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-xl bg-white/[0.05] px-3 py-2 text-[11px] font-bold text-slate-300 hover:bg-white/[0.08]">
+                <ImagePlus className="h-3.5 w-3.5 text-impulso-mint" />
+                {extLogoUrl ? 'Cambiar logo del cliente' : 'Subir logo (auto-extrae paleta)'}
+                <input type="file" accept="image/*" className="hidden" onChange={(e) => handleLogoFile(e.target.files?.[0])} />
+              </label>
+              {extLogoUrl && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setExtLogoUrl(null);
+                    setBrandPalette(null);
+                  }}
+                  className="pressable rounded-xl bg-white/[0.04] px-2.5 py-2 text-[10px] font-bold text-slate-400 hover:text-impulso-rose"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
           </div>
         )}
 
         {/* Brief IA */}
-        <div className="space-y-2.5 rounded-3xl border border-impulso-emerald/30 bg-impulso-emerald/5 p-3.5">
+        <div className="space-y-3.5 rounded-3xl bg-slate-900/65 p-4 shadow-[0_0_40px_-15px_rgba(16,185,129,0.2)] ring-1 ring-impulso-emerald/25 backdrop-blur-xl">
           <p className="text-xs font-extrabold text-impulso-mint">🧠 Brief del negocio / servicio para la IA</p>
           <textarea
             value={briefText}
@@ -2032,29 +2286,82 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
 
         {/* Controles de diseño */}
         <div className={cardCls}>
-          <p className="text-xs font-extrabold text-white">🎨 Controles de diseño</p>
+          <p className="text-xs font-extrabold text-white">🎨 Dirección de Arte & Paleta</p>
           <button
-            onClick={surpriseDesign}
-            className="pressable flex w-full items-center justify-center gap-2 rounded-xl border border-impulso-gold/50 bg-impulso-gold/10 py-2.5 text-xs font-extrabold text-impulso-gold"
+            onClick={() => void surpriseDesign()}
+            disabled={surprising}
+            className="pressable flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-amber-500/20 via-orange-500/15 to-amber-400/20 py-3 text-xs font-extrabold text-impulso-gold shadow-[0_0_40px_-15px_rgba(245,158,11,0.3)] ring-1 ring-amber-400/35 disabled:opacity-50"
           >
-            <Dices className="h-4 w-4" /> 🎲 Sorpréndeme con Otro Diseño Radical
+            {surprising ? <Loader2 className="h-4 w-4 animate-spin" /> : <Dices className="h-4 w-4" />}
+            {surprising ? '🎲 Creando ángulo comercial e imagen única…' : '🎲 Sorpréndeme con Diseño y Copy IA'}
           </button>
+
+          {/* 🎨 V22.0 · Paleta Dinámica extraída de Logo o Foto */}
+          <div className="space-y-2 rounded-2xl bg-slate-950/60 p-3 ring-1 ring-white/[0.05]">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[11px] font-extrabold text-white">
+                🧬 Identidad Cromática {brandPalette ? (brandPalette.source === 'logo' ? 'del Logo' : 'de la Foto') : 'de Marca'}
+              </p>
+              {brandPalette && (
+                <button
+                  type="button"
+                  onClick={() => setUseBrandPalette((v) => !v)}
+                  className={cx(
+                    'pressable rounded-full px-2.5 py-0.5 text-[9px] font-extrabold transition',
+                    useBrandPalette
+                      ? 'bg-impulso-emerald/20 text-impulso-mint shadow-[0_0_16px_-4px_rgba(16,185,129,0.45)]'
+                      : 'bg-white/[0.06] text-slate-400',
+                  )}
+                >
+                  {useBrandPalette ? 'ACTIVA EN LIENZO' : 'USAR TEMA BASE'}
+                </button>
+              )}
+            </div>
+            {brandPalette ? (
+              <div className="flex items-center gap-2">
+                {brandPalette.colors.map((hex, i) => (
+                  <div key={`${hex}-${i}`} className="flex flex-1 items-center gap-1.5 rounded-xl bg-white/[0.04] px-2 py-1.5">
+                    <span className="h-4 w-4 shrink-0 rounded-full ring-1 ring-white/25" style={{ background: hex }} />
+                    <span className="truncate font-mono text-[9px] font-bold text-slate-300">{hex}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[10px] leading-snug text-slate-400">
+                Elige un comercio con logo, sube un logo/foto o extrae 3 colores hex exactos de la escena con Gemini Vision.
+              </p>
+            )}
+            <button
+              type="button"
+              onClick={() => void refinePaletteWithAI()}
+              disabled={paletteBusy}
+              className="pressable flex w-full items-center justify-center gap-1.5 rounded-xl bg-white/[0.05] py-2 text-[10px] font-extrabold text-cyan-300 transition hover:bg-white/[0.09] disabled:opacity-50"
+            >
+              {paletteBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+              {paletteBusy ? 'Extrayendo 3 colores con Gemini Vision…' : '✨ Extraer / Refinar paleta con Gemini Vision'}
+            </button>
+          </div>
           <p className={labelCls}>🎨 Fondos y texturas de agencia · 16 en cascada</p>
           <div className="grid grid-cols-2 gap-1.5">
             {AFFICHE_THEMES.map((t, i) => (
               <button
                 key={t.id}
-                onClick={() => setThemeIdx(i)}
+                onClick={() => {
+                  setThemeIdx(i);
+                  setUseBrandPalette(false);
+                }}
                 className={cx(
-                  'pressable flex items-center gap-2 rounded-xl border p-1.5 text-left transition',
-                  themeIdx === i ? 'border-impulso-gold/60 bg-impulso-gold/15' : 'border-white/10 bg-slate-950/40',
+                  'pressable flex items-center gap-2 rounded-xl p-1.5 text-left transition',
+                  themeIdx === i && !activeBrandPalette
+                    ? 'bg-impulso-gold/15 shadow-[0_0_24px_-8px_rgba(245,158,11,0.35)] ring-1 ring-impulso-gold/50'
+                    : 'bg-slate-950/60 hover:bg-slate-900/90',
                 )}
               >
                 <span
-                  className="h-8 w-8 shrink-0 rounded-lg border border-white/20"
+                  className="h-8 w-8 shrink-0 rounded-lg ring-1 ring-white/15"
                   style={{ background: t.bg, backgroundSize: t.bgSize ?? '100% 100%, 100% 100%, 100% 100%, 100% 100%' }}
                 />
-                <span className={cx('min-w-0 text-[10px] font-extrabold leading-tight', themeIdx === i ? 'text-impulso-gold' : 'text-slate-400')}>
+                <span className={cx('min-w-0 text-[10px] font-extrabold leading-tight', themeIdx === i && !activeBrandPalette ? 'text-impulso-gold' : 'text-slate-400')}>
                   {t.label}
                 </span>
               </button>
@@ -2067,8 +2374,10 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
                 key={f.id}
                 onClick={() => setFontIdx(i)}
                 className={cx(
-                  'pressable rounded-xl border px-2 py-2 text-left text-[10px] font-extrabold transition',
-                  fontIdx === i ? 'border-impulso-gold/60 bg-impulso-gold/15 text-impulso-gold' : 'border-white/10 bg-slate-950/40 text-slate-400',
+                  'pressable rounded-xl px-2.5 py-2 text-left text-[10px] font-extrabold transition',
+                  fontIdx === i
+                    ? 'bg-impulso-gold/15 text-impulso-gold shadow-[0_0_24px_-8px_rgba(245,158,11,0.3)] ring-1 ring-impulso-gold/45'
+                    : 'bg-slate-950/60 text-slate-400 hover:bg-slate-900/90',
                 )}
               >
                 {f.label}
@@ -2094,15 +2403,17 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
               Agranda el texto principal del afiche en vivo (80% a 150%).
             </p>
           </div>
-          <p className={labelCls}>📐 Layout · 28 arquitecturas (cambian el afiche en vivo)</p>
+          <p className={labelCls}>📐 Layout · 30 arquitecturas orgánicas y editoriales</p>
           <div className="grid grid-cols-2 gap-1.5">
             {AFFICHE_LAYOUTS.map((l) => (
               <button
                 key={l.id}
                 onClick={() => setLayout(l.id)}
                 className={cx(
-                  'pressable rounded-xl border px-2 py-2 text-left text-[10px] font-extrabold transition',
-                  layout === l.id ? 'border-impulso-emerald/60 bg-impulso-emerald/15 text-impulso-mint' : 'border-white/10 bg-slate-950/40 text-slate-400',
+                  'pressable rounded-xl px-2.5 py-2 text-left text-[10px] font-extrabold transition',
+                  layout === l.id
+                    ? 'bg-impulso-emerald/15 text-impulso-mint shadow-[0_0_24px_-8px_rgba(16,185,129,0.35)] ring-1 ring-impulso-emerald/45'
+                    : 'bg-slate-950/60 text-slate-400 hover:bg-slate-900/90',
                 )}
               >
                 {l.label}
@@ -2161,10 +2472,10 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
                   lastQrStyleRef.current = q.id;
                 }}
                 className={cx(
-                  'pressable rounded-xl border px-2 py-2 text-left text-[10px] font-extrabold transition',
+                  'pressable rounded-xl px-2.5 py-2 text-left text-[10px] font-extrabold transition',
                   qrStyle === q.id
-                    ? 'border-impulso-emerald/60 bg-impulso-emerald/15 text-impulso-mint'
-                    : 'border-white/10 bg-slate-950/40 text-slate-400',
+                    ? 'bg-impulso-emerald/15 text-impulso-mint shadow-[0_0_24px_-8px_rgba(16,185,129,0.32)] ring-1 ring-impulso-emerald/45'
+                    : 'bg-slate-950/60 text-slate-400 hover:bg-slate-900/90',
                 )}
               >
                 {q.label}
@@ -2182,17 +2493,19 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
                 ['bento', '🧱 Cajas Bento', 'Mosaico asimétrico'],
                 ['editorial', '✒️ Editorial Bold', 'Frases grandes sin viñetas'],
                 ['ribbons', '🎗️ Cintas de Acento', 'Tiras modernas'],
+                ['watermark', '🌊 Tipografía Gigante Fondo', 'Texto masivo opacity 10%'],
+                ['callouts', '📐 Líneas Guía Minimal', 'Viñetas finas con 1px solid'],
               ] as const
             ).map(([id, label, hint]) => (
               <button
                 key={id}
                 onClick={() => setBenefitStyle(id)}
                 className={cx(
-                  'pressable rounded-xl border px-2 py-2 text-left text-[10px] font-extrabold transition',
+                  'pressable rounded-xl px-2.5 py-2 text-left text-[10px] font-extrabold transition',
                   id === 'auto' ? 'col-span-2' : '',
                   benefitStyle === id
-                    ? 'border-impulso-gold/60 bg-impulso-gold/15 text-impulso-gold'
-                    : 'border-white/10 bg-slate-950/40 text-slate-400',
+                    ? 'bg-impulso-gold/15 text-impulso-gold shadow-[0_0_24px_-8px_rgba(245,158,11,0.3)] ring-1 ring-impulso-gold/45'
+                    : 'bg-slate-950/60 text-slate-400 hover:bg-slate-900/90',
                 )}
               >
                 {label}
@@ -2232,19 +2545,21 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
           <div className={cardCls}>
             <p className="text-xs font-extrabold text-white">📲 ¿Para qué Red Social es esta publicidad?</p>
             <div className="grid grid-cols-2 gap-1.5">
-              {SOCIAL_MODES.map((m) => (
-                <button
-                  key={m.id}
-                  onClick={() => selectSocial(m.id)}
-                  className={cx(
-                    'pressable rounded-xl border px-2 py-2 text-left text-[10px] font-extrabold transition',
-                    socialMode === m.id ? 'border-impulso-emerald/60 bg-impulso-emerald/15 text-impulso-mint' : 'border-white/10 bg-slate-950/40 text-slate-400',
-                  )}
-                >
-                  {m.icon} {m.label}
-                  <span className="mt-0.5 block font-semibold opacity-70">{m.hint}</span>
-                </button>
-              ))}
+            {SOCIAL_MODES.map((m) => (
+              <button
+                key={m.id}
+                onClick={() => selectSocial(m.id)}
+                className={cx(
+                  'pressable rounded-xl px-2.5 py-2 text-left text-[10px] font-extrabold transition',
+                  socialMode === m.id
+                    ? 'bg-impulso-emerald/15 text-impulso-mint shadow-[0_0_24px_-8px_rgba(16,185,129,0.35)] ring-1 ring-impulso-emerald/45'
+                    : 'bg-slate-950/60 text-slate-400 hover:bg-slate-900/90',
+                )}
+              >
+                {m.icon} {m.label}
+                <span className="mt-0.5 block font-semibold opacity-70">{m.hint}</span>
+              </button>
+            ))}
             </div>
             {socialMode === 'ig' && (
               <div className="grid grid-cols-2 gap-1.5">
@@ -2330,10 +2645,10 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
               </button>
             ))}
           </div>
-          <div className="grid place-items-center rounded-3xl border border-white/10 bg-slate-950/30 p-3">
+          <div className="grid place-items-center rounded-3xl bg-slate-950/60 p-4 shadow-[0_0_50px_-15px_rgba(59,130,246,0.22)]">
             <div
               style={{ width: PREVIEW_W, height: previewH, overflow: 'hidden' }}
-              className="mx-auto block rounded-2xl border border-white/10 shadow-2xl"
+              className="mx-auto block rounded-2xl shadow-[0_24px_60px_-12px_rgba(0,0,0,0.85),0_0_40px_-15px_rgba(16,185,129,0.25)]"
             >
               <div
                 style={{
@@ -2347,7 +2662,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
               </div>
             </div>
             {(photoBusy || exporting) && (
-              <p className="mt-2 flex items-center gap-1.5 text-[10px] font-bold text-impulso-mint">
+              <p className="mt-2.5 flex items-center gap-1.5 text-[10px] font-bold text-impulso-mint">
                 <Loader2 className="h-3 w-3 animate-spin" /> {exporting ? 'Exportando a 1080p…' : 'Cargando fotografía…'}
               </p>
             )}
@@ -2410,7 +2725,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
           </div>
 
           {socialMode === 'wa' && (
-            <div className="space-y-2 rounded-2xl border border-[#25D366]/30 bg-[#25D366]/[0.07] p-3">
+            <div className="space-y-2.5 rounded-2xl bg-[#25D366]/[0.08] p-3.5 shadow-[0_0_32px_-14px_rgba(37,211,102,0.3)] ring-1 ring-[#25D366]/25">
               <div className="flex items-center justify-between gap-2">
                 <p className="text-[10px] font-extrabold uppercase tracking-wider text-[#25D366]">
                   💬 Copy nativo WhatsApp (*negrita* · _cursiva_)
@@ -2429,7 +2744,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
           )}
 
           {(socialMode === 'ig' || socialMode === 'fb') && (
-            <div className="space-y-2 rounded-2xl border border-impulso-gold/30 bg-impulso-gold/[0.06] p-3">
+            <div className="space-y-2.5 rounded-2xl bg-impulso-gold/[0.07] p-3.5 shadow-[0_0_32px_-14px_rgba(245,158,11,0.28)] ring-1 ring-impulso-gold/25">
               <div className="flex flex-wrap items-center justify-between gap-1.5">
                 <p className="text-[10px] font-extrabold uppercase tracking-wider text-impulso-gold">
                   📸 Copy con párrafos y nube de hashtags
@@ -2486,7 +2801,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
           )}
 
           {socialMode === 'tt' && (
-            <div className="space-y-2.5 rounded-2xl border border-impulso-emerald/40 bg-slate-950/80 p-3.5">
+            <div className="space-y-2.5 rounded-2xl bg-slate-950/85 p-3.5 shadow-[0_0_32px_-14px_rgba(34,211,238,0.28)] ring-1 ring-impulso-emerald/30">
               <div className="flex items-center justify-between gap-2">
                 <p className="text-[11px] font-extrabold uppercase tracking-wider text-impulso-mint">
                   🎬 Guion de 15 Segundos · Modo Teleprompter

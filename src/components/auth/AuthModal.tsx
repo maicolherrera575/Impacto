@@ -3,6 +3,7 @@ import { Fingerprint, Loader2, LogIn, UserPlus, X } from 'lucide-react';
 import type { Category } from '../../types';
 import { CATEGORIES, MUNICIPIOS } from '../../types';
 import { ModalShell } from '../ui/ModalShell';
+import { ImpulsoLogo } from '../ui/ImpulsoLogo';
 import { useToast } from '../ui/Toast';
 import { friendlyError } from '../../services/supabase';
 import { ensureSignedInAfterSignUp, signIn, signOut, signUpMerchant, validateInviteCode } from '../../services/profile.service';
@@ -155,7 +156,10 @@ export function AuthModal({ open, onClose, onAuthed, onOpenLegal }: AuthModalPro
 
   return (
     <ModalShell open={open} onClose={onClose}>
-      <div className="p-5 pt-14">
+      <div className="p-5 pt-12">
+        <div className="mb-3">
+          <ImpulsoLogo size="sm" />
+        </div>
         <h3 className="text-xl font-extrabold text-white">🏪 Acceso para Comercios y Servicios</h3>
         <p className="mt-1 text-sm text-slate-400">
           Registro exclusivo para comercios, productores y transportadores locales.
