@@ -1202,6 +1202,9 @@ function QrOrganicToken({
       style={{
         width: size,
         height: size,
+        maxWidth: '100%',
+        maxHeight: '100%',
+        flexShrink: 0,
         padding: framePad,
         borderRadius: outerRadius,
         clipPath: cyberClip,
@@ -1282,12 +1285,12 @@ function Dock({
   const phone = (brand.phoneDisplay || 'Escríbenos').replace(/^[^\p{L}\p{N}+]+/u, '').trim();
   const actionChipText =
     qrMode === 'perfil'
-      ? 'Perfil Oficial'
+      ? 'Ver Catálogo'
       : qrMode === 'externo'
-        ? 'Enlace Oficial'
+        ? 'Visita Nuestro Sitio'
         : qrMode === 'oferta'
-          ? 'Aparta Cupo Hoy'
-          : phone || 'WhatsApp Directo';
+          ? 'Aparta tu Cupo'
+          : phone || 'Escanea y Cotiza';
   const isLight = Boolean(t.light);
   const resolvedLabel = cleanPosterCopy(qrLabel || 'ESCANEA AQUÍ').toUpperCase();
 
@@ -1313,13 +1316,17 @@ function Dock({
   const waInk = isLight ? '#065f46' : '#6ee7b7';
   const qrCaptionStyle: CSSProperties = {
     margin: 0,
+    maxWidth: '100%',
     fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
     fontSize: 8 * s,
     fontWeight: 800,
-    letterSpacing: 2.2 * s,
+    letterSpacing: 1.8 * s,
     textTransform: 'uppercase',
     color: eyebrowColor,
     whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    textAlign: 'center',
   };
 
   // Estilo 2 · Minimalista Suizo / Mármol Serif: tarjeta inferior con QR protagonista (>= 350px reales en exportación)
@@ -1333,6 +1340,10 @@ function Dock({
             borderRadius: 22 * s,
             position: 'relative',
             overflow: 'hidden',
+            width: '100%',
+            maxWidth: '100%',
+            maxHeight: 122 * s,
+            boxSizing: 'border-box',
             padding: `${10 * s}px ${14 * s}px`,
             display: 'flex',
             alignItems: 'center',
@@ -1342,7 +1353,7 @@ function Dock({
             fontFamily: `"${bodyFont || 'Inter'}", system-ui, sans-serif`,
           }}
         >
-          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 5 * s }}>
+          <div style={{ flex: 1, minWidth: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', gap: 5 * s }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 7 * s, minWidth: 0 }}>
               {logoUrl && (
                 <img
@@ -1384,7 +1395,7 @@ function Dock({
               {actionChipText}
             </span>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 * s, flexShrink: 0 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 * s, flexShrink: 0, maxWidth: size + 24 * s, overflow: 'hidden' }}>
             <QrOrganicToken
               qrValue={qrValue}
               qrUrl={qrUrl}
@@ -1407,6 +1418,10 @@ function Dock({
           borderRadius: 24 * s,
           position: 'relative',
           overflow: 'hidden',
+          width: '100%',
+          maxWidth: '100%',
+          maxHeight: 235 * s,
+          boxSizing: 'border-box',
           padding: `${12 * s}px ${16 * s}px`,
           display: 'flex',
           flexDirection: 'column',
@@ -1491,6 +1506,10 @@ function Dock({
         borderRight: variant === 'corner' ? `2px solid ${t.accent2}99` : dockSurface.border,
         position: 'relative',
         overflow: 'hidden',
+        width: '100%',
+        maxWidth: '100%',
+        maxHeight: s < 0.75 ? 132 * s : 210 * s,
+        boxSizing: 'border-box',
         padding: s < 0.75 ? `${10 * s}px ${14 * s}px` : `${16 * s}px ${20 * s}px`,
         display: 'flex',
         alignItems: 'center',
@@ -1621,6 +1640,8 @@ function Dock({
         <div
           style={{
             flexShrink: 0,
+            maxWidth: size + 24 * s,
+            overflow: 'hidden',
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
@@ -2317,6 +2338,7 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
     headlineSize,
     watermarkText,
     showMunicipalityTag = false,
+    editorialAccentRule = false,
   }: {
     mode: 'dark' | 'light';
     align?: 'left' | 'center';
@@ -2324,6 +2346,7 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
     headlineSize: number;
     watermarkText?: string;
     showMunicipalityTag?: boolean;
+    editorialAccentRule?: boolean;
   }): ReactElement => {
     const heroTheme = mode === 'light' ? lightPhotoTheme : darkPhotoTheme;
     const creamDeep = mixHex('#fdfbf7', t.accent, 0.05);
@@ -2331,7 +2354,7 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
     const gradientOverlay =
       mode === 'light'
         ? `linear-gradient(to bottom, rgba(255,253,249,0.52) 0%, transparent 22%), linear-gradient(to top, ${creamDeep} 0%, ${creamMid}f2 40%, ${creamMid}a8 62%, transparent 86%)`
-        : 'linear-gradient(to bottom, rgba(0,0,0,0.42) 0%, transparent 22%), linear-gradient(to top, rgba(0,0,0,0.96) 0%, rgba(0,0,0,0.82) 38%, rgba(0,0,0,0.48) 62%, transparent 86%)';
+        : 'linear-gradient(to bottom, rgba(2,6,23,0.46) 0%, transparent 24%), linear-gradient(to top, #020617 0%, rgba(15,23,42,0.88) 38%, rgba(15,23,42,0.52) 60%, transparent 86%)';
 
     const topRight = priceOverlay ? (
       <PricePill brand={brand} t={heroTheme} s={s} />
@@ -2356,6 +2379,17 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
           <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
         </div>
         <div style={{ position: 'absolute', inset: 0, background: gradientOverlay }} />
+        {editorialAccentRule && (
+          <div
+            aria-hidden="true"
+            style={{
+              position: 'absolute',
+              inset: 0,
+              background: `radial-gradient(380px 260px at 14% 72%, ${t.accent}2a, transparent 68%)`,
+              pointerEvents: 'none',
+            }}
+          />
+        )}
         {watermarkText && (
           <p
             aria-hidden="true"
@@ -2408,17 +2442,19 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
           </div>
           <div style={{ flex: 1, minHeight: isSquare ? 8 * s : 90 * s }} />
           <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', gap: isSquare ? 5 * s : 7 * s }}>
-            <Headline
-              texts={texts}
-              t={heroTheme}
-              s={s}
-              size={headlineSize}
-              align={align}
-              styleId={fontStyle}
-              scale={hs}
-              fullWidth
-              longShadow={mode === 'dark'}
-            />
+            <div style={editorialAccentRule ? { borderLeft: `3.5px solid ${t.accent2}`, paddingLeft: 12 * s } : undefined}>
+              <Headline
+                texts={texts}
+                t={heroTheme}
+                s={s}
+                size={headlineSize}
+                align={align}
+                styleId={fontStyle}
+                scale={hs}
+                fullWidth
+                longShadow={mode === 'dark'}
+              />
+            </div>
             <SubHead
               text={texts.sub}
               t={heroTheme}
@@ -2473,10 +2509,12 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
     align = 'left',
     benefitMode,
     headlineSize,
+    diagonalCut = false,
   }: {
     align?: 'left' | 'center';
     benefitMode: ResolvedBenefitMode;
     headlineSize: number;
+    diagonalCut?: boolean;
   }): ReactElement => {
     const solidBg = mixHex(t.accent, '#080d19', 0.56);
     const solidDeep = mixHex(t.accent2, '#04070e', 0.72);
@@ -2502,14 +2540,15 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
           background: `radial-gradient(360px 220px at 88% 14%, ${t.accent2}2b, transparent 65%), linear-gradient(175deg, ${solidBg} 0%, ${solidDeep} 100%)`,
         }}
       >
-        {/* Mitad superior: fotografía edge-to-edge con fundido atmosférico hacia el color extraído */}
+        {/* Mitad superior: fotografía con corte diagonal o fundido orgánico hacia el color extraído */}
         <div
           style={{
             position: 'relative',
-            height: isSquare ? '39%' : '45%',
+            height: isSquare ? '40%' : diagonalCut ? '48%' : '45%',
             width: '100%',
             flexShrink: 0,
             overflow: 'hidden',
+            clipPath: diagonalCut ? 'polygon(0 0, 100% 0, 100% 82%, 0 100%)' : undefined,
           }}
         >
           <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
@@ -2517,7 +2556,9 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
             style={{
               position: 'absolute',
               inset: 0,
-              background: `linear-gradient(to bottom, rgba(0,0,0,0.32) 0%, transparent 28%, transparent 56%, ${solidBg} 100%)`,
+              background: diagonalCut
+                ? `linear-gradient(to bottom, rgba(2,6,23,0.38) 0%, transparent 32%, ${solidBg}88 100%)`
+                : `linear-gradient(to bottom, rgba(2,6,23,0.34) 0%, transparent 28%, transparent 56%, ${solidBg} 100%)`,
             }}
           />
           <div
@@ -2606,6 +2647,156 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
     );
   };
 
+  /**
+   * 🧩 V32.0 · Collage Minimalista Multi-Imagen:
+   * Fondo inmersivo difuminado + 2 fotografías reales encuadradas en profundidad
+   * orgánica (protagonista + toma secundaria) sin obstruir texto ni QR.
+   */
+  const renderCollageHero = (): ReactElement => {
+    const headlineSz = isSquare ? 34 : 43;
+    return (
+      <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: '#020617' }}>
+        <div style={{ position: 'absolute', inset: -16, filter: 'blur(26px) saturate(135%)', opacity: 0.42 }}>
+          <Photo url={photoUrl} zoom={1.25} posY={0.5} />
+        </div>
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            background: `radial-gradient(420px 260px at 84% 18%, ${t.accent2}30, transparent 70%), linear-gradient(to top, #020617 0%, rgba(15,23,42,0.88) 42%, rgba(2,6,23,0.68) 100%)`,
+          }}
+        />
+        <div
+          style={{
+            position: 'relative',
+            zIndex: 5,
+            width: '100%',
+            height: '100%',
+            padding: pad,
+            boxSizing: 'border-box',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'space-between',
+            gap: isSquare ? 6 * s : 10 * s,
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexShrink: 0,
+              paddingRight: logoUrl ? 52 * s : 0,
+            }}
+          >
+            <Badge text={badge} t={darkPhotoTheme} s={s} align="left" />
+            {priceOverlay && <PricePill brand={brand} t={darkPhotoTheme} s={s} />}
+          </div>
+
+          {/* Escena multi-imagen orgánica */}
+          <div
+            style={{
+              position: 'relative',
+              flex: 1,
+              minHeight: isSquare ? 96 * s : 240 * s,
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <div
+              style={{
+                position: 'absolute',
+                left: 4 * s,
+                top: 4 * s,
+                bottom: 8 * s,
+                width: '63%',
+                borderRadius: 22 * s,
+                overflow: 'hidden',
+                transform: 'rotate(-1.6deg)',
+                border: '1px solid rgba(255,255,255,0.22)',
+                boxShadow: `0 22px 46px -10px rgba(0,0,0,0.82), 0 0 28px -10px ${t.accent}44`,
+              }}
+            >
+              <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
+            </div>
+            <div
+              style={{
+                position: 'absolute',
+                right: 4 * s,
+                top: isSquare ? 12 * s : 26 * s,
+                bottom: 2 * s,
+                width: '44%',
+                borderRadius: 20 * s,
+                overflow: 'hidden',
+                transform: 'rotate(2.1deg)',
+                border: `2px solid ${t.accent2}88`,
+                boxShadow: '0 24px 50px -10px rgba(0,0,0,0.88)',
+                background: '#0f172a',
+              }}
+            >
+              <Photo url={photo2} zoom={1.08} posY={0.45} />
+            </div>
+          </div>
+
+          {/* Bloque inferior editorial con jerarquía limpia */}
+          <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', gap: isSquare ? 5 * s : 7 * s }}>
+            <Headline
+              texts={texts}
+              t={darkPhotoTheme}
+              s={s}
+              size={headlineSz}
+              align="left"
+              styleId={fontStyle}
+              scale={hs}
+              fullWidth
+              longShadow
+            />
+            <SubHead text={texts.sub} t={darkPhotoTheme} s={s} align="left" color="rgba(226,232,240,0.9)" />
+            {showBenefits && benefits.length > 0 && (
+              <BenefitsShowcase
+                items={benefits}
+                t={darkPhotoTheme}
+                s={s}
+                mode={benefitStyle === 'auto' ? 'editorial' : resolvedBenefitMode}
+                align="left"
+              />
+            )}
+            {adaptiveCta && (
+              <CtaButton
+                label={adaptiveCta}
+                s={s}
+                bg={t.accent}
+                accent2={t.accent2}
+                color={contrastTextOn(t.accent, t.accent2)}
+                align="left"
+              />
+            )}
+            {showQr && (
+              <Dock
+                brand={brand}
+                t={darkPhotoTheme}
+                s={s}
+                qrUrl={qrUrl}
+                qrValue={qrValue}
+                qrStyle={qrStyle}
+                size={dockQrSize}
+                qrLabel={qrLabel}
+                displayFont={boardDisplayFont}
+                bodyFont={activeTypo.bodyFont}
+                variant={resolvedDockVariant}
+                brandColors={brandColors}
+                logoUrl={logoUrl}
+                qrMode={qrMode}
+              />
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const blendWord = (cleanPosterCopy(brand.product || brand.name || 'IMPULSO').split(/\s+/)[0] || 'OFERTA').toUpperCase();
   let body: ReactElement;
   switch (layout) {
@@ -2629,10 +2820,14 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
       break;
     }
 
+    case 'collage': {
+      body = renderCollageHero();
+      break;
+    }
+
     case 'split':
     case 'diagonal':
     case 'diagx':
-    case 'collage':
     case 'cyber':
     case 'bento3d':
     case 'brutal':
@@ -2642,35 +2837,47 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
     case 'hud':
     case 'menu':
     case 'rustic': {
+      const hasDiagonalCut =
+        layout === 'diagonal' ||
+        layout === 'diagx' ||
+        layout === 'cyber' ||
+        layout === 'bento3d' ||
+        layout === 'flash' ||
+        layout === 'diamond';
       body = renderSplitScreenHero({
         align: layout === 'retail' || layout === 'diamond' || layout === 'flash' || layout === 'menu' ? 'center' : 'left',
         benefitMode: layout === 'diagonal' || layout === 'cyber' ? 'ribbons' : 'callouts',
         headlineSize: isSquare ? 36 : 44,
+        diagonalCut: hasDiagonalCut,
       });
       break;
     }
 
     case 'immersive':
     case 'cinema':
-    case 'bleed': {
+    case 'portal':
+    case 'orbits': {
       body = renderFullBleedHero({
-        mode: t.light ? 'light' : 'dark',
-        align: 'left',
+        mode: 'dark',
+        align: 'center',
         benefitMode: 'callouts',
         headlineSize: isSquare ? 38 : 48,
-        watermarkText: layout === 'immersive' ? blendWord : undefined,
+        watermarkText: layout === 'immersive' || layout === 'orbits' ? blendWord : undefined,
       });
       break;
     }
 
+    case 'bleed':
+    case 'bento':
     case 'magazine':
     default: {
       body = renderFullBleedHero({
         mode: t.light ? 'light' : 'dark',
-        align: layout === 'portal' || layout === 'orbits' ? 'center' : 'left',
+        align: 'left',
         benefitMode: layout === 'magazine' ? 'editorial' : 'bento',
         headlineSize: isSquare ? 38 : 48,
         showMunicipalityTag: layout === 'bento',
+        editorialAccentRule: true,
       });
       break;
     }

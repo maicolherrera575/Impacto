@@ -374,6 +374,13 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
           if (payload.new) onProfileChange(payload.new as unknown as Profile);
         }
       )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'offers', filter: `merchant_id=eq.${profile.id}` },
+        () => {
+          void refreshOffers();
+        }
+      )
       .subscribe();
     channelRef.current = channel;
 

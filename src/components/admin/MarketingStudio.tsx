@@ -28,6 +28,7 @@ import type { Offer, Profile } from '../../types';
 import { categoryMeta } from '../../types';
 import {
   extractBrandPaletteWithAI,
+  FOCUS_DIRECTIVES,
   generateArtDirection,
   generateCampaignCopy,
   normSpaces,
@@ -138,10 +139,10 @@ const BADGE_PRESETS: Array<{ id: string; label: string }> = [
 ];
 
 const FOCUS_OPTIONS: Array<{ id: CampaignFocus; label: string }> = [
-  { id: 'remate', label: '🔥 Remate de precios' },
-  { id: 'prestigio', label: '👑 Prestigio / premium' },
-  { id: 'confianza', label: '🤝 Confianza / cercanía' },
-  { id: 'viral', label: '⚡ Viral / llamativo' },
+  { id: 'remate', label: '🔥 Urgencia / Remate' },
+  { id: 'prestigio', label: '👑 Prestigio / Lujo' },
+  { id: 'confianza', label: '🤝 Confianza / Tradición' },
+  { id: 'viral', label: '⚡ Viral / Curiosidad' },
 ];
 
 /** Descriptor fotográfico EN INGLÉS del enfoque (prompt de respaldo). */
@@ -248,9 +249,9 @@ const QR_MODES: Array<{ id: QrMode; icon: string; title: string; hint: string }>
 /** Leyenda del QR + indicador de la pieza 4 según el destino elegido. */
 const QR_META: Record<QrMode, { label: string; hint: string }> = {
   wa: { label: 'Escanea y Cotiza', hint: 'Escanea para ir directo a nuestro WhatsApp' },
-  perfil: { label: 'Ver Perfil y Ofertas', hint: 'Escanea para ver nuestra ubicación y ofertas en Impulso' },
-  oferta: { label: 'Aparta tu Cupo Hoy', hint: 'Escanea y aparta tu cupo al instante en Impulso' },
-  externo: { label: 'Visita Nuestro Enlace', hint: 'Escanea para visitar nuestra página o Instagram oficial' },
+  perfil: { label: 'Ver Catálogo', hint: 'Escanea para ver nuestra ubicación y catálogo en Impulso' },
+  oferta: { label: 'Aparta tu Cupo', hint: 'Escanea y aparta tu cupo al instante en Impulso' },
+  externo: { label: 'Visita Nuestro Sitio', hint: 'Escanea para visitar nuestra página o Instagram oficial' },
 };
 
 /** V14 · Redes sociales objetivo del lanzador en 1 clic. */
@@ -460,8 +461,8 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
   /** Refs de los 2 artboards dedicados al lanzador (story 9:16 y square 1:1). */
   const socialRefs = useRef<{ story: HTMLDivElement | null; square: HTMLDivElement | null }>({ story: null, square: null });
 
-  // ── V21 · HIPER-VARIABILIDAD COHERENTE: alterna entre 3 arquetipos distintos y nunca repite ──
-  const lastStyleGroupRef = useRef<0 | 1 | 2>(0);
+  // ── V32 · Arquitectura Líquida: alterna entre 5 composiciones distintas y nunca repite ──
+  const lastStyleGroupRef = useRef<0 | 1 | 2 | 3 | 4>(0);
   const lastThemeIdxRef = useRef(themeIdx);
   const lastLayoutIdxRef = useRef<Layout>(layout);
   const lastFontIdxRef = useRef(fontIdx);
@@ -1368,14 +1369,16 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
   }
 
   /**
-   * 🧬 V29.0 · Motor de Variabilidad Pura (3 arquetipos cinematográficos rotativos):
-   *  0. Fondo Completo Oscuro (100% foto + gradiente negro intenso)
-   *  1. Fondo Completo Luminoso (100% foto + gradiente blanco/crema + tinta negra)
-   *  2. Split Screen Elegante (mitad foto + mitad color sólido extraído de la imagen)
+   * 🧬 V32.0 · Motor de Variabilidad Líquida (5 arquitecturas reales no repetitivas):
+   *  0. Fondo Completo Oscuro Centrado (100% foto + slate-950/900 profundo)
+   *  1. Editorial Revista Oscuro (izquierda asimétrica + filete vertical)
+   *  2. Fondo Completo Luminoso (100% foto + blanco/crema + tinta oscura)
+   *  3. Split Diagonal con Color Extraído (corte oblicuo orgánico + superficie de marca)
+   *  4. Collage Minimalista Multi-Imagen (foto principal + toma secundaria sin obstáculos)
    */
   function applyHyperVariability(opts?: { preserveBrandPalette?: boolean }): { themeIdx: number; layout: Layout; styleLabel: string } {
     const groups: Array<{
-      id: 0 | 1 | 2;
+      id: 0 | 1 | 2 | 3 | 4;
       styleLabel: string;
       layouts: Layout[];
       themeIds: string[];
@@ -1386,8 +1389,8 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     }> = [
       {
         id: 0,
-        styleLabel: 'Estilo 1 · Fondo Completo Oscuro',
-        layouts: ['immersive', 'magazine', 'bento', 'cinema'],
+        styleLabel: 'Estilo 1 · Inmersivo Oscuro Centrado',
+        layouts: ['immersive', 'cinema', 'portal', 'orbits'],
         themeIds: ['obsidian', 'emerald', 'aurora', 'oceano'],
         fontIndices: [0, 3, 4],
         dockVariant: 'glass',
@@ -1396,7 +1399,17 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       },
       {
         id: 1,
-        styleLabel: 'Estilo 2 · Fondo Completo Luminoso',
+        styleLabel: 'Estilo 2 · Editorial Revista (Izquierda)',
+        layouts: ['magazine', 'bento', 'bleed'],
+        themeIds: ['obsidian', 'vino', 'carbon', 'emerald'],
+        fontIndices: [1, 3, 6],
+        dockVariant: 'glass',
+        benefits: ['editorial', 'callouts', 'badges'],
+        qrStyles: ['rounded', 'luxury', 'dots'],
+      },
+      {
+        id: 2,
+        styleLabel: 'Estilo 3 · Fondo Completo Luminoso',
         layouts: ['swiss', 'zen', 'vip', 'arc'],
         themeIds: ['marble', 'clinic', 'arena', 'kraft'],
         fontIndices: [1, 6],
@@ -1405,14 +1418,24 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
         qrStyles: ['sharp', 'dots', 'luxury'],
       },
       {
-        id: 2,
-        styleLabel: 'Estilo 3 · Split Screen Elegante',
-        layouts: ['split', 'diagonal', 'diagx', 'collage', 'cyber'],
-        themeIds: ['cyber', 'slate', 'terracotta', 'carbon'],
+        id: 3,
+        styleLabel: 'Estilo 4 · Split Diagonal de Marca',
+        layouts: ['diagonal', 'diagx', 'split', 'cyber', 'bento3d'],
+        themeIds: ['cyber', 'slate', 'terracotta', 'pop'],
         fontIndices: [2, 5, 7],
         dockVariant: 'corner',
         benefits: ['ribbons', 'badges', 'callouts'],
         qrStyles: ['cyber', 'rounded', 'sharp'],
+      },
+      {
+        id: 4,
+        styleLabel: 'Estilo 5 · Collage Multi-Imagen',
+        layouts: ['collage'],
+        themeIds: ['obsidian', 'emerald', 'aurora', 'terracotta'],
+        fontIndices: [0, 2, 4],
+        dockVariant: 'corner',
+        benefits: ['editorial', 'callouts', 'badges'],
+        qrStyles: ['rounded', 'luxury', 'dots'],
       },
     ];
 
@@ -1488,6 +1511,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
 
     const focuses: CampaignFocus[] = ['remate', 'prestigio', 'confianza', 'viral'];
     const altFocus = focuses.filter((f) => f !== focus)[Math.floor(Math.random() * (focuses.length - 1))] ?? 'viral';
+    setFocus(altFocus);
     const merchantCategory = merchants.find((m) => m.id === merchantId)?.category;
 
     const input: Parameters<typeof generateArtDirection>[0] = {
@@ -2215,7 +2239,34 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
             {FOCUS_OPTIONS.map((f) => (
               <button
                 key={f.id}
-                onClick={() => setFocus(f.id)}
+                onClick={() => {
+                  setFocus(f.id);
+                  const rule = FOCUS_DIRECTIVES[f.id];
+                  const place = brand.municipality || 'Gachetá';
+                  const prod = brand.product.trim() || campaign?.headline.highlight || 'tu producto';
+                  const biz = brand.name.trim() || 'nuestro local';
+                  const headlines = rule.headlineFor(prod, biz, place);
+                  const [nextPlain, nextHighlight] = headlines[Math.floor(Math.random() * headlines.length)] ?? headlines[0];
+                  setBadgeCustom(rule.badges[0]);
+                  setBadgeMode('dynamic');
+                  setTexts((prev) => ({
+                    ...prev,
+                    plain: nextPlain,
+                    highlight: nextHighlight,
+                    cta: qrMode === 'wa' ? rule.ctas[0] : prev.cta,
+                  }));
+                  setCampaign((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          badgeText: rule.badges[0],
+                          dynamicTagline: rule.badges[0],
+                          headline: { plain: nextPlain, highlight: nextHighlight },
+                          cta: rule.ctas[0],
+                        }
+                      : prev,
+                  );
+                }}
                 className={cx(
                   'pressable rounded-xl border px-2 py-2 text-[10px] font-extrabold transition',
                   focus === f.id ? 'border-impulso-emerald/60 bg-impulso-emerald/15 text-impulso-mint' : 'border-white/10 bg-slate-950/40 text-slate-400',

@@ -56,6 +56,8 @@ export default function App() {
 
   // ── Datos en vivo ─────────────────────────────────────────────────────────
   const [offers, setOffers] = useState<Offer[]>([]);
+  /** IDs recién publicados vía Realtime (animación suave de entrada en el radar). */
+  const [freshOfferIds, setFreshOfferIds] = useState<Set<string>>(() => new Set());
   const [requests, setRequests] = useState<QuickRequest[]>([]);
   const [municipality, setMunicipality] = useState('Gachetá');
 
@@ -169,22 +171,44 @@ export default function App() {
   useEffect(() => {
     void refetchOffers();
     // Debounce de 400 ms: los eventos Realtime son ráfagas (incluido el
-    // views_count); reagruparlos evita refetch en cascada que hacía
-    // PARPADEAR los pines del mapa. Ofertas nuevas entran igual de en vivo.
+    // views_count); reagruparlos evita refetch en cascada. Si llega INSERT
+    // nuevo, destacamos visualmente la oferta entrante en vivo.
     let timer: number | null = null;
-    const scheduleRefetch = () => {
+    const clearTimers: number[] = [];
+    const scheduleRefetch = (payload?: { eventType?: string; new?: Record<string, unknown> }) => {
+      if (payload?.eventType === 'INSERT' && payload.new && typeof payload.new.id === 'string') {
+        const newId = payload.new.id;
+        const insertedMuni = typeof payload.new.municipality === 'string' ? payload.new.municipality : null;
+        if (!insertedMuni || insertedMuni === municipality) {
+          const title = typeof payload.new.title === 'string' ? payload.new.title : 'Oferta relámpago';
+          setFreshOfferIds((prev) => new Set(prev).add(newId));
+          toast.info(`⚡ Nueva oferta en vivo (${municipality}): ${title}`);
+          const t = window.setTimeout(() => {
+            setFreshOfferIds((prev) => {
+              if (!prev.has(newId)) return prev;
+              const next = new Set(prev);
+              next.delete(newId);
+              return next;
+            });
+          }, 7000);
+          clearTimers.push(t);
+        }
+      }
       if (timer != null) window.clearTimeout(timer);
       timer = window.setTimeout(() => void refetchOffers(), 400);
     };
     const channel = supabase
       .channel('impulso:offers')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'offers' }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'offers' }, (payload) =>
+        scheduleRefetch(payload as { eventType?: string; new?: Record<string, unknown> }),
+      )
       .subscribe();
     return () => {
       if (timer != null) window.clearTimeout(timer);
+      clearTimers.forEach((t) => window.clearTimeout(t));
       void supabase.removeChannel(channel);
     };
-  }, [refetchOffers]);
+  }, [refetchOffers, municipality, toast]);
 
   // ── Pedidos de la comunidad (fetch + Realtime) ───────────────────────────
   const refetchRequests = useCallback(async () => {
@@ -507,8 +531,14 @@ export default function App() {
             profile={profile}
             onOpenAuth={() => setAuthOpen(true)}
             onOpenDashboard={() => {
-              if (profile) setView('dashboard');
-              else setAuthOpen(true);
+              if (profile?.role === 'client') {
+                setView('radar');
+                toast.info('Tu cuenta de Cliente está pensada para explorar ofertas y apartados en el radar.');
+              } else if (profile) {
+                setView('dashboard');
+              } else {
+                setAuthOpen(true);
+              }
             }}
             onOpenAdmin={() => {
               if (profile?.role === 'admin') setAdminOpen(true);
@@ -537,6 +567,7 @@ export default function App() {
                 onStatusOffer={(o) => void handleStatusShare(o)}
                 onReportOffer={setReporting}
                 reportedIds={reportedIds}
+                freshOfferIds={freshOfferIds}
                 onOpenMerchant={(id) => void openMerchantProfile(id)}
               />
             )}
@@ -579,7 +610,7 @@ export default function App() {
             municipality={municipality}
           />
         </>
-      ) : profile ? (
+      ) : profile && profile.role !== 'client' ? (
         <MerchantDashboard
           profile={profile}
           onProfileChange={setProfile}

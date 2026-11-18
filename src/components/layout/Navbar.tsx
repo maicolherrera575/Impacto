@@ -34,6 +34,7 @@ export function Navbar({
   onSignOut,
 }: NavbarProps) {
   const isAdmin = profile?.role === 'admin';
+  const isClient = profile?.role === 'client';
 
   return (
     <header className="fixed inset-x-0 top-0 z-40 border-b border-white/5 bg-impulso-night/85 backdrop-blur-xl">
@@ -116,9 +117,13 @@ export function Navbar({
 
                 {/* Píldora de identidad: quién está en sesión */}
                 <button
-                  onClick={onOpenDashboard}
-                  title={`${profile.business_name} — abrir mi panel`}
-                  className="pressable flex shrink-0 items-center gap-2 rounded-full border border-white/10 bg-impulso-panel py-1 pl-1 pr-2.5"
+                  onClick={isClient ? undefined : onOpenDashboard}
+                  type="button"
+                  title={isClient ? `${profile.business_name} — Modo Cliente` : `${profile.business_name} — abrir mi panel`}
+                  className={cx(
+                    'flex shrink-0 items-center gap-2 rounded-full border border-white/10 bg-impulso-panel py-1 pl-1 pr-2.5',
+                    !isClient && 'pressable',
+                  )}
                 >
                   {profile.logo_thumb ? (
                     <img
@@ -128,7 +133,7 @@ export function Navbar({
                     />
                   ) : (
                     <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-slate-950/60 text-sm">
-                      {categoryMeta(profile.category).emoji}
+                      {isClient ? '🛍️' : categoryMeta(profile.category).emoji}
                     </span>
                   )}
                   <span className="max-w-[110px] truncate text-[11px] font-bold text-white">
@@ -136,28 +141,38 @@ export function Navbar({
                   </span>
                   <span
                     title={
-                      isAdmin ? 'Administrador de la plataforma' : profile.is_verified ? 'Negocio verificado' : 'En verificación'
+                      isAdmin
+                        ? 'Administrador de la plataforma'
+                        : isClient
+                          ? 'Cuenta exploradora de Cliente'
+                          : profile.is_verified
+                            ? 'Negocio verificado'
+                            : 'En verificación'
                     }
                     className={cx(
                       'shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-extrabold',
                       isAdmin
                         ? 'bg-impulso-gold/20 text-impulso-gold'
-                        : profile.is_verified
-                          ? 'bg-impulso-emerald/15 text-impulso-mint'
-                          : 'bg-white/10 text-slate-400'
+                        : isClient
+                          ? 'bg-sky-500/15 text-sky-300'
+                          : profile.is_verified
+                            ? 'bg-impulso-emerald/15 text-impulso-mint'
+                            : 'bg-white/10 text-slate-400',
                     )}
                   >
-                    {isAdmin ? '👑 Admin' : profile.is_verified ? '✅' : '⏳'}
+                    {isAdmin ? '👑 Admin' : isClient ? 'Cliente' : profile.is_verified ? '✅' : '⏳'}
                   </span>
                 </button>
 
-                <button
-                  onClick={onOpenDashboard}
-                  className="pressable flex shrink-0 items-center gap-1.5 rounded-full bg-gradient-to-r from-impulso-emerald to-teal-600 px-3 py-2 text-xs font-bold text-white shadow-glow"
-                >
-                  <Store className="h-3.5 w-3.5 shrink-0" />
-                  Mi Panel
-                </button>
+                {!isClient && (
+                  <button
+                    onClick={onOpenDashboard}
+                    className="pressable flex shrink-0 items-center gap-1.5 rounded-full bg-gradient-to-r from-impulso-emerald to-teal-600 px-3 py-2 text-xs font-bold text-white shadow-glow"
+                  >
+                    <Store className="h-3.5 w-3.5 shrink-0" />
+                    Mi Panel
+                  </button>
+                )}
 
                 {/* Cerrar sesión, siempre visible */}
                 <button

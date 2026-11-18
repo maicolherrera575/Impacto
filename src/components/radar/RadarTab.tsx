@@ -40,6 +40,8 @@ interface RadarTabProps {
   onReportOffer: (offer: Offer) => void;
   /** Ofertas ya reportadas desde este dispositivo (botón deshabilitado). */
   reportedIds: Set<string>;
+  /** V32.0 · IDs recién insertados por Realtime para destacar visualmente. */
+  freshOfferIds?: Set<string>;
   /** V13 · Abre el Perfil Público del comercio desde la tarjeta. */
   onOpenMerchant: (merchantId: string) => void;
 }
@@ -64,6 +66,7 @@ export function RadarTab({
   onStatusOffer,
   onReportOffer,
   reportedIds,
+  freshOfferIds,
   onOpenMerchant,
 }: RadarTabProps) {
   const [search, setSearch] = useState('');
@@ -302,6 +305,7 @@ export function RadarTab({
               onStatus={() => onStatusOffer(offer)}
               onReport={() => onReportOffer(offer)}
               reported={reportedIds.has(offer.id)}
+              isNew={Boolean(freshOfferIds?.has(offer.id))}
               onOpenMerchant={onOpenMerchant}
             />
           ))

@@ -17,6 +17,8 @@ interface OfferCardProps {
   onReport: () => void;
   /** Este dispositivo ya reportó la oferta: el botón queda deshabilitado. */
   reported?: boolean;
+  /** V32.0 · Oferta recién publicada vía Realtime (resaltado suave). */
+  isNew?: boolean;
   /** V13 · Abre el Perfil Público del comercio (?comercio=UUID). */
   onOpenMerchant?: (merchantId: string) => void;
 }
@@ -25,7 +27,7 @@ interface OfferCardProps {
  * Tarjeta de alta conversión: insignia de verificado, estrellas, distancia,
  * reloj dinámico inteligente, precios tachados y barra de stock en vivo.
  */
-export function OfferCard({ offer, distance, onOpen, onShare, onStatus, onReport, reported = false, onOpenMerchant }: OfferCardProps) {
+export function OfferCard({ offer, distance, onOpen, onShare, onStatus, onReport, reported = false, isNew = false, onOpenMerchant }: OfferCardProps) {
   const now = useTick(1000);
   const countdown = countdownText(offer.expires_at, now);
   const merchant = offer.merchant;
@@ -37,11 +39,17 @@ export function OfferCard({ offer, distance, onOpen, onShare, onStatus, onReport
     <article
       className={cx(
         'card-lift relative overflow-hidden rounded-3xl border border-white/[0.08] bg-impulso-card p-4 shadow-card transition-all duration-300 hover:border-impulso-emerald/25',
-        countdown.urgent && 'border-impulso-rose/25'
+        countdown.urgent && 'border-impulso-rose/25',
+        isNew && 'border-impulso-emerald/70 ring-2 ring-impulso-emerald/45 shadow-glow animate-pulse-soft'
       )}
     >
       {/* Urgencia superior */}
-      <div className="mb-3 flex items-center gap-2">
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        {isNew && (
+          <span className="rounded-full bg-impulso-emerald/20 px-2.5 py-1 text-[11px] font-extrabold text-impulso-mint">
+            ⚡ Recién llegada
+          </span>
+        )}
         <span
           className={cx(
             'rounded-full px-2.5 py-1 text-[11px] font-bold',

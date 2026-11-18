@@ -3568,6 +3568,131 @@ grant execute on function public.submit_support_ticket_rpc(text, text, text, tex
 grant execute on function public.admin_support_tickets_list_rpc()                                              to authenticated;
 grant execute on function public.admin_update_support_ticket_rpc(uuid, text)                                  to authenticated;
 
+-- ============================================================================
+-- 13B. ADMIN TICKETS UNIFICADOS (V32.0 · Tabla primaria public.admin_tickets)
+-- ============================================================================
+create table if not exists public.admin_tickets (
+  id              uuid primary key default gen_random_uuid(),
+  user_id         uuid references auth.users(id) on delete set null,
+  user_role       text not null default 'client' check (user_role in ('client', 'merchant', 'admin')),
+  user_name       text not null default 'Visitante',
+  municipality    text not null default 'Gachetá',
+  category        text not null default 'usage' check (category in ('usage', 'technical', 'bug', 'billing', 'abuse')),
+  severity        text not null default 'medium' check (severity in ('low', 'medium', 'high', 'critical')),
+  summary         text not null,
+  chat_transcript jsonb not null default '[]'::jsonb,
+  ai_analysis     text not null,
+  status          text not null default 'open' check (status in ('open', 'in_progress', 'resolved')),
+  created_at      timestamptz not null default now()
+);
+
+alter table public.admin_tickets enable row level security;
+
+drop policy if exists "Admin tickets insert publico o propio" on public.admin_tickets;
+create policy "Admin tickets insert publico o propio"
+  on public.admin_tickets for insert
+  to anon, authenticated
+  with check (user_id is null or user_id = auth.uid());
+
+drop policy if exists "Usuario ve sus admin_tickets" on public.admin_tickets;
+create policy "Usuario ve sus admin_tickets"
+  on public.admin_tickets for select
+  to authenticated
+  using (user_id = auth.uid() or public.is_admin());
+
+drop policy if exists "Admin actualiza admin_tickets" on public.admin_tickets;
+create policy "Admin actualiza admin_tickets"
+  on public.admin_tickets for update
+  to authenticated
+  using (public.is_admin())
+  with check (public.is_admin());
+
+create or replace function public.submit_admin_ticket_rpc(
+  p_user_role       text,
+  p_user_name       text,
+  p_municipality    text,
+  p_category        text,
+  p_severity        text,
+  p_summary         text,
+  p_chat_transcript jsonb,
+  p_ai_analysis     text
+)
+returns public.admin_tickets
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_row public.admin_tickets;
+begin
+  insert into public.admin_tickets (
+    user_id, user_role, user_name, municipality,
+    category, severity, summary, chat_transcript, ai_analysis
+  )
+  values (
+    auth.uid(),
+    case when p_user_role in ('client', 'merchant', 'admin') then p_user_role else 'client' end,
+    left(coalesce(nullif(btrim(p_user_name), ''), 'Visitante'), 80),
+    left(coalesce(nullif(btrim(p_municipality), ''), 'Gachetá'), 60),
+    case when p_category in ('usage', 'technical', 'bug', 'billing', 'abuse') then p_category else 'technical' end,
+    case when p_severity in ('low', 'medium', 'high', 'critical') then p_severity else 'high' end,
+    left(coalesce(nullif(btrim(p_summary), ''), 'Reporte técnico de plataforma'), 240),
+    coalesce(p_chat_transcript, '[]'::jsonb),
+    left(coalesce(nullif(btrim(p_ai_analysis), ''), 'Pendiente de revisión'), 800)
+  )
+  returning * into v_row;
+
+  return v_row;
+end;
+$$;
+
+create or replace function public.admin_tickets_list_rpc()
+returns setof public.admin_tickets
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if not public.is_admin() then
+    raise exception 'SOLO_ADMIN: acceso restringido';
+  end if;
+  return query
+  select * from public.admin_tickets
+  order by created_at desc
+  limit 80;
+end;
+$$;
+
+create or replace function public.admin_update_ticket_status_rpc(
+  p_ticket_id uuid,
+  p_status    text
+)
+returns public.admin_tickets
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_row public.admin_tickets;
+begin
+  if not public.is_admin() then
+    raise exception 'SOLO_ADMIN: acceso restringido';
+  end if;
+  if p_status not in ('open', 'in_progress', 'resolved') then
+    raise exception 'Estado inválido';
+  end if;
+  update public.admin_tickets
+     set status = p_status
+   where id = p_ticket_id
+  returning * into v_row;
+  return v_row;
+end;
+$$;
+
+grant execute on function public.submit_admin_ticket_rpc(text, text, text, text, text, text, jsonb, text) to anon, authenticated;
+grant execute on function public.admin_tickets_list_rpc()                                              to authenticated;
+grant execute on function public.admin_update_ticket_status_rpc(uuid, text)                            to authenticated;
+
 -- 🔄 V19 · Refresca el caché de PostgREST automáticamente al correr el script:
 -- sin esto, funciones nuevas (como admin_reports_list_rpc) pueden seguir
 -- "no encontradas" hasta 1-2 minutos por caché del esquema.

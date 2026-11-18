@@ -47,10 +47,7 @@ const VISION_MODEL_CHAIN = [
 ] as const;
 
 export const AI_BUSY_FRIENDLY_MSG =
-  'Nuestro equipo de IA está saturado en este momento. Por favor, inténtalo de nuevo en unos segundos.';
-
-/** HTTP codes que justifican reintentar con el siguiente modelo de la cadena. */
-const RETRYABLE_STATUS = new Set([400, 404, 408, 429, 500, 502, 503, 504]);
+  'Nuestro motor de IA está procesando demasiadas solicitudes. Por favor, intenta crear la oferta manualmente o vuelve en un minuto.';
 
 type SdkModel = ReturnType<GoogleGenerativeAI['getGenerativeModel']>;
 type SdkRequest = Parameters<SdkModel['generateContent']>[0];
@@ -127,9 +124,9 @@ async function callProxy(options: GeminiCallOptions): Promise<string> {
     }
     const rest: unknown = await res.json().catch(() => null);
     if (!res.ok) {
+      console.warn(`[Impulso IA Proxy] Modelo ${model} respondió HTTP ${res.status}; intentando respaldo…`);
       lastErr = new Error(AI_BUSY_FRIENDLY_MSG);
-      if (RETRYABLE_STATUS.has(res.status)) continue;
-      throw lastErr;
+      continue;
     }
     const text = extractRestText(rest);
     if (!text) {
@@ -181,9 +178,9 @@ async function callDirect(options: GeminiCallOptions): Promise<string> {
     }
     const rest: unknown = await res.json().catch(() => null);
     if (!res.ok) {
+      console.warn(`[Impulso IA Proxy] Modelo ${model} respondió HTTP ${res.status}; intentando respaldo…`);
       lastErr = new Error(AI_BUSY_FRIENDLY_MSG);
-      if (RETRYABLE_STATUS.has(res.status)) continue;
-      throw lastErr;
+      continue;
     }
     const text = extractRestText(rest);
     if (!text) {
@@ -322,7 +319,7 @@ export async function parsePromoFromText(freeText: string): Promise<ParsedPromo>
   try {
     return normalize(parseAiJson<Partial<ParsedPromo>>(jsonText));
   } catch {
-    throw new Error('La IA no logró estructurar la promoción. Intenta describirla con precios y cantidad.');
+    throw new Error(AI_BUSY_FRIENDLY_MSG);
   }
 }
 
@@ -873,6 +870,77 @@ export function normSpaces(v: unknown): string {
   return typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : '';
 }
 
+/** Directivas psicológicas reales por enfoque (aplicadas en IA y motor sintético). */
+export const FOCUS_DIRECTIVES: Record<
+  CampaignFocus,
+  {
+    prompt: string;
+    badges: string[];
+    ctas: string[];
+    preferredThemes: readonly string[];
+    preferredLayouts: readonly string[];
+    headlineFor: (product: string, brand: string, place: string) => Array<[string, string]>;
+    subPrefix: string;
+  }
+> = {
+  remate: {
+    prompt:
+      'ENFOQUE PSICOLÓGICO — URGENCIA / REMATE: Tono eléctrico de acción inmediata, escasez real y oportunidad límite de hoy (claves: "SOLO POR HOY", "ÚLTIMOS CUPOS", "APROVECHA YA"). Empuja al cierre inmediato sin rodeos.',
+    badges: ['SOLO POR HOY', 'ÚLTIMOS CUPOS', 'OFERTA RELÁMPAGO', 'CIERRE DE HOY'],
+    ctas: ['Aparta YA por WhatsApp', 'Pide hoy antes que se acabe'],
+    preferredThemes: ['obsidian', 'ember', 'pop', 'vino', 'carbon'],
+    preferredLayouts: ['diagonal', 'diagx', 'immersive', 'split', 'flash'],
+    headlineFor: (product, _brand, place) => [
+      [`Solo por hoy en ${place}:`, `${product} en remate`],
+      ['Últimos cupos de hoy para', `llevar ${product} YA`],
+      ['Aprovecha antes del cierre:', `${product} precio especial`],
+    ],
+    subPrefix: 'Oportunidad por tiempo limitado:',
+  },
+  prestigio: {
+    prompt:
+      'ENFOQUE PSICOLÓGICO — PRESTIGIO / LUJO: Tono editorial sofisticado, exclusividad, maestría y alto nivel (claves: "EDICIÓN EXCLUSIVA", "SELECCIÓN PREMIUM", "EXPERIENCIA SUPERIOR"). PROHIBIDO sonar a remate barato.',
+    badges: ['EDICIÓN EXCLUSIVA', 'SELECCIÓN PREMIUM', 'ALTO NIVEL', 'CALIDAD SUPERIOR'],
+    ctas: ['Agenda tu atención VIP', 'Reserva experiencia exclusiva'],
+    preferredThemes: ['marble', 'obsidian', 'vino', 'arena', 'slate'],
+    preferredLayouts: ['swiss', 'zen', 'immersive', 'magazine', 'collage'],
+    headlineFor: (product, brand) => [
+      ['Exclusividad y alto nivel en', product],
+      [`${brand}: pensado para quienes`, 'exigen lo mejor'],
+      ['Selección premium creada para', `destacar con ${product}`],
+    ],
+    subPrefix: 'Experiencia superior:',
+  },
+  confianza: {
+    prompt:
+      'ENFOQUE PSICOLÓGICO — CONFIANZA / TRADICIÓN: Tono cercano, honesto, respaldo comprobado y trato directo en el municipio (claves: "RESPALDO REAL", "GARANTÍA DIRECTA", "TRATO HONESTO"). Transmite seguridad total.',
+    badges: ['RESPALDO GARANTIZADO', 'CONFIANZA LOCAL', 'ATENCIÓN DIRECTA', 'COMPRA SEGURA'],
+    ctas: ['Cotiza directo sin compromiso', 'Escríbenos con total confianza'],
+    preferredThemes: ['emerald', 'wood', 'slate', 'clinic', 'kraft'],
+    preferredLayouts: ['magazine', 'bento', 'collage', 'immersive', 'swiss'],
+    headlineFor: (product, brand, place) => [
+      ['Calidad real y garantizada en', product],
+      [`La confianza de ${place} está`, `en ${brand} cada día`],
+      ['Cero sorpresas y trato directo:', `elige ${product}`],
+    ],
+    subPrefix: 'Respaldo directo y transparente:',
+  },
+  viral: {
+    prompt:
+      'ENFOQUE PSICOLÓGICO — VIRAL / CURIOSIDAD: Tono disruptivo, conversacional y magnético que detiene el scroll en TikTok, Reels y Estados (contraste inesperado, pregunta gancho o prueba social masiva).',
+    badges: ['TENDENCIA HOY', 'LO MÁS BUSCADO', 'NO TE LO PIERDAS', 'VIRAL EN REDES'],
+    ctas: ['Descubre por qué · WhatsApp', 'Mira y aparta el tuyo ahora'],
+    preferredThemes: ['cyber', 'aurora', 'oceano', 'pop', 'carbon'],
+    preferredLayouts: ['orbits', 'bleed', 'immersive', 'diagx', 'collage'],
+    headlineFor: (product, _brand, place) => [
+      [`Todos en ${place} están hablando`, `hoy de ${product}`],
+      ['¿Por qué todos eligen ahora', `${product} por encima del resto?`],
+      ['El secreto mejor guardado para', `disfrutar ${product}`],
+    ],
+    subPrefix: 'Tendencia imparable hoy:',
+  },
+};
+
 /** Mapea la categoría del comercio a un rubro de agencia. */
 export function industryFromHint(categoryHint?: string): IndustryType {
   switch (categoryHint) {
@@ -989,6 +1057,7 @@ const CREATIVE_ANGLES = [
 
 export async function generateArtDirection(input: CampaignInput): Promise<ArtDirection> {
   const angle = CREATIVE_ANGLES[Math.floor(Math.random() * CREATIVE_ANGLES.length)];
+  const focusRule = FOCUS_DIRECTIVES[input.focus];
   const seedLine = `SEMILLA CREATIVA #${Math.floor(Math.random() * 9000 + 1000)} · ÁNGULO OBLIGATORIO: ${angle}. Usa una metáfora, un titular y una composición totalmente nuevas.`;
   const avoidLine =
     input.previousThemeId || input.previousLayoutId
@@ -996,7 +1065,7 @@ export async function generateArtDirection(input: CampaignInput): Promise<ArtDir
       : '';
   const jsonText = await callGemini({
     systemInstruction: ART_SYSTEM_PROMPT,
-    prompt: [campaignFacts(input), seedLine, avoidLine].filter(Boolean).join('\n\n'),
+    prompt: [campaignFacts(input), focusRule.prompt, seedLine, avoidLine].filter(Boolean).join('\n\n'),
     temperature: 0.85,
     responseSchema: ART_SCHEMA,
   });
@@ -1089,7 +1158,7 @@ REGLAS DE ORO:
 - Los beneficios deben describir algo que SOLO ese negocio puede decir.
 - headlines y textos SIEMPRE con espacios correctos entre palabras (jamás palabras pegadas tipo 'ImpulsoHOY').
 - PROHIBIDO usar el nombre 'Impulso' como marca del cliente.
-- Español colombiano cercano y honesto; adapta el tono al enfoque psicológico indicado.`;
+- Español colombiano cercano y honesto; refleja de manera inequívoca el ENFOQUE PSICOLÓGICO indicado en badge_text, headline, sub, cta y visualHooks.`;
 
 /** 🎯 V21 · Estética de agencia: elimina CUALQUIER pictográfico/emoji de un
  *  texto del afiche (los iconos los dibuja el sistema con SVG vectorial). */
@@ -1246,6 +1315,7 @@ const CAMPAIGN_SCHEMA: Record<string, unknown> = {
  * toast): NUNCA devuelve una campaña fabricada con plantillas prefabricadas.
  */
 export async function generateCampaignCopy(input: CampaignInput, art: ArtDirection): Promise<MarketingCampaign> {
+  const focusRule = FOCUS_DIRECTIVES[input.focus];
   const strategy = [
     `ESTRATEGIA DE LA PASADA 1 (úsala como eje de TODO el copy):`,
     `· Rubro detectado: ${art.industryType}`,
@@ -1255,6 +1325,7 @@ export async function generateCampaignCopy(input: CampaignInput, art: ArtDirecti
     `· Producto/servicio estrella deducido: ${art.productTitle}`,
     `· Promesa de valor central: ${art.valueProposition}`,
     `· Tema visual: ${art.themeId} · Layout: ${art.layoutId}`,
+    `· ${focusRule.prompt}`,
     '',
     campaignFacts(input),
   ].join('\n');
@@ -1671,20 +1742,29 @@ export function synthesizeArtDirection(
   const seed = opts?.seed ?? Math.floor(Math.random() * 100000);
   const niche = detectNiche(`${input.brief} ${input.slogan} ${input.product} ${input.businessName}`, input.categoryHint);
   const industry = niche.industry;
+  const focusRule = FOCUS_DIRECTIVES[input.focus] ?? FOCUS_DIRECTIVES.confianza;
 
-  // V20.0 Aleatoriedad Forzada: excluye el tema y layout anteriores y rota entre familias visuales élite
+  // V32.0 Arquitectura Líquida + Enfoque Psicológico real: rota entre composiciones distintas sin repetir anterior
   const dynamicLayouts = [
-    'diagx', 'orbits', 'bleed', 'magazine', 'float', 'bento3d', 'zen', 'diamond',
-    'diagonal', 'split', 'portal', 'hud', 'menu', 'arc', 'polaroid', 'swiss', 'bento',
+    'immersive', 'magazine', 'swiss', 'diagonal', 'collage',
+    'diagx', 'orbits', 'bleed', 'float', 'bento3d', 'zen', 'diamond',
+    'split', 'portal', 'hud', 'menu', 'arc', 'polaroid', 'bento',
   ];
+  const preferredThemePool = focusRule.preferredThemes.filter((id) => id !== opts?.previousThemeId);
+  const preferredLayoutPool = focusRule.preferredLayouts.filter((id) => id !== opts?.previousLayoutId);
   const candidateThemes = THEME_IDS.filter((id) => id !== opts?.previousThemeId);
-  const pickedTheme =
-    candidateThemes[Math.floor(Math.random() * candidateThemes.length)] || niche.theme;
   const candidateLayouts = dynamicLayouts.filter((id) => id !== opts?.previousLayoutId);
-  const pickedLayout =
-    candidateLayouts[Math.floor(Math.random() * candidateLayouts.length)] || niche.layout;
 
-  const dynamicBadge = stripPictographics(rotate(niche.badges, Math.floor(seed / 11))).toUpperCase() || rotate(niche.labels, Math.floor(seed / 7)).toUpperCase();
+  const pickedTheme =
+    (seed % 3 !== 0 && preferredThemePool.length > 0
+      ? preferredThemePool[seed % preferredThemePool.length]
+      : candidateThemes[Math.floor(Math.random() * candidateThemes.length)]) || niche.theme;
+  const pickedLayout =
+    (seed % 2 === 0 && preferredLayoutPool.length > 0
+      ? preferredLayoutPool[seed % preferredLayoutPool.length]
+      : candidateLayouts[Math.floor(Math.random() * candidateLayouts.length)]) || niche.layout;
+
+  const dynamicBadge = rotate(focusRule.badges, seed) || stripPictographics(rotate(niche.badges, Math.floor(seed / 11))).toUpperCase();
 
   return {
     industryType: industry,
@@ -1694,7 +1774,7 @@ export function synthesizeArtDirection(
     dynamicTagline: dynamicBadge,
     themeId: pickedTheme,
     layoutId: pickedLayout,
-    valueProposition: rotate(niche.subs, Math.floor(seed / 3)),
+    valueProposition: `${focusRule.subPrefix} ${rotate(niche.subs, Math.floor(seed / 3))}`,
     imagePromptEn: INDUSTRY_PHOTO_PROMPTS[industry],
   };
 }
@@ -1706,12 +1786,14 @@ export function synthesizeArtDirection(
 export function synthesizeCampaign(input: CampaignInput, art: ArtDirection): MarketingCampaign {
   const seed = Math.floor(Math.random() * 100000);
   const niche = detectNiche(`${input.brief} ${input.slogan} ${input.product} ${input.businessName}`, input.categoryHint);
+  const focusRule = FOCUS_DIRECTIVES[input.focus] ?? FOCUS_DIRECTIVES.confianza;
   const isService = input.priceMode === 'servicio';
   const brand = input.businessName.trim() || art.brandName;
   const product = input.product.trim() || art.productTitle;
   const addr = input.address.trim() || input.municipality;
   const place = input.municipality || 'Gachetá';
-  const [plain, highlight] = rotate(niche.headlines, seed);
+  const focusHeadlines = focusRule.headlineFor(product, brand, place);
+  const [plain, highlight] = rotate(focusHeadlines, seed);
   const price =
     !isService && input.promoPrice != null
       ? ` a SOLO $${input.promoPrice.toLocaleString('es-CO')}`
@@ -1742,7 +1824,8 @@ export function synthesizeCampaign(input: CampaignInput, art: ArtDirection): Mar
     '#ApoyaLoNuestro',
   ];
   const hashtags = [...new Set(hashtagsList)].slice(0, 8).join(' ');
-  const resolvedBadge = stripPictographics(art.dynamicTagline || rotate(niche.badges, Math.floor(seed / 11))).toUpperCase() || art.categoryLabel.toUpperCase();
+  const resolvedBadge = stripPictographics(rotate(focusRule.badges, seed) || art.dynamicTagline).toUpperCase() || art.categoryLabel.toUpperCase();
+  const resolvedSub = `${focusRule.subPrefix} ${rotate(niche.subs, Math.floor(seed / 5))}`;
 
   return {
     industryType: art.industryType,
@@ -1752,11 +1835,11 @@ export function synthesizeCampaign(input: CampaignInput, art: ArtDirection): Mar
     badgeText: resolvedBadge,
     dynamicTagline: resolvedBadge,
     headline: { plain, highlight },
-    sub: rotate(niche.subs, Math.floor(seed / 5)),
+    sub: resolvedSub,
     // 🎯 V21 · Cero emojis en el afiche: el motor sintético limpia los
     // pictográficos de nicho (los íconos los dibuja el sistema vectorial).
     benefits: [stripPictographics(b0), stripPictographics(b1), stripPictographics(b2)],
-    cta: isService ? 'Cotiza en 1 clic' : 'Escríbenos por WhatsApp',
+    cta: isService ? rotate(focusRule.ctas, seed) : rotate(focusRule.ctas, seed + 1),
     priceLabel: isService
       ? input.priceLabel.trim() || `${art.productTitle} · Cotiza sin compromiso`
       : null,
@@ -1854,10 +1937,10 @@ export interface SupportConciergeAssessment {
 }
 
 const SUPPORT_ESCALATION_REPLY =
-  'Entiendo la situación. He registrado este reporte y nuestro equipo técnico lo está revisando con prioridad.';
+  'He detectado una incidencia importante y he creado un ticket de alta prioridad para el administrador. Nuestro equipo ya lo está revisando.';
 
-const SUPPORT_SYSTEM_PROMPT = `Eres "El Conserje de Impulso", el asistente inteligente oficial de Impulso (portal colombiano de ofertas locales y publicidad para comercios en Cundinamarca).
-Reglas de negocio reales de Impulso:
+const SUPPORT_SYSTEM_PROMPT = `Eres el conserje experto de Impulso. Resuelve dudas de uso de la plataforma. Si detectas un error grave o un reporte de fraude, informa al usuario que has creado un ticket de alta prioridad para el administrador.
+Reglas de negocio reales de Impulso (portal colombiano de ofertas locales y publicidad en Cundinamarca):
 - Compradores NO necesitan crear cuenta ni pagar en la app: apartan con nombre y WhatsApp, reciben código y pagan directo al comercio al recibir.
 - Impulso es un portal tecnológico de contacto: no retiene dinero ni interviene en ventas entre terceros.
 - Comercios publican ofertas usando créditos (3 gratis al registrarse). Para recargar créditos van a Mi Panel → Recargar créditos (Nequi / Daviplata / Llave / QR oficial del administrador) y suben su comprobante para validación.

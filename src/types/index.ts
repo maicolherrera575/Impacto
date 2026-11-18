@@ -14,7 +14,7 @@ export type Category =
 
 export type OfferStatus = 'active' | 'sold_out' | 'expired' | 'cancelled';
 export type ReservationStatus = 'pending' | 'completed' | 'released';
-export type UserRole = 'merchant' | 'admin';
+export type UserRole = 'client' | 'merchant' | 'admin';
 
 /** Modalidad de entrega segura elegida por el comerciante. */
 export type DeliveryType = 'local_fisico' | 'parque_principal' | 'domicilio';

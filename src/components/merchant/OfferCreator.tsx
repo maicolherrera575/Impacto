@@ -4,7 +4,7 @@ import type { OfferForm, Profile } from '../../types';
 import { CATEGORIES, DURATION_OPTIONS, DELIVERY_TYPES } from '../../types';
 import { ModalShell } from '../ui/ModalShell';
 import { useToast } from '../ui/Toast';
-import { parsePromoFromText } from '../../services/gemini.service';
+import { AI_BUSY_FRIENDLY_MSG, parsePromoFromText } from '../../services/gemini.service';
 import { validateOfferSecurity } from '../../utils/securityFilter';
 import { publishOffer } from '../../services/offers.service';
 import { friendlyError } from '../../services/supabase';
@@ -100,6 +100,7 @@ export function OfferCreator({ open, onClose, profile, onPublished, initialForm 
   }
 
   async function createWithAi() {
+    setErrorMsg('');
     setAiLoading(true);
     try {
       const parsed = await parsePromoFromText(freeText);
@@ -118,7 +119,11 @@ export function OfferCreator({ open, onClose, profile, onPublished, initialForm 
       setAiFilled(true);
       toast.success('✨ ¡La IA estructuró tu oferta! Revísala y publica');
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : friendlyError(err));
+      const rawMsg = err instanceof Error ? err.message : friendlyError(err);
+      const isRawGoogleError = /\{|"error"|gemini-|generativelanguage|404|429|503|quota/i.test(rawMsg);
+      const safeMsg = isRawGoogleError ? AI_BUSY_FRIENDLY_MSG : rawMsg || AI_BUSY_FRIENDLY_MSG;
+      setErrorMsg(safeMsg);
+      toast.error(safeMsg);
     } finally {
       setAiLoading(false);
     }
