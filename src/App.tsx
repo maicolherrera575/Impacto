@@ -33,6 +33,7 @@ import { ReservationsTab } from './components/reservations/ReservationsTab';
 import { OfferDetailModal } from './components/offers/OfferDetailModal';
 import { ReportModal } from './components/offers/ReportModal';
 import { MerchantProfileModal } from './components/radar/MerchantProfileModal';
+import { SupportConcierge } from './components/support/SupportConcierge';
 import { AuthModal } from './components/auth/AuthModal';
 import { LegalModal } from './components/legal/LegalModal';
 import { AdminPanel } from './components/admin/AdminPanel';
@@ -564,13 +565,19 @@ export default function App() {
                 <ShieldCheck className="h-3.5 w-3.5" />
                 Términos y política de datos · Ley 1581 de 2012
               </button>
-              <p className="mt-1 text-[10px] text-slate-600">
-                Impulso es una plataforma informativa de difusión y reserva previa, sin intermediación financiera.
+              <p className="mt-1.5 text-[10px] leading-relaxed text-slate-500">
+                Impulso es un portal tecnológico de contacto y publicidad. Las transacciones, pagos y entregas se realizan
+                exclusivamente entre el cliente y el comercio. Impulso no retiene dinero ni interviene en la venta.
               </p>
             </footer>
           </main>
 
           <BottomNav active={tab} onChange={setTab} pendingTickets={pendingTickets} />
+          <SupportConcierge
+            userRole={profile?.role === 'merchant' ? 'merchant' : 'client'}
+            userName={profile?.business_name ?? 'Cliente'}
+            municipality={municipality}
+          />
         </>
       ) : profile ? (
         <MerchantDashboard

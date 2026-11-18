@@ -13,7 +13,8 @@ import {
 } from '../../services/WebAuthnService';
 import { cx } from '../../utils/format';
 
-const PASSWORD_FALLBACK_INFO_MSG = 'Inicia sesión con tu contraseña para este dispositivo.';
+const PASSWORD_FALLBACK_INFO_MSG =
+  'Para mayor seguridad, inicia sesión con tu contraseña en este equipo nuevo. Luego podrás vincular tu huella desde el panel.';
 
 interface AuthModalProps {
   open: boolean;

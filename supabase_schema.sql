@@ -2635,10 +2635,10 @@ begin
     on conflict (key) do update set value = excluded.value, updated_at = now();
   end if;
   if p_qr_thumb is not null then
-    -- '' limpia el QR; un dataURL lo asigna (micro-WebP ≤ 35000 chars)
+    -- '' limpia el QR; un dataURL lo asigna (PNG/WebP nítido <= 180000 chars)
     v_qr := nullif(btrim(p_qr_thumb), '');
-    if v_qr is not null and char_length(v_qr) > 35000 then
-      raise exception 'El QR es demasiado pesado. Súbelo de nuevo (se comprime solo)';
+    if v_qr is not null and char_length(v_qr) > 180000 then
+      raise exception 'El QR es demasiado pesado. Súbelo de nuevo (se optimiza automáticamente)';
     end if;
     insert into public.app_settings (key, value, updated_at)
     values ('payment_qr_thumb', coalesce(v_qr, ''), now())
@@ -3441,6 +3441,132 @@ grant execute on function public.webauthn_revoke_passkey_rpc(uuid)              
 grant execute on function public.webauthn_begin_login_rpc(text)                                  to anon, authenticated;
 grant execute on function public.webauthn_consume_login_challenge_rpc(uuid, text)                to anon, authenticated;
 grant execute on function public.webauthn_commit_login_usage_rpc(uuid, text, bigint)             to anon, authenticated;
+
+-- ============================================================================
+-- 13. AGENTE DE SOPORTE INTELIGENTE ("EL CONSERJE DE IMPULSO" · V30/V31)
+--     Almacena reportes técnicos y dudas escaladas con diagnóstico IA.
+-- ============================================================================
+create table if not exists public.support_tickets (
+  id              uuid primary key default gen_random_uuid(),
+  user_id         uuid references auth.users(id) on delete set null,
+  user_role       text not null default 'client' check (user_role in ('client', 'merchant', 'admin')),
+  user_name       text not null default 'Visitante',
+  municipality    text not null default 'Gachetá',
+  category        text not null default 'usage' check (category in ('usage', 'technical', 'bug', 'billing', 'abuse')),
+  severity        text not null default 'low' check (severity in ('low', 'medium', 'high', 'critical')),
+  summary         text not null,
+  chat_transcript jsonb not null default '[]'::jsonb,
+  ai_analysis     text not null,
+  status          text not null default 'open' check (status in ('open', 'in_progress', 'resolved')),
+  created_at      timestamptz not null default now()
+);
+
+alter table public.support_tickets enable row level security;
+
+drop policy if exists "Soporte insert publico o propio" on public.support_tickets;
+create policy "Soporte insert publico o propio"
+  on public.support_tickets for insert
+  to anon, authenticated
+  with check (user_id is null or user_id = auth.uid());
+
+drop policy if exists "Usuario ve sus tickets" on public.support_tickets;
+create policy "Usuario ve sus tickets"
+  on public.support_tickets for select
+  to authenticated
+  using (user_id = auth.uid() or public.is_admin());
+
+drop policy if exists "Admin actualiza tickets" on public.support_tickets;
+create policy "Admin actualiza tickets"
+  on public.support_tickets for update
+  to authenticated
+  using (public.is_admin())
+  with check (public.is_admin());
+
+create or replace function public.submit_support_ticket_rpc(
+  p_user_role       text,
+  p_user_name       text,
+  p_municipality    text,
+  p_category        text,
+  p_severity        text,
+  p_summary         text,
+  p_chat_transcript jsonb,
+  p_ai_analysis     text
+)
+returns public.support_tickets
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_row public.support_tickets;
+begin
+  insert into public.support_tickets (
+    user_id, user_role, user_name, municipality,
+    category, severity, summary, chat_transcript, ai_analysis
+  )
+  values (
+    auth.uid(),
+    case when p_user_role in ('client', 'merchant', 'admin') then p_user_role else 'client' end,
+    left(coalesce(nullif(btrim(p_user_name), ''), 'Visitante'), 80),
+    left(coalesce(nullif(btrim(p_municipality), ''), 'Gachetá'), 60),
+    case when p_category in ('usage', 'technical', 'bug', 'billing', 'abuse') then p_category else 'technical' end,
+    case when p_severity in ('low', 'medium', 'high', 'critical') then p_severity else 'medium' end,
+    left(coalesce(nullif(btrim(p_summary), ''), 'Reporte técnico de plataforma'), 240),
+    coalesce(p_chat_transcript, '[]'::jsonb),
+    left(coalesce(nullif(btrim(p_ai_analysis), ''), 'Pendiente de revisión'), 800)
+  )
+  returning * into v_row;
+
+  return v_row;
+end;
+$$;
+
+create or replace function public.admin_support_tickets_list_rpc()
+returns setof public.support_tickets
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if not public.is_admin() then
+    raise exception 'SOLO_ADMIN: acceso restringido';
+  end if;
+  return query
+  select * from public.support_tickets
+  order by created_at desc
+  limit 80;
+end;
+$$;
+
+create or replace function public.admin_update_support_ticket_rpc(
+  p_ticket_id uuid,
+  p_status    text
+)
+returns public.support_tickets
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_row public.support_tickets;
+begin
+  if not public.is_admin() then
+    raise exception 'SOLO_ADMIN: acceso restringido';
+  end if;
+  if p_status not in ('open', 'in_progress', 'resolved') then
+    raise exception 'Estado inválido';
+  end if;
+  update public.support_tickets
+     set status = p_status
+   where id = p_ticket_id
+  returning * into v_row;
+  return v_row;
+end;
+$$;
+
+grant execute on function public.submit_support_ticket_rpc(text, text, text, text, text, text, jsonb, text) to anon, authenticated;
+grant execute on function public.admin_support_tickets_list_rpc()                                              to authenticated;
+grant execute on function public.admin_update_support_ticket_rpc(uuid, text)                                  to authenticated;
 
 -- 🔄 V19 · Refresca el caché de PostgREST automáticamente al correr el script:
 -- sin esto, funciones nuevas (como admin_reports_list_rpc) pueden seguir

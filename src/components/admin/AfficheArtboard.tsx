@@ -1179,92 +1179,67 @@ function QrOrganicToken({
   const palette = themeQrPalette(t.id, brandColors);
   const isCyber = qrStyle === 'cyber';
   const isLuxury = qrStyle === 'luxury';
-  const outerRadius = isCyber ? 0 : (qrStyle === 'sharp' ? 10 : isLuxury ? 20 : 18) * s;
-  const innerRadius = isCyber ? 0 : (qrStyle === 'sharp' ? 6 : isLuxury ? 14 : 12) * s;
-  const bezelPad = 2 * s;
-  // Quiet zone mínimo y elegante (~p-2 en blanco puro) manteniendo 100% lectura en cámara y Lens
-  const matrixPad = qrUrl ? Math.max(6, Math.round(8 * s)) : Math.max(8, Math.round(10 * s));
-  const svgSize = Math.max(48, Math.round(size - (bezelPad + matrixPad) * 2));
+  const outerRadius = isCyber ? 0 : (qrStyle === 'sharp' ? 12 : 16) * s;
+  const framePad = Math.max(4, Math.round(5 * s));
+  const svgSize = Math.max(48, Math.round(size - framePad * 2));
   const isLight = Boolean(t.light);
-  const cut = Math.round(12 * s);
+  const cut = Math.round(10 * s);
   const cyberClip = isCyber
     ? `polygon(${cut}px 0, 100% 0, 100% calc(100% - ${cut}px), calc(100% - ${cut}px) 100%, 0 100%, 0 ${cut}px)`
     : undefined;
-  const innerCut = Math.round(8 * s);
-  const innerCyberClip = isCyber
-    ? `polygon(${innerCut}px 0, 100% 0, 100% calc(100% - ${innerCut}px), calc(100% - ${innerCut}px) 100%, 0 100%, 0 ${innerCut}px)`
-    : undefined;
 
-  const bezelBg = isLuxury
-    ? 'linear-gradient(145deg, rgba(245,158,11,0.28), rgba(20,17,24,0.42))'
-    : isCyber
-      ? `linear-gradient(135deg, ${t.accent}55, ${t.accent2}44)`
-      : isLight
-        ? 'linear-gradient(145deg, rgba(255,255,255,0.92), rgba(226,232,240,0.72))'
-        : 'linear-gradient(145deg, rgba(255,255,255,0.22), rgba(255,255,255,0.05))';
-
-  const bezelBorder = isLuxury
-    ? '1.5px solid rgba(251,191,36,0.58)'
-    : `1.5px solid ${t.accent2}90`;
-
-  const bezelShadow = isLuxury
-    ? `0 22px 44px -10px rgba(0,0,0,0.68), 0 0 ${24 * s}px rgba(245,158,11,0.34)`
-    : `0 22px 44px -10px rgba(0,0,0,0.58), 0 0 ${22 * s}px ${t.accent2}35`;
+  const panelBg = isLight
+    ? 'rgba(0, 0, 0, 0.05)'
+    : 'rgba(255, 255, 255, 0.10)';
+  const panelBorder = isLuxury
+    ? '1px solid rgba(251, 191, 36, 0.45)'
+    : isLight
+      ? '1px solid rgba(15, 23, 42, 0.12)'
+      : '1px solid rgba(255, 255, 255, 0.18)';
 
   return (
     <div
       style={{
         width: size,
         height: size,
-        padding: bezelPad,
+        padding: framePad,
         borderRadius: outerRadius,
         clipPath: cyberClip,
-        background: bezelBg,
-        backdropFilter: 'blur(16px)',
-        border: bezelBorder,
-        boxShadow: bezelShadow,
+        background: panelBg,
+        backdropFilter: 'blur(12px) saturate(140%)',
+        border: panelBorder,
+        boxShadow: isLight
+          ? '0 10px 24px -8px rgba(15,23,42,0.12)'
+          : `0 12px 28px -8px rgba(0,0,0,0.55), 0 0 ${16 * s}px ${t.accent2}22`,
         boxSizing: 'border-box',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
+        lineHeight: 0,
+        overflow: 'hidden',
       }}
     >
-      <div
-        style={{
-          position: 'relative',
-          background: '#ffffff',
-          borderRadius: innerRadius,
-          clipPath: innerCyberClip,
-          padding: matrixPad,
-          lineHeight: 0,
-          overflow: 'hidden',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        {qrUrl ? (
-          <img
-            src={qrUrl}
-            alt="QR"
-            style={{
-              width: svgSize,
-              height: svgSize,
-              display: 'block',
-              borderRadius: isCyber ? 0 : Math.max(0, innerRadius * 0.72),
-            }}
-          />
-        ) : value ? (
-          <QRCodeSVG
-            value={value}
-            size={svgSize}
-            level="M"
-            marginSize={2}
-            bgColor="#ffffff"
-            fgColor={palette.dark}
-          />
-        ) : null}
-      </div>
+      {qrUrl ? (
+        <img
+          src={qrUrl}
+          alt="QR"
+          style={{
+            width: svgSize,
+            height: svgSize,
+            display: 'block',
+            borderRadius: isCyber ? 0 : Math.max(4, 11 * s),
+          }}
+        />
+      ) : value ? (
+        <QRCodeSVG
+          value={value}
+          size={svgSize}
+          level="M"
+          marginSize={2}
+          bgColor="transparent"
+          fgColor={isLight ? palette.dark : '#f8fafc'}
+        />
+      ) : null}
     </div>
   );
 }
@@ -1724,8 +1699,8 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
   const isService = brand.promoPrice == null;
   const adaptiveCta = resolveAdaptiveCta(qrMode, texts.cta, isService);
 
-  // V29.0 · QR compacto y equilibrado (tamaño ágil para Lens sin inflar el contenedor blanco)
-  const dockQrSize = isSquare ? 156 : 196;
+  // V31.0 · Escala orgánica elegante (~16–19% del ancho del lienzo): legible al instante sin robar foco
+  const dockQrSize = isSquare ? 88 : 104;
   const resolvedBenefitMode: ResolvedBenefitMode =
     benefitStyle === 'auto' ? (LAYOUT_BENEFIT_MAP[layout] ?? 'editorial') : benefitStyle;
   const resolvedDockVariant: Exclude<DockVariant, 'auto'> =

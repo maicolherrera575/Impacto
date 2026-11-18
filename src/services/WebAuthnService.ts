@@ -390,7 +390,7 @@ export async function completePreparedPasskeyEnrollment(
   const algorithm = nativeAlg ?? extracted.fallbackAlg;
 
   if (!publicKeySpki) {
-    throw new Error('No se pudo extraer la clave pública criptográfica del dispositivo.');
+    throw new Error('No se pudo vincular la llave de seguridad en este dispositivo.');
   }
 
   const verifyRes = await fetch('/api/webauthn', {

@@ -82,6 +82,68 @@ export async function compressImageToMicroWebP(
   return dataUrl;
 }
 
+/**
+ * 💳 Optimiza el QR oficial del administrador (Nequi / Daviplata PNG o JPG)
+ * manteniendo bordes afilados sobre fondo blanco puro para escaneo bancario 100% confiable.
+ */
+export async function prepareCrispQrImage(file: File): Promise<string> {
+  const url = URL.createObjectURL(file);
+  let img: HTMLImageElement;
+  try {
+    img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error('No se pudo leer la imagen del QR. Prueba con PNG o JPG.'));
+      el.src = url;
+    });
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+
+  const maxDim = 600;
+  const ratio = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight));
+  const width = Math.max(120, Math.round(img.naturalWidth * ratio));
+  const height = Math.max(120, Math.round(img.naturalHeight * ratio));
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Tu navegador no permite procesar la imagen del QR.');
+
+  // Fondo blanco puro detrás de PNGs transparentes de Nequi/Daviplata
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, width, height);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(img, 0, 0, width, height);
+
+  const SAFE_DB_CHARS = 34000;
+  let dataUrl = canvas.toDataURL('image/png');
+  if (dataUrl.length <= SAFE_DB_CHARS) return dataUrl;
+
+  for (const q of [0.94, 0.88, 0.8, 0.72]) {
+    const candidate = canvas.toDataURL('image/webp', q);
+    if (candidate.startsWith('data:image/webp') && candidate.length <= SAFE_DB_CHARS) {
+      return candidate;
+    }
+    const jpgCandidate = canvas.toDataURL('image/jpeg', q);
+    if (jpgCandidate.length <= SAFE_DB_CHARS) {
+      return jpgCandidate;
+    }
+  }
+
+  canvas.width = Math.round(width * 0.78);
+  canvas.height = Math.round(height * 0.78);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  dataUrl = canvas.toDataURL('image/webp', 0.78);
+  if (!dataUrl.startsWith('data:image/webp') || dataUrl.length > SAFE_DB_CHARS) {
+    dataUrl = canvas.toDataURL('image/jpeg', 0.76);
+  }
+  return dataUrl;
+}
+
 /** Texto comparativo amigable para el toast del comerciante. */
 export function compressionSummary(original: File, optimizedDataUrl: string): string {
   const optimizedBytes = Math.round(optimizedDataUrl.length * 0.75); // base64 → bytes aprox.

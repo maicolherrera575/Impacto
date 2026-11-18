@@ -27,32 +27,33 @@ Responde ÚNICAMENTE con el objeto JSON.`;
 // llave privada. DESARROLLO local: usa el SDK con VITE_GEMINI_API_KEY; si no
 // existe, intenta /api/gemini (útil con `vercel dev`).
 
-/** V20: cadena de modelos con reintento automático. SIEMPRE se intenta
- *  primero el mejor modelo disponible (2.5-flash); si devuelve 429/503/404
- *  (cuota o indisponibilidad) cae al instante a los siguientes (flash-lite →
- *  2.0 → 1.5) para que la respuesta JAMÁS se pierda y la app siempre funcione. */
+/**
+ * 🛡️ V30/V31 · Cadena de resiliencia IA en cascada:
+ * Intento 1: gemini-1.5-pro-latest → Intento 2: gemini-1.5-flash-latest → Intento 3: gemini-1.0-pro.
+ * Para Vision con imágenes usa modelos multimodales equivalentes en cascada.
+ * Si toda la cadena falla (404/429/503), oculta el detalle técnico y devuelve un aviso amigable.
+ */
 const MODEL_CHAIN = [
-  'gemini-2.5-flash',
-  'gemini-2.5-flash-lite',
+  'gemini-1.5-pro-latest',
+  'gemini-1.5-flash-latest',
+  'gemini-1.0-pro',
+] as const;
+
+const VISION_MODEL_CHAIN = [
+  'gemini-1.5-pro-latest',
+  'gemini-1.5-flash-latest',
   'gemini-2.0-flash',
   'gemini-1.5-flash',
 ] as const;
-const MODEL_ID = MODEL_CHAIN[0];
+
+export const AI_BUSY_FRIENDLY_MSG =
+  'Nuestro equipo de IA está saturado en este momento. Por favor, inténtalo de nuevo en unos segundos.';
 
 /** HTTP codes que justifican reintentar con el siguiente modelo de la cadena. */
-const RETRYABLE_STATUS = new Set([404, 408, 429, 500, 502, 503, 504]);
+const RETRYABLE_STATUS = new Set([400, 404, 408, 429, 500, 502, 503, 504]);
 
 type SdkModel = ReturnType<GoogleGenerativeAI['getGenerativeModel']>;
 type SdkRequest = Parameters<SdkModel['generateContent']>[0];
-
-let sdkModel: SdkModel | null = null;
-
-function getSdkModel(): SdkModel {
-  if (!sdkModel) {
-    sdkModel = new GoogleGenerativeAI(GEMINI_API_KEY).getGenerativeModel({ model: MODEL_ID });
-  }
-  return sdkModel;
-}
 
 interface GeminiCallOptions {
   systemInstruction?: string;
@@ -63,11 +64,31 @@ interface GeminiCallOptions {
   responseSchema?: Record<string, unknown>;
 }
 
-/** Payload compatible al 100% con el SDK y con la API REST de Gemini. */
-function buildPayload(options: GeminiCallOptions): Record<string, unknown> {
+function getCascadeModels(options: GeminiCallOptions): readonly string[] {
+  return options.image ? VISION_MODEL_CHAIN : MODEL_CHAIN;
+}
+
+/** Payload adaptado al modelo: gemini-1.0-pro recibe instrucciones embebidas sin schema estricto. */
+function buildPayload(options: GeminiCallOptions, model?: string): Record<string, unknown> {
+  const isLegacyPro = model === 'gemini-1.0-pro';
+  const promptText =
+    isLegacyPro && options.systemInstruction
+      ? `${options.systemInstruction}\n\n${options.prompt}\n\nResponde ÚNICAMENTE con un objeto JSON válido.`
+      : options.prompt;
+
   const parts: Record<string, unknown>[] = [];
-  if (options.image) parts.push({ inlineData: options.image });
-  parts.push({ text: options.prompt });
+  if (options.image && !isLegacyPro) parts.push({ inlineData: options.image });
+  parts.push({ text: promptText });
+
+  if (isLegacyPro) {
+    return {
+      contents: [{ role: 'user', parts }],
+      generationConfig: {
+        temperature: options.temperature,
+      },
+    };
+  }
+
   return {
     ...(options.systemInstruction ? { systemInstruction: { parts: [{ text: options.systemInstruction }] } } : {}),
     contents: [{ role: 'user', parts }],
@@ -89,32 +110,30 @@ function extractRestText(rest: unknown): string {
     .trim();
 }
 
-/** Llama al proxy serverless /api/gemini recorriendo la cadena de modelos. */
+/** Llama al proxy serverless /api/gemini recorriendo la cadena de modelos en cascada. */
 async function callProxy(options: GeminiCallOptions): Promise<string> {
-  let lastErr: Error = new Error('La IA no respondió');
-  for (const model of MODEL_CHAIN) {
+  let lastErr: Error = new Error(AI_BUSY_FRIENDLY_MSG);
+  for (const model of getCascadeModels(options)) {
     let res: Response;
     try {
       res = await fetch('/api/gemini', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model, payload: buildPayload(options) }),
+        body: JSON.stringify({ model, payload: buildPayload(options, model) }),
       });
     } catch {
-      lastErr = new Error('No se pudo contactar la IA (revisa tu conexión a internet)');
+      lastErr = new Error(AI_BUSY_FRIENDLY_MSG);
       continue;
     }
     const rest: unknown = await res.json().catch(() => null);
     if (!res.ok) {
-      const msg = (rest as { error?: { message?: string } } | null)?.error?.message;
-      lastErr = new Error(msg ? `La IA respondió con error: ${msg}` : `La IA respondió con error (HTTP ${res.status})`);
-      // Cuota/indisponibilidad del modelo: reintenta AL INSTANTE con el siguiente.
+      lastErr = new Error(AI_BUSY_FRIENDLY_MSG);
       if (RETRYABLE_STATUS.has(res.status)) continue;
       throw lastErr;
     }
     const text = extractRestText(rest);
     if (!text) {
-      lastErr = new Error('La IA no respondió con contenido. Intenta de nuevo');
+      lastErr = new Error(AI_BUSY_FRIENDLY_MSG);
       continue;
     }
     return text;
@@ -122,20 +141,30 @@ async function callProxy(options: GeminiCallOptions): Promise<string> {
   throw lastErr;
 }
 
-/** Llamada directa con el SDK (requiere GEMINI_API_KEY disponible). */
+/** Llamada directa con el SDK recorriendo la cadena de modelos en cascada. */
 async function callSdk(options: GeminiCallOptions): Promise<string> {
-  const { response } = await getSdkModel().generateContent(buildPayload(options) as unknown as SdkRequest);
-  const text = response.text().trim();
-  if (!text) throw new Error('La IA no respondió con contenido. Intenta de nuevo');
-  return text;
+  const sdk = new GoogleGenerativeAI(GEMINI_API_KEY);
+  let lastErr: Error = new Error(AI_BUSY_FRIENDLY_MSG);
+  for (const model of getCascadeModels(options)) {
+    try {
+      const sdkModel = sdk.getGenerativeModel({ model });
+      const { response } = await sdkModel.generateContent(buildPayload(options, model) as unknown as SdkRequest);
+      const text = response.text().trim();
+      if (text) return text;
+    } catch (err) {
+      console.warn(`[Impulso IA SDK] Modelo ${model} no disponible:`, err);
+      lastErr = new Error(AI_BUSY_FRIENDLY_MSG);
+    }
+  }
+  throw lastErr;
 }
 
-/** Llamada directa REST a Gemini con la llave inyectada en build time. */
+/** Llamada directa REST a Gemini recorriendo la cadena de modelos en cascada. */
 async function callDirect(options: GeminiCallOptions): Promise<string> {
   const key = (typeof __APP_GEMINI_KEY__ === 'string' ? __APP_GEMINI_KEY__ : '').trim();
-  if (!key) throw new Error('El navegador no tiene llave de respaldo de IA');
-  let lastErr: Error = new Error('El navegador no tiene llave de respaldo de IA');
-  for (const model of MODEL_CHAIN) {
+  if (!key) throw new Error(AI_BUSY_FRIENDLY_MSG);
+  let lastErr: Error = new Error(AI_BUSY_FRIENDLY_MSG);
+  for (const model of getCascadeModels(options)) {
     let res: Response;
     try {
       res = await fetch(
@@ -143,23 +172,22 @@ async function callDirect(options: GeminiCallOptions): Promise<string> {
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(buildPayload(options)),
+          body: JSON.stringify(buildPayload(options, model)),
         },
       );
     } catch {
-      lastErr = new Error('No se pudo contactar la IA directamente (revisa tu conexión)');
+      lastErr = new Error(AI_BUSY_FRIENDLY_MSG);
       continue;
     }
     const rest: unknown = await res.json().catch(() => null);
     if (!res.ok) {
-      const msg = (rest as { error?: { message?: string } } | null)?.error?.message;
-      lastErr = new Error(msg ? `La IA respondió con error: ${msg}` : `La IA respondió con error (HTTP ${res.status})`);
+      lastErr = new Error(AI_BUSY_FRIENDLY_MSG);
       if (RETRYABLE_STATUS.has(res.status)) continue;
       throw lastErr;
     }
     const text = extractRestText(rest);
     if (!text) {
-      lastErr = new Error('La IA no respondió con contenido. Intenta de nuevo');
+      lastErr = new Error(AI_BUSY_FRIENDLY_MSG);
       continue;
     }
     return text;
@@ -168,27 +196,31 @@ async function callDirect(options: GeminiCallOptions): Promise<string> {
 }
 
 /**
- * Punto único de llamada a Gemini (V11 · MOTOR INFALIBLE).
- * 1) Motor 1: proxy serverless /api/gemini con cadena de modelos (2.5 → 2.0 → 1.5).
- * 2) Motor 2: llamada DIRECTA a la API REST con __APP_GEMINI_KEY__ (build time).
- * 3) Motor 3 (desarrollo): SDK con GEMINI_API_KEY local.
- * Si todo falla propaga los motivos técnicos EXACTOS (el estudio sintetiza la
- * campaña localmente para que el usuario JAMÁS vea cajas vacías).
+ * Wrapper unificado de llamada a Gemini con respaldo en cascada multinivel:
+ * 1) Proxy /api/gemini (1.5-pro-latest → 1.5-flash-latest → 1.0-pro).
+ * 2) REST directo con __APP_GEMINI_KEY__.
+ * 3) SDK local con cascada de modelos.
+ * Oculta errores crudos de API al usuario final.
  */
 async function callGemini(options: GeminiCallOptions): Promise<string> {
-  const errors: string[] = [];
   try {
     return await callProxy(options);
   } catch (proxyErr) {
-    errors.push(proxyErr instanceof Error ? proxyErr.message : String(proxyErr));
+    console.warn('[Impulso IA] Proxy en cascada agotado:', proxyErr);
   }
   try {
     return await callDirect(options);
   } catch (directErr) {
-    errors.push(directErr instanceof Error ? directErr.message : String(directErr));
+    console.warn('[Impulso IA] REST directo en cascada agotado:', directErr);
   }
-  if (GEMINI_API_KEY) return callSdk(options);
-  throw new Error(errors.join(' · '));
+  if (GEMINI_API_KEY) {
+    try {
+      return await callSdk(options);
+    } catch (sdkErr) {
+      console.warn('[Impulso IA] SDK en cascada agotado:', sdkErr);
+    }
+  }
+  throw new Error(AI_BUSY_FRIENDLY_MSG);
 }
 
 /**
@@ -1809,5 +1841,176 @@ export async function extractBrandPaletteWithAI(
     return Array.isArray(parsed.colors) ? buildPaletteFromHexTriplet(parsed.colors, source) : null;
   } catch {
     return null;
+  }
+}
+
+export interface SupportConciergeAssessment {
+  reply: string;
+  isTechnicalIssue: boolean;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  category: 'usage' | 'technical' | 'bug' | 'billing' | 'abuse';
+  summary: string;
+  aiAnalysis: string;
+}
+
+const SUPPORT_ESCALATION_REPLY =
+  'Entiendo la situación. He registrado este reporte y nuestro equipo técnico lo está revisando con prioridad.';
+
+const SUPPORT_SYSTEM_PROMPT = `Eres "El Conserje de Impulso", el asistente inteligente oficial de Impulso (portal colombiano de ofertas locales y publicidad para comercios en Cundinamarca).
+Reglas de negocio reales de Impulso:
+- Compradores NO necesitan crear cuenta ni pagar en la app: apartan con nombre y WhatsApp, reciben código y pagan directo al comercio al recibir.
+- Impulso es un portal tecnológico de contacto: no retiene dinero ni interviene en ventas entre terceros.
+- Comercios publican ofertas usando créditos (3 gratis al registrarse). Para recargar créditos van a Mi Panel → Recargar créditos (Nequi / Daviplata / Llave / QR oficial del administrador) y suben su comprobante para validación.
+- Acceso con huella/FaceID: primero se vincula en el panel tras iniciar sesión con contraseña; en un equipo nuevo se entra con contraseña primero.
+- GPS: solo se activa cuando el usuario toca Activar GPS; si está apagado el radar funciona igual en el municipio elegido.
+
+Analiza el mensaje del usuario y el historial. Responde ÚNICAMENTE con este JSON:
+{
+  "is_technical_issue": true|false,
+  "severity": "low"|"medium"|"high"|"critical",
+  "category": "usage"|"technical"|"bug"|"billing"|"abuse",
+  "summary": "resumen corto (máx 120 caracteres)",
+  "ai_analysis": "diagnóstico breve para el equipo técnico (máx 300 caracteres)",
+  "reply": "respuesta empática, clara y concisa en español para el usuario"
+}
+Reglas estrictas:
+- Si es una duda de uso normal ("¿cómo recargo créditos?", "¿cómo aparto?", "¿cómo cambio municipio?", "¿cómo activo mi huella?"), pon "is_technical_issue": false y responde con pasos claros.
+- Si reporta un fallo técnico, pantalla en blanco, cobro no reflejado, error al subir pago, fallo de botón o abuso/estafa, pon "is_technical_issue": true, asigna severidad real ("high" o "critical" para cobros o bloqueos) y en "reply" inicia exactamente con: "${SUPPORT_ESCALATION_REPLY}".
+- Jamás menciones detalles técnicos internos como SHA-256, claves API o nombres de modelos.`;
+
+function synthesizeLocalSupportFallback(
+  message: string,
+  userRole: 'client' | 'merchant' | 'admin',
+): SupportConciergeAssessment {
+  const m = message.toLowerCase();
+  const looksTechnical =
+    /error|no\s+(funciona|carga|abre|sirve|deja|llega)|fall[ao]|bug|roto|blanco|congel|bloque|duplicad|cobr[oó]|descont[oó]|no\s+se\s+reflej|problema\s+t[eé]cnico|estafa|fraude/i.test(
+      m,
+    );
+
+  if (looksTechnical) {
+    const isBillingOrCritical = /cobr|pago|cr[eé]dito|nequi|daviplata|bloque|estafa/i.test(m);
+    return {
+      isTechnicalIssue: true,
+      severity: isBillingOrCritical ? 'high' : 'medium',
+      category: /estafa|fraude/i.test(m) ? 'abuse' : isBillingOrCritical ? 'billing' : 'technical',
+      summary: message.trim().slice(0, 120) || 'Reporte técnico del usuario',
+      aiAnalysis: `Incidencia reportada por ${userRole === 'merchant' ? 'comercio' : 'cliente'}: "${message.trim().slice(0, 220)}". Escalada automáticamente por detección de fallo o cobro.`,
+      reply: SUPPORT_ESCALATION_REPLY,
+    };
+  }
+
+  if (/cr[eé]dit|recarg|nequi|daviplata|pagar|plan/i.test(m)) {
+    return {
+      isTechnicalIssue: false,
+      severity: 'low',
+      category: 'usage',
+      summary: 'Consulta sobre recarga de créditos',
+      aiAnalysis: 'Duda de uso resuelta automáticamente sobre recarga de créditos.',
+      reply:
+        'Para recargar créditos entra a Mi Panel → "Recargar créditos por Nequi", elige tu paquete, transfiere al Nequi/Llave o QR oficial del administrador y sube tu comprobante para validación rápida.',
+    };
+  }
+
+  if (/apart|reserv|compr|c[oó]digo|recog/i.test(m)) {
+    return {
+      isTechnicalIssue: false,
+      severity: 'low',
+      category: 'usage',
+      summary: 'Consulta sobre cómo apartar ofertas',
+      aiAnalysis: 'Duda de uso resuelta sobre el flujo de apartado sin registro.',
+      reply:
+        'No necesitas crear cuenta para aprovechar una oferta: toca la tarjeta que te guste → "Apartar el mío YA", escribe tu nombre y WhatsApp y recibirás tu código único para pagar directo al comercio al recoger.',
+    };
+  }
+
+  if (/huella|faceid|biometr|contrase/i.test(m)) {
+    return {
+      isTechnicalIssue: false,
+      severity: 'low',
+      category: 'usage',
+      summary: 'Consulta sobre acceso biométrico',
+      aiAnalysis: 'Duda de uso sobre biometría en dispositivo nuevo.',
+      reply:
+        'En un dispositivo nuevo inicia sesión primero con tu correo y contraseña; luego, desde Mi Panel, podrás vincular tu huella o FaceID para entrar con un toque.',
+    };
+  }
+
+  return {
+    isTechnicalIssue: false,
+    severity: 'low',
+    category: 'usage',
+    summary: 'Consulta general en plataforma',
+    aiAnalysis: 'Consulta general atendida por el Conserje de Impulso.',
+    reply:
+      userRole === 'merchant'
+        ? '¡Hola! Puedo ayudarte con publicación de ofertas, recarga de créditos por Nequi/QR, reservas de clientes o cualquier falla que estés viendo. Cuéntame exactamente qué necesitas.'
+        : '¡Hola! Puedo orientarte para apartar ofertas sin registro, usar el mapa cercano o reportar algún inconveniente técnico. ¿En qué te ayudo hoy?',
+  };
+}
+
+/**
+ * 🤖 El Conserje de Impulso (V30): analiza dudas y fallas en tiempo real
+ * mediante la cascada de modelos IA y clasifica tickets para el Administrador.
+ */
+export async function askSupportConcierge(input: {
+  history: Array<{ role: 'user' | 'assistant'; text: string }>;
+  latestMessage: string;
+  userRole: 'client' | 'merchant' | 'admin';
+  municipality: string;
+}): Promise<SupportConciergeAssessment> {
+  const cleanMsg = input.latestMessage.trim();
+  const transcriptText = input.history
+    .slice(-8)
+    .map((m) => `${m.role === 'user' ? 'Usuario' : 'Conserje'}: ${m.text}`)
+    .join('\n');
+
+  try {
+    const raw = await callGemini({
+      systemInstruction: SUPPORT_SYSTEM_PROMPT,
+      prompt: `Contexto: rol=${input.userRole}, municipio=${input.municipality}\nHistorial reciente:\n${transcriptText || '(inicio de conversación)'}\n\nÚltimo mensaje del usuario: """${cleanMsg}"""`,
+      temperature: 0.25,
+    });
+
+    interface ParsedSupport {
+      is_technical_issue?: boolean;
+      severity?: string;
+      category?: string;
+      summary?: string;
+      ai_analysis?: string;
+      reply?: string;
+    }
+
+    const parsed = parseAiJson<ParsedSupport>(raw);
+    const isTechnical = parsed.is_technical_issue === true;
+    const severity: SupportConciergeAssessment['severity'] =
+      parsed.severity === 'critical' || parsed.severity === 'high' || parsed.severity === 'medium' || parsed.severity === 'low'
+        ? parsed.severity
+        : isTechnical
+          ? 'medium'
+          : 'low';
+    const category: SupportConciergeAssessment['category'] =
+      parsed.category === 'technical' ||
+      parsed.category === 'bug' ||
+      parsed.category === 'billing' ||
+      parsed.category === 'abuse' ||
+      parsed.category === 'usage'
+        ? parsed.category
+        : isTechnical
+          ? 'technical'
+          : 'usage';
+
+    return {
+      isTechnicalIssue: isTechnical,
+      severity,
+      category,
+      summary: (parsed.summary ?? cleanMsg).trim().slice(0, 200) || 'Solicitud de soporte',
+      aiAnalysis: (parsed.ai_analysis ?? cleanMsg).trim().slice(0, 600) || 'Clasificado por Conserje IA',
+      reply: isTechnical
+        ? SUPPORT_ESCALATION_REPLY
+        : (parsed.reply ?? '').trim() || synthesizeLocalSupportFallback(cleanMsg, input.userRole).reply,
+    };
+  } catch {
+    return synthesizeLocalSupportFallback(cleanMsg, input.userRole);
   }
 }

@@ -85,17 +85,19 @@ export function CreditsModal({ open, onClose, profile, onCreditsApproved }: Cred
   const adminQr = payConfig?.qrThumb?.trim() || '';
   const autoApproveOn = payConfig?.autoApprove === true;
 
-  /** QR de pago en pantalla: el oficial del Admin o el generado al vuelo. */
+  const hasOfficialQr = Boolean(adminQr);
+  const displayedQr = adminQr || generatedQr;
+
+  /** QR genérico de respaldo únicamente si el Admin aún no ha subido su imagen oficial. */
   useEffect(() => {
-    if (!open) return;
-    if (adminQr) {
-      setGeneratedQr(adminQr);
+    if (!open || adminQr) {
+      setGeneratedQr(null);
       return;
     }
     let cancelled = false;
     QRCode.toDataURL(
       `PAGO IMPULSO | Nequi ${nequiLocal} | ${holderName} | ${method}`,
-      { width: 480, margin: 1, errorCorrectionLevel: 'M' },
+      { width: 480, margin: 2, errorCorrectionLevel: 'M' },
     )
       .then((url) => {
         if (!cancelled) setGeneratedQr(url);
@@ -250,19 +252,19 @@ export function CreditsModal({ open, onClose, profile, onCreditsApproved }: Cred
 
   /** ⬇️ Descarga el QR de pago en 1 clic. */
   function downloadQr(): void {
-    if (!generatedQr) return;
+    if (!displayedQr) return;
     const a = document.createElement('a');
-    a.href = generatedQr;
-    a.download = 'impulso-qr-pago.png';
+    a.href = displayedQr;
+    a.download = hasOfficialQr ? 'impulso-qr-oficial.png' : 'impulso-qr-pago.png';
     a.click();
     toast.success('📥 QR de pago descargado');
   }
 
-  /** 📤 Paso final: procesamiento y anti-tampering 100% en el servidor (/api/verify-receipt). */
+  /** 📤 Paso final: validación de pago segura en servidor (/api/verify-receipt). */
   async function submit() {
     setErrorMsg('');
     if (!receipt) {
-      setErrorMsg('Adjunta primero la captura de tu pago Nequi/Llave para calcular la huella SHA-256 en el servidor.');
+      setErrorMsg('Adjunta primero la captura de tu pago Nequi/Llave para iniciar la validación de pago.');
       return;
     }
     if (reference.trim().length < 4) {
@@ -289,13 +291,13 @@ export function CreditsModal({ open, onClose, profile, onCreditsApproved }: Cred
 
       if (srv.autoApproved) {
         const added = srv.approvedCredits || plan.credits;
-        setSuccessMsg(`⚡ ¡CRÉDITOS Acreditados AL INSTANTE! +${added} créditos ya están en tu cuenta. ¡A publicar!`);
+        setSuccessMsg(`⚡ ¡CRÉDITOS acreditados al instante! +${added} créditos ya están en tu cuenta. ¡A publicar!`);
         toast.success(`⚡ +${added} créditos añadidos automáticamente`);
         onCreditsApproved?.((profile.credits ?? 0) + added);
         return;
       }
 
-      setSuccessMsg('✅ Comprobante validado y sellado con SHA-256 en servidor: el administrador lo confirmará en minutos.');
+      setSuccessMsg('✅ Validación de pago completada con Verificación de Seguridad Asegurada: el administrador lo confirmará en minutos.');
       openWhatsApp(
         nequiDigits,
         `Hola! Soy ${profile.business_name} (${profile.municipality}). Envié el comprobante ${method} por ${formatCOP(plan.priceCop)} — ${plan.name} (${plan.credits} créditos), código ${reference.trim()}. ¡Quedo atento a la activación! 🙌`,
@@ -314,7 +316,7 @@ export function CreditsModal({ open, onClose, profile, onCreditsApproved }: Cred
           <div>
             <h3 className="text-lg font-extrabold text-white">⚡ Recargar Créditos</h3>
             <p className="mt-0.5 text-xs text-slate-400">
-              Pago Nequi · Llave · QR — validado con huella única, jamás se canjea dos veces.
+              Pago Nequi · Daviplata · Llave · QR — Validación de Pago con Verificación de Seguridad Asegurada.
             </p>
           </div>
           <button
@@ -410,15 +412,34 @@ export function CreditsModal({ open, onClose, profile, onCreditsApproved }: Cred
               </button>
             </div>
           </div>
-          {/* Opción 3: QR de pago (oficial del Admin o generado) */}
-          {generatedQr && (
+          {/* Opción 3: QR oficial bancario del administrador (o respaldo genérico con advertencia) */}
+          {displayedQr && (
             <div className="rounded-xl border border-white/10 bg-slate-950/40 p-2.5">
-              <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Opción 3 · Código QR de pago</p>
-              <div className="mt-1 flex items-center gap-3">
-                <img src={generatedQr} alt="QR de pago del administrador" className="h-28 w-28 shrink-0 rounded-xl bg-white p-1" />
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">
+                  Opción 3 · Código QR de pago
+                </p>
+                {hasOfficialQr ? (
+                  <span className="rounded-full bg-impulso-emerald/15 px-2 py-0.5 text-[9px] font-extrabold text-impulso-mint">
+                    ✅ Oficial Nequi / Daviplata
+                  </span>
+                ) : (
+                  <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[9px] font-extrabold text-amber-300">
+                    ⚠️ QR genérico
+                  </span>
+                )}
+              </div>
+              <div className="mt-1.5 flex items-center gap-3">
+                <img
+                  src={displayedQr}
+                  alt={hasOfficialQr ? 'QR oficial Nequi / Daviplata del administrador' : 'QR de respaldo'}
+                  className="h-28 w-28 shrink-0 rounded-xl bg-white object-contain p-1"
+                />
                 <div className="min-w-0 flex-1 space-y-1.5">
-                  <p className="text-[11px] font-semibold leading-relaxed text-slate-400">
-                    Escanéalo desde otro celular o descárgalo para mostrarlo en tu mostrador.
+                  <p className="text-[11px] font-semibold leading-relaxed text-slate-300">
+                    {hasOfficialQr
+                      ? 'Escanea este QR oficial directamente desde Nequi, Daviplata o tu app bancaria, o descárgalo.'
+                      : '⚠️ QR genérico de respaldo: el administrador aún no ha subido su imagen oficial; podría no ser compatible con todas las apps bancarias (usa preferiblemente el número Nequi o Llave).'}
                   </p>
                   <button
                     onClick={downloadQr}
@@ -464,7 +485,7 @@ export function CreditsModal({ open, onClose, profile, onCreditsApproved }: Cred
             </>
           ) : (
             <>
-              <Upload className="h-4 w-4" /> O 📤 subir / capturar el comprobante (la IA lo audita)
+              <Upload className="h-4 w-4" /> O 📤 subir / capturar el comprobante (validación automática)
             </>
           )}
           <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => void pickReceipt(e.target.files?.[0])} />
@@ -476,14 +497,14 @@ export function CreditsModal({ open, onClose, profile, onCreditsApproved }: Cred
             <div className="min-w-0 flex-1">
               {analyzing ? (
                 <p className="flex items-center gap-2 text-xs font-semibold text-slate-400">
-                  <Sparkles className="h-4 w-4 animate-pulse text-impulso-gold" /> 🤖 Auditoría forense en curso…
+                  <Sparkles className="h-4 w-4 animate-pulse text-impulso-gold" /> 🤖 Validación de pago en curso…
                 </p>
               ) : aiResult ? (
                 <p className="text-[11px] font-semibold leading-relaxed text-slate-300">
                   {aiResult.suspicious ? '🚨' : aiResult.looksReal ? '✅' : '⚠️'} {aiResult.note}
                   {aiResult.amountCop != null && ` · Monto: ${formatCOP(aiResult.amountCop)}`}
                   {aiResult.destinationDetected && ` · Destino: ${aiResult.destinationDetected}`}
-                  {receiptHash && ' · 🔐 Huella única registrada'}
+                  {receiptHash && ' · 🔒 Verificación de Seguridad Asegurada'}
                 </p>
               ) : (
                 <p className="text-xs font-semibold text-slate-400">Escribe el código manualmente abajo 👇</p>
@@ -525,8 +546,8 @@ export function CreditsModal({ open, onClose, profile, onCreditsApproved }: Cred
           {submitting ? <Loader2 className="h-5 w-5 animate-spin" /> : '📤'} Enviar para Validación {autoApproveOn ? 'y Activación Automática' : 'y Activación'}
         </button>
         <p className="mt-2 text-center text-[10px] leading-relaxed text-slate-500">
-          🛡️ Validador forense: huella SHA-256 de la imagen + código único en toda la plataforma + destino {nequiLocal}
-          confirmado por IA. {autoApproveOn ? '⚡ Auto-aprobación activa: si todo cuadra, los créditos se suman al instante.' : 'El administrador confirma cada pago antes de acreditar.'}
+          🛡️ Verificación de Seguridad Asegurada: comprobante único validado + destino {nequiLocal} confirmado.{' '}
+          {autoApproveOn ? '⚡ Auto-aprobación activa: si todo cuadra, los créditos se suman al instante.' : 'El administrador confirma cada pago antes de acreditar.'}
         </p>
         <p className="mt-1 text-center text-[10px] leading-relaxed text-slate-600">
           Modalidad de venta de licencias de uso de software / créditos publicitarios prepagados bajo régimen

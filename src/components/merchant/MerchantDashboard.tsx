@@ -54,6 +54,7 @@ import {
 import { OfferCreator } from './OfferCreator';
 import { LocationPicker } from './LocationPicker';
 import { CreditsModal } from './CreditsModal';
+import { SupportConcierge } from '../support/SupportConcierge';
 import { fetchPaymentContact } from '../../services/credits.service';
 import { countdownText, cx, formatCOP, ratingAvg } from '../../utils/format';
 import { useTick } from '../../hooks/useTick';
@@ -1403,6 +1404,13 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
           </div>
         )}
       </ModalShell>
+
+      <SupportConcierge
+        userRole={profile.role === 'admin' ? 'admin' : 'merchant'}
+        userName={profile.business_name}
+        municipality={profile.municipality}
+        bottomOffsetClass="bottom-4"
+      />
     </div>
   );
 }

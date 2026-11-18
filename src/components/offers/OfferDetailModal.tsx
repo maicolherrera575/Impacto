@@ -376,12 +376,13 @@ export function OfferDetailModal({ offer, onClose, onReserved, onViewTickets, on
               )}
             </button>
 
-            {/* ⚖️ V20 · Ley 1480 / modelo de negocio: transparencia de pago directa */}
+            {/* ⚖️ V31 · Blindaje jurídico integral como portal de contacto */}
             <div className="mt-3 flex items-start gap-2 rounded-2xl border border-impulso-gold/30 bg-impulso-gold/10 p-3">
               <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-impulso-gold" />
               <p className="text-[11px] font-semibold leading-relaxed text-impulso-gold/95">
-                Impulso es un portal de conexión. Pagarás el valor directamente al comerciante al momento de la
-                entrega. La plataforma no retiene tu dinero.
+                Impulso es un portal tecnológico de contacto y publicidad. Las transacciones, pagos y entregas se
+                realizan exclusivamente entre el cliente y el comercio. Impulso no retiene dinero ni interviene en la
+                venta.
               </p>
             </div>
           </div>

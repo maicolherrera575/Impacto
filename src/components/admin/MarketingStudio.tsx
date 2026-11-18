@@ -939,14 +939,24 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     });
   }
 
-  // V19/V22: QR vectorial personalizado por tema o paleta de marca extraída,
-  // con ojos personalizados, alto contraste e iniciales o logo del negocio en el centro.
+  const effectiveQrIsLight = useMemo<boolean>(() => {
+    if (layout === 'swiss' || layout === 'zen' || layout === 'vip' || layout === 'arc' || layout === 'clinic' || layout === 'resort' || layout === 'eco' || layout === 'agro' || layout === 'float' || layout === 'polaroid') {
+      return true;
+    }
+    if (layout === 'split' || layout === 'diagonal' || layout === 'diagx' || layout === 'collage' || layout === 'cyber') {
+      return false;
+    }
+    return Boolean(AFFICHE_THEMES[themeIdx]?.light);
+  }, [layout, themeIdx]);
+
+  // V19/V31: QR translúcido adaptado al tema con contraste >= 75% e insignia o logo del negocio.
   useEffect(() => {
     let alive = true;
     generateStyledQrDataUrl({
       value: qrTarget,
       style: qrStyle,
       themeId: activeThemeId,
+      isLight: effectiveQrIsLight,
       brandColors: activeBrandPalette
         ? {
             primary: activeBrandPalette.primary,
@@ -967,7 +977,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     return () => {
       alive = false;
     };
-  }, [qrTarget, qrStyle, activeThemeId, activeBrandPalette, effectiveLogoUrl, brand.name]);
+  }, [qrTarget, qrStyle, activeThemeId, effectiveQrIsLight, activeBrandPalette, effectiveLogoUrl, brand.name]);
 
   // V11: embebe el CSS de las Google Fonts UNA vez para que la exportación
   // con html-to-image salga con la tipografía de agencia real (no la fallback).

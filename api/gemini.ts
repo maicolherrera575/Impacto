@@ -13,7 +13,15 @@
  *   - La respuesta de Google se reenvía tal cual (estado + JSON).
  */
 
-const ALLOWED_MODELS = new Set(['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-2.5-flash-lite']);
+const ALLOWED_MODELS = new Set([
+  'gemini-1.5-pro-latest',
+  'gemini-1.5-flash-latest',
+  'gemini-1.0-pro',
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite',
+  'gemini-2.0-flash',
+  'gemini-1.5-flash',
+]);
 
 /** ~2.5 MB: sobrado para una oferta y miniaturas de comprobante de ~35 KB. */
 const MAX_BODY_BYTES = 2_500_000;

@@ -44,7 +44,12 @@ import { fetchActiveOffers } from '../../services/offers.service';
 import { analyzeKybForensic, analyzeMerchantTrust, auditCommunityReportWithAI } from '../../services/gemini.service';
 import type { KybForensicResult, ReportFraudAuditResult } from '../../services/gemini.service';
 import { friendlyError } from '../../services/supabase';
-import { compressImageToMicroWebP, compressionSummary } from '../../services/imageCompressor';
+import { prepareCrispQrImage } from '../../services/imageCompressor';
+import {
+  fetchAdminSupportTickets,
+  updateSupportTicketStatus,
+} from '../../services/support.service';
+import type { SupportStatus, SupportTicket } from '../../services/support.service';
 import { cx, formatCOP, timeAgo } from '../../utils/format';
 import { openWhatsApp } from '../../utils/whatsapp';
 import { ForensicInspector } from './ForensicInspector';
@@ -63,7 +68,7 @@ interface AdminPanelProps {
   onProfileChange: (profile: Profile) => void;
 }
 
-type Tab = 'studio' | 'merchants' | 'moderation' | 'cobros' | 'summary';
+type Tab = 'studio' | 'merchants' | 'moderation' | 'cobros' | 'soporte' | 'summary';
 
 const CREDIT_PACKS = [1, 3, 10, 30] as const;
 
@@ -121,6 +126,8 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
   const [autoApprove, setAutoApprove] = useState(false);
   const [qrBusy, setQrBusy] = useState(false);
   const [contactBusy, setContactBusy] = useState(false);
+  const [supportTickets, setSupportTickets] = useState<SupportTicket[]>([]);
+  const [ticketBusyId, setTicketBusyId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -152,18 +159,20 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
   const loadOffers = useCallback(async () => {
     setOffersLoading(true);
     try {
-      const [offersList, forensicsList, blockedList, ordersList, reportsList] = await Promise.all([
+      const [offersList, forensicsList, blockedList, ordersList, reportsList, ticketsList] = await Promise.all([
         fetchActiveOffers(''),
         fetchRecentReservations(),
         fetchBlockedClients(),
         fetchCreditOrders(),
         fetchRecentReports(),
+        fetchAdminSupportTickets().catch(() => [] as SupportTicket[]),
       ]);
       setOffers(offersList);
       setForensics(forensicsList);
       setBlocked(blockedList);
       setCreditOrders(ordersList);
       setReports(reportsList);
+      setSupportTickets(ticketsList);
     } catch (err) {
       toast.error(friendlyError(err));
     } finally {
@@ -307,18 +316,32 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
     }
   }
 
-  /** 🖼️ Sube y comprime el QR oficial de recaudo del administrador. */
+  /** 🖼️ Sube el QR oficial de Nequi/Daviplata en formato nítido PNG/WebP para 100% compatibilidad bancaria. */
   async function pickAdminQr(file: File | undefined) {
     if (!file) return;
     setQrBusy(true);
     try {
-      const thumb = await compressImageToMicroWebP(file, 420, 0.7);
-      setQrThumb(thumb);
-      toast.success(compressionSummary(file, thumb));
+      const crisp = await prepareCrispQrImage(file);
+      setQrThumb(crisp);
+      toast.success(`✅ QR oficial listo (${Math.round((crisp.length * 0.75) / 1024)} KB) — guarda para publicar`);
     } catch (err) {
       toast.error(friendlyError(err));
     } finally {
       setQrBusy(false);
+    }
+  }
+
+  /** 🛠️ Cambia el estado de un ticket enviado por El Conserje de Impulso. */
+  async function handleSupportStatus(ticketId: string, nextStatus: SupportStatus) {
+    setTicketBusyId(ticketId);
+    try {
+      const updated = await updateSupportTicketStatus(ticketId, nextStatus);
+      setSupportTickets((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+      toast.success(nextStatus === 'resolved' ? '✅ Ticket marcado como resuelto' : '🛠️ Estado del ticket actualizado');
+    } catch (err) {
+      toast.error(friendlyError(err));
+    } finally {
+      setTicketBusyId(null);
     }
   }
 
@@ -559,14 +582,15 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
             </button>
           </div>
 
-          {/* Pestañas internas */}
-          <div className="mt-4 grid grid-cols-5 gap-1.5 rounded-2xl bg-slate-900/60 p-1.5">
+          {/* Pestañas internas con scroll horizontal móvil nativo */}
+          <div className="mt-4 flex items-center gap-1.5 overflow-x-auto touch-pan-x overscroll-x-contain whitespace-nowrap rounded-2xl bg-slate-900/60 p-1.5 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
             {(
               [
                 ['studio', '🚀 Agencia'],
                 ['merchants', '🏪 Comercios'],
                 ['moderation', '📡 Radar'],
                 ['cobros', '💳 Cobros'],
+                ['soporte', `🛠️ Soporte${supportTickets.some((t) => t.status === 'open') ? ` (${supportTickets.filter((t) => t.status === 'open').length})` : ''}`],
                 ['summary', '📊 Resumen'],
               ] as const
             ).map(([id, label]) => (
@@ -574,7 +598,7 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
                 key={id}
                 onClick={() => setTab(id)}
                 className={cx(
-                  'pressable rounded-xl py-2.5 text-[10px] font-extrabold transition',
+                  'pressable shrink-0 rounded-xl px-3 py-2.5 text-[11px] font-extrabold transition',
                   tab === id
                     ? id === 'studio'
                       ? 'bg-impulso-emerald/20 text-impulso-mint shadow-[0_0_30px_-8px_rgba(16,185,129,0.4)]'
@@ -1266,17 +1290,30 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
                   />
                 </div>
                 <div className="sm:col-span-2">
-                  <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Tu QR oficial de Nequi / Bre-B</p>
-                  <div className="mt-1 flex items-center gap-3">
+                  <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">
+                    Tu Código QR oficial de Nequi / Daviplata (PNG o JPG)
+                  </p>
+                  <div className="mt-1.5 flex items-center gap-3">
                     {qrThumb ? (
-                      <img src={qrThumb} alt="QR de recaudo" className="h-16 w-16 rounded-xl border border-white/10 bg-white object-cover" />
+                      <img
+                        src={qrThumb}
+                        alt="QR oficial de recaudo"
+                        className="h-20 w-20 shrink-0 rounded-xl border border-impulso-emerald/35 bg-white object-contain p-1"
+                      />
                     ) : (
-                      <div className="grid h-16 w-16 place-items-center rounded-xl border border-dashed border-white/20 bg-slate-950/50 text-2xl">📷</div>
+                      <div className="grid h-20 w-20 shrink-0 place-items-center rounded-xl border border-dashed border-white/20 bg-slate-950/50 text-2xl">
+                        📷
+                      </div>
                     )}
                     <div className="flex flex-1 flex-wrap gap-1.5">
-                      <label className="pressable flex cursor-pointer items-center gap-1.5 rounded-xl border border-white/10 bg-slate-950/40 px-3 py-2 text-[11px] font-bold text-slate-200">
-                        {qrBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : '📤'} Subir QR
-                        <input type="file" accept="image/*" className="hidden" onChange={(e) => void pickAdminQr(e.target.files?.[0])} />
+                      <label className="pressable flex cursor-pointer items-center gap-1.5 rounded-xl border border-impulso-emerald/40 bg-impulso-emerald/10 px-3 py-2 text-[11px] font-extrabold text-impulso-mint">
+                        {qrBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : '📤'} Subir QR oficial (PNG/JPG)
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp,image/*"
+                          className="hidden"
+                          onChange={(e) => void pickAdminQr(e.target.files?.[0])}
+                        />
                       </label>
                       {qrThumb && (
                         <button
@@ -1286,8 +1323,9 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
                           🗑️ Quitar
                         </button>
                       )}
-                      <p className="w-full text-[10px] font-semibold text-slate-500">
-                        Si no subes QR, la app genera uno en pantalla con tu Nequi automáticamente.
+                      <p className="w-full text-[10px] font-semibold leading-relaxed text-slate-400">
+                        Sube la imagen descargada directamente desde tu app Nequi o Daviplata para garantizar 100% de
+                        lectura en los pagos de tus comercios.
                       </p>
                     </div>
                   </div>
@@ -1433,7 +1471,116 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
           </div>
         )}
 
-        {/* ═══ Pestaña 4: Resumen y limpieza ═══ */}
+        {/* ═══ Pestaña 4 · Bandeja del Conserje Inteligente (support_tickets) ═══ */}
+        {tab === 'soporte' && (
+          <div className="space-y-3 p-4">
+            <div className="rounded-3xl border border-impulso-emerald/25 bg-impulso-panel p-4">
+              <p className="text-sm font-extrabold text-impulso-mint">🛠️ Bandeja de Soporte Técnico (Conserje IA)</p>
+              <p className="mt-1 text-xs leading-relaxed text-slate-400">
+                Reportes técnicos y casos escalados automáticamente desde el Conserje de clientes y comercios.
+              </p>
+            </div>
+
+            {supportTickets.length === 0 ? (
+              <p className="rounded-2xl border border-white/10 bg-slate-950/40 p-6 text-center text-xs font-semibold text-slate-500">
+                Sin tickets de soporte pendientes. ¡La plataforma opera con normalidad! ✅
+              </p>
+            ) : (
+              <div className="space-y-2.5">
+                {supportTickets.map((t) => {
+                  const sevCls =
+                    t.severity === 'critical' || t.severity === 'high'
+                      ? 'border-impulso-rose/40 bg-impulso-rose/15 text-impulso-rose'
+                      : t.severity === 'medium'
+                        ? 'border-impulso-gold/40 bg-impulso-gold/15 text-impulso-gold'
+                        : 'border-white/10 bg-white/5 text-slate-300';
+                  return (
+                    <article
+                      key={t.id}
+                      className="rounded-2xl border border-white/10 bg-impulso-panel p-3.5"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className={cx('rounded-full border px-2 py-0.5 text-[10px] font-extrabold uppercase', sevCls)}>
+                            {t.severity}
+                          </span>
+                          <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-bold text-slate-300">
+                            {t.user_role === 'merchant' ? '🏪 Comercio' : '🛍️ Cliente'} · {t.user_name}
+                          </span>
+                        </div>
+                        <span className="text-[10px] font-semibold text-slate-500">
+                          {t.municipality} · {timeAgo(t.created_at, Date.now())}
+                        </span>
+                      </div>
+
+                      <p className="mt-2 text-sm font-extrabold text-white">{t.summary}</p>
+                      <p className="mt-1 rounded-xl border border-white/[0.06] bg-slate-950/60 p-2.5 text-xs leading-relaxed text-slate-300">
+                        <span className="font-extrabold text-impulso-mint">Diagnóstico IA:</span> {t.ai_analysis}
+                      </p>
+
+                      {Array.isArray(t.chat_transcript) && t.chat_transcript.length > 0 && (
+                        <details className="mt-2 rounded-xl border border-white/[0.06] bg-slate-950/40 p-2.5 text-xs text-slate-400">
+                          <summary className="cursor-pointer font-bold text-slate-300">
+                            Ver transcripción del chat ({t.chat_transcript.length} mensajes)
+                          </summary>
+                          <div className="mt-2 space-y-1.5">
+                            {t.chat_transcript.map((msg, i) => (
+                              <p key={i} className="leading-relaxed">
+                                <span className="font-extrabold text-slate-200">
+                                  {msg.role === 'user' ? 'Usuario:' : 'Conserje:'}
+                                </span>{' '}
+                                {msg.text}
+                              </p>
+                            ))}
+                          </div>
+                        </details>
+                      )}
+
+                      <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2">
+                        <span
+                          className={cx(
+                            'rounded-full px-2.5 py-1 text-[10px] font-extrabold uppercase',
+                            t.status === 'resolved'
+                              ? 'bg-impulso-emerald/15 text-impulso-mint'
+                              : t.status === 'in_progress'
+                                ? 'bg-impulso-gold/15 text-impulso-gold'
+                                : 'bg-impulso-rose/15 text-impulso-rose',
+                          )}
+                        >
+                          {t.status === 'resolved' ? '✅ Resuelto' : t.status === 'in_progress' ? '⚙️ En revisión' : '🔴 Abierto'}
+                        </span>
+                        <div className="flex gap-1.5">
+                          {t.status !== 'in_progress' && (
+                            <button
+                              type="button"
+                              disabled={ticketBusyId === t.id}
+                              onClick={() => void handleSupportStatus(t.id, 'in_progress')}
+                              className="pressable rounded-xl border border-impulso-gold/40 bg-impulso-gold/10 px-2.5 py-1.5 text-[11px] font-bold text-impulso-gold disabled:opacity-50"
+                            >
+                              En revisión
+                            </button>
+                          )}
+                          {t.status !== 'resolved' && (
+                            <button
+                              type="button"
+                              disabled={ticketBusyId === t.id}
+                              onClick={() => void handleSupportStatus(t.id, 'resolved')}
+                              className="pressable rounded-xl bg-impulso-emerald px-3 py-1.5 text-[11px] font-extrabold text-slate-950 disabled:opacity-50"
+                            >
+                              {ticketBusyId === t.id ? 'Guardando…' : 'Marcar resuelto'}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ═══ Pestaña 5: Resumen y limpieza ═══ */}
         {tab === 'summary' && (
           <div className="space-y-3 p-4">
             {stats ? (

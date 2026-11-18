@@ -185,22 +185,24 @@ export interface StyledQrOptions {
   logoUrl?: string | null;
   businessName?: string;
   size?: number;
+  isLight?: boolean;
 }
 
 export async function generateStyledQrDataUrl(options: StyledQrOptions): Promise<string> {
   const size = options.size ?? 540;
   const style: QrStyle = options.style ?? 'rounded';
+  const isLight = Boolean(options.isLight);
   const palette = themeQrPalette(options.themeId ?? 'emerald', options.brandColors);
   const targetValue = options.value?.trim() || 'https://tuimpulso.vercel.app';
 
   // Carga opcional del logo ANTES de crear la matriz: si no hay logo, usamos ECC 'M'
-  // para reducir densidad de módulos y lograr cuadritos más grandes y escaneables.
+  // para reducir densidad de módulos y lograr puntos amplios y escaneables con Lens.
   const logoImg = options.logoUrl ? await loadCorsImage(options.logoUrl) : null;
   const qr = QRCode.create(targetValue, { errorCorrectionLevel: logoImg ? 'H' : 'M' });
   const n = qr.modules.size;
   const data = qr.modules.data;
 
-  // Quiet zone elegante de 2 módulos en blanco puro dentro del canvas + p-2 CSS
+  // Quiet zone equilibrado de 2 módulos sobre superficie translúcida orgánica (cero bloque blanco rígido)
   const quiet = 2;
   const totalCells = n + quiet * 2;
   const cell = size / totalCells;
@@ -212,15 +214,38 @@ export async function generateStyledQrDataUrl(options: StyledQrOptions): Promise
   const ctx = canvas.getContext('2d');
   if (!ctx) return '';
 
-  // Fondo blanco nítido estrictamente dentro del QR
-  ctx.fillStyle = '#ffffff';
+  // Fondo translúcido adaptado al tema con contraste >= 75% garantizado para Google Lens y cámaras
+  ctx.clearRect(0, 0, size, size);
+  ctx.fillStyle = isLight ? 'rgba(255, 255, 255, 0.68)' : 'rgba(6, 10, 20, 0.72)';
   ctx.fillRect(0, 0, size, size);
 
   const centerIdx = n / 2;
   const clearRadiusCells = logoImg ? n * 0.145 : 0;
 
   // 1. Dibujar módulos de datos (saltando ojos y, solo si hay logo real, el centro reservado)
-  if (style === 'luxury') {
+  const moduleDarkInk = isLight ? palette.dark : '#f8fafc';
+  const moduleEyeInk = isLight
+    ? palette.eye
+    : relativeLuminance(palette.eye) < 0.62
+      ? mixHex('#ffffff', palette.eye, 0.28)
+      : palette.eye;
+
+  if (!isLight) {
+    if (style === 'luxury') {
+      const grad = ctx.createLinearGradient(0, 0, size, size);
+      grad.addColorStop(0, '#fef3c7');
+      grad.addColorStop(0.55, '#fde68a');
+      grad.addColorStop(1, '#ffffff');
+      ctx.fillStyle = grad;
+    } else if (style === 'cyber') {
+      const grad = ctx.createLinearGradient(0, 0, size, size);
+      grad.addColorStop(0, '#ecfeff');
+      grad.addColorStop(1, mixHex('#ffffff', options.brandColors?.accent ?? '#22d3ee', 0.28));
+      ctx.fillStyle = grad;
+    } else {
+      ctx.fillStyle = moduleDarkInk;
+    }
+  } else if (style === 'luxury') {
     const grad = ctx.createLinearGradient(0, 0, size, size);
     grad.addColorStop(0, options.brandColors ? palette.eye : '#9a6b06');
     grad.addColorStop(0.55, '#1e1608');
@@ -232,7 +257,7 @@ export async function generateStyledQrDataUrl(options: StyledQrOptions): Promise
     grad.addColorStop(1, options.brandColors ? palette.eye : '#3b0764');
     ctx.fillStyle = grad;
   } else {
-    ctx.fillStyle = palette.dark;
+    ctx.fillStyle = moduleDarkInk;
   }
 
   for (let r = 0; r < n; r += 1) {
@@ -265,13 +290,13 @@ export async function generateStyledQrDataUrl(options: StyledQrOptions): Promise
     }
   }
 
-  // 2. Dibujar los 3 ojos con el color de acento del tema/marca
-  const cyberEyeColor = style === 'cyber' && !options.brandColors ? '#0284c7' : palette.eye;
-  const luxuryEyeColor = style === 'luxury' && !options.brandColors ? '#b47b09' : palette.eye;
-  const activeEyeColor = style === 'cyber' ? cyberEyeColor : style === 'luxury' ? luxuryEyeColor : palette.eye;
-  drawFinderEye(ctx, offset, offset, cell, style, activeEyeColor, palette.dark);
-  drawFinderEye(ctx, offset + (n - 7) * cell, offset, cell, style, activeEyeColor, palette.dark);
-  drawFinderEye(ctx, offset, offset + (n - 7) * cell, cell, style, activeEyeColor, palette.dark);
+  // 2. Dibujar los 3 ojos con el color de acento adaptado (contraste mínimo >= 75%)
+  const cyberEyeColor = style === 'cyber' && !options.brandColors ? (isLight ? '#0284c7' : '#a5f3fc') : moduleEyeInk;
+  const luxuryEyeColor = style === 'luxury' && !options.brandColors ? (isLight ? '#b47b09' : '#fde68a') : moduleEyeInk;
+  const activeEyeColor = style === 'cyber' ? cyberEyeColor : style === 'luxury' ? luxuryEyeColor : moduleEyeInk;
+  drawFinderEye(ctx, offset, offset, cell, style, activeEyeColor, moduleDarkInk);
+  drawFinderEye(ctx, offset + (n - 7) * cell, offset, cell, style, activeEyeColor, moduleDarkInk);
+  drawFinderEye(ctx, offset, offset + (n - 7) * cell, cell, style, activeEyeColor, moduleDarkInk);
 
   // 3. Insignia central EXCLUSIVAMENTE cuando el comercio subió un logo real
   if (logoImg) {
@@ -285,8 +310,8 @@ export async function generateStyledQrDataUrl(options: StyledQrOptions): Promise
           ? badgeSize * 0.12
           : badgeSize * 0.28;
 
-    // Halo blanco de separación para garantizar contraste
-    ctx.fillStyle = '#ffffff';
+    // Halo de separación coordinado para garantizar contraste
+    ctx.fillStyle = isLight ? '#ffffff' : '#090d19';
     drawRoundedRect(ctx, bx - cell * 0.35, by - cell * 0.35, badgeSize + cell * 0.7, badgeSize + cell * 0.7, bRad + cell * 0.25);
     ctx.fill();
 
@@ -296,7 +321,7 @@ export async function generateStyledQrDataUrl(options: StyledQrOptions): Promise
     ctx.drawImage(logoImg, bx, by, badgeSize, badgeSize);
     ctx.restore();
 
-    ctx.strokeStyle = palette.eye;
+    ctx.strokeStyle = activeEyeColor;
     ctx.lineWidth = Math.max(2, cell * 0.22);
     drawRoundedRect(ctx, bx, by, badgeSize, badgeSize, bRad);
     ctx.stroke();
