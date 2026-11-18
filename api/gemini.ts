@@ -28,6 +28,27 @@ const MAX_BODY_BYTES = 2_500_000;
 
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
+let activeServerKeyIndex = 0;
+
+function getServerGeminiKeyPool(): string[] {
+  return Array.from(
+    new Set(
+      [
+        process.env.GEMINI_API_KEY_1,
+        process.env.GEMINI_API_KEY_2,
+        process.env.GEMINI_API_KEY_3,
+        process.env.GEMINI_API_KEY,
+        process.env.VITE_GEMINI_API_KEY_1,
+        process.env.VITE_GEMINI_API_KEY_2,
+        process.env.VITE_GEMINI_API_KEY_3,
+        process.env.VITE_GEMINI_API_KEY,
+      ]
+        .map((k) => (k ?? '').trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
 interface VercelLikeRequest {
   method?: string;
   on(event: 'data', listener: (chunk: string) => void): void;
@@ -98,11 +119,11 @@ export default async function handler(req: VercelLikeRequest, res: VercelLikeRes
     return;
   }
 
-  // La llave solo existe del lado del servidor.
-  const apiKey = (process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || '').trim();
-  if (!apiKey) {
+  // Pool de llaves del lado del servidor (rotación automática ante cuota HTTP 429).
+  const keyPool = getServerGeminiKeyPool();
+  if (keyPool.length === 0) {
     res.status(500).json({
-      error: { message: 'El servidor no tiene la llave de IA. Configura GEMINI_API_KEY en Vercel → Environment Variables.' },
+      error: { message: 'El servidor no tiene configurada la llave de IA. Configura GEMINI_API_KEY en Vercel → Environment Variables.' },
     });
     return;
   }
@@ -140,13 +161,30 @@ export default async function handler(req: VercelLikeRequest, res: VercelLikeRes
   }
 
   try {
-    const upstream = await fetch(`${GEMINI_BASE}/${parsed.model}:generateContent?key=${encodeURIComponent(apiKey)}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    const json: unknown = await upstream.json().catch(() => ({ error: { message: 'Respuesta ilegible de la IA' } }));
-    res.status(upstream.status).json(json);
+    let lastStatus = 502;
+    let lastJson: unknown = { error: { message: 'No se pudo contactar la IA en este momento. Intenta de nuevo.' } };
+
+    for (let attempt = 0; attempt < keyPool.length; attempt += 1) {
+      const idx = (activeServerKeyIndex + attempt) % keyPool.length;
+      const apiKey = keyPool[idx];
+      const upstream = await fetch(`${GEMINI_BASE}/${parsed.model}:generateContent?key=${encodeURIComponent(apiKey)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const json: unknown = await upstream.json().catch(() => ({ error: { message: 'Respuesta ilegible de la IA' } }));
+      lastStatus = upstream.status;
+      lastJson = json;
+      if (upstream.status === 429 && keyPool.length > 1) {
+        activeServerKeyIndex = (idx + 1) % keyPool.length;
+        continue;
+      }
+      activeServerKeyIndex = idx;
+      res.status(upstream.status).json(json);
+      return;
+    }
+
+    res.status(lastStatus).json(lastJson);
   } catch {
     res.status(502).json({ error: { message: 'No se pudo contactar la IA en este momento. Intenta de nuevo.' } });
   }

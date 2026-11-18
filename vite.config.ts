@@ -71,10 +71,39 @@ export default defineConfig(({ mode }) => {
       'import.meta.env.VITE_SUPABASE_URL': JSON.stringify(env.SUPABASE_URL ?? env.VITE_SUPABASE_URL ?? ''),
       'import.meta.env.VITE_SUPABASE_ANON_KEY': JSON.stringify(env.SUPABASE_ANON_KEY ?? env.VITE_SUPABASE_ANON_KEY ?? ''),
       'import.meta.env.VITE_GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY ?? env.VITE_GEMINI_API_KEY ?? ''),
-      // Doble Motor V10: constante global de respaldo para llamar a Gemini
-      // DIRECTO desde el navegador si /api/gemini falla en Vercel.
+      // Doble Motor V10 / V33 Multi-Key Rotation: constantes globales de respaldo
+      // para llamar a Gemini directo si /api/gemini alcanza cuota o falla en Vercel.
       '__APP_GEMINI_KEY__': JSON.stringify(
-        env.GEMINI_API_KEY || env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || '',
+        env.GEMINI_API_KEY ||
+          env.VITE_GEMINI_API_KEY ||
+          env.GEMINI_API_KEY_1 ||
+          env.VITE_GEMINI_API_KEY_1 ||
+          process.env.GEMINI_API_KEY ||
+          process.env.VITE_GEMINI_API_KEY ||
+          '',
+      ),
+      '__APP_GEMINI_KEY_1__': JSON.stringify(
+        env.GEMINI_API_KEY_1 ||
+          env.VITE_GEMINI_API_KEY_1 ||
+          env.GEMINI_API_KEY ||
+          env.VITE_GEMINI_API_KEY ||
+          process.env.GEMINI_API_KEY_1 ||
+          process.env.VITE_GEMINI_API_KEY_1 ||
+          '',
+      ),
+      '__APP_GEMINI_KEY_2__': JSON.stringify(
+        env.GEMINI_API_KEY_2 ||
+          env.VITE_GEMINI_API_KEY_2 ||
+          process.env.GEMINI_API_KEY_2 ||
+          process.env.VITE_GEMINI_API_KEY_2 ||
+          '',
+      ),
+      '__APP_GEMINI_KEY_3__': JSON.stringify(
+        env.GEMINI_API_KEY_3 ||
+          env.VITE_GEMINI_API_KEY_3 ||
+          process.env.GEMINI_API_KEY_3 ||
+          process.env.VITE_GEMINI_API_KEY_3 ||
+          '',
       ),
       'import.meta.env.VITE_ADMIN_WHATSAPP': JSON.stringify(env.ADMIN_WHATSAPP ?? env.VITE_ADMIN_WHATSAPP ?? ''),
     },

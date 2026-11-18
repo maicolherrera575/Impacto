@@ -505,12 +505,13 @@ function Headline({
     zIndex: 10,
     fontFamily: `"${typo.font || t.font}", system-ui, sans-serif`,
     fontSize: Number(computedSize.toFixed(1)),
-    lineHeight: eff === 'caja' ? 1.0 : 0.94,
+    lineHeight: 1.0,
     fontWeight: 900,
     textTransform: 'uppercase',
     letterSpacing: -1.1 * s,
     color: baseInk,
     textShadow: shadowColor,
+    filter: longShadow ? 'drop-shadow(0 25px 25px rgba(0,0,0,0.75))' : undefined,
   };
 
   const highlight = (): ReactElement => {
@@ -1179,7 +1180,6 @@ function QrOrganicToken({
   const palette = themeQrPalette(t.id, brandColors);
   const isCyber = qrStyle === 'cyber';
   const isLuxury = qrStyle === 'luxury';
-  const outerRadius = isCyber ? 0 : (qrStyle === 'sharp' ? 12 : 16) * s;
   const framePad = Math.max(4, Math.round(5 * s));
   const svgSize = Math.max(48, Math.round(size - framePad * 2));
   const isLight = Boolean(t.light);
@@ -1189,13 +1189,13 @@ function QrOrganicToken({
     : undefined;
 
   const panelBg = isLight
-    ? 'rgba(0, 0, 0, 0.05)'
-    : 'rgba(255, 255, 255, 0.10)';
+    ? 'rgba(255, 255, 255, 0.88)'
+    : 'rgba(255, 255, 255, 0.05)';
   const panelBorder = isLuxury
     ? '1px solid rgba(251, 191, 36, 0.45)'
     : isLight
       ? '1px solid rgba(15, 23, 42, 0.12)'
-      : '1px solid rgba(255, 255, 255, 0.18)';
+      : '1px solid rgba(255, 255, 255, 0.14)';
 
   return (
     <div
@@ -1206,14 +1206,14 @@ function QrOrganicToken({
         maxHeight: '100%',
         flexShrink: 0,
         padding: framePad,
-        borderRadius: outerRadius,
+        borderRadius: isCyber ? 8 * s : 16 * s,
         clipPath: cyberClip,
         background: panelBg,
-        backdropFilter: 'blur(12px) saturate(140%)',
+        backdropFilter: 'blur(20px) saturate(140%)',
         border: panelBorder,
         boxShadow: isLight
           ? '0 10px 24px -8px rgba(15,23,42,0.12)'
-          : `0 12px 28px -8px rgba(0,0,0,0.55), 0 0 ${16 * s}px ${t.accent2}22`,
+          : `0 12px 28px -8px rgba(0,0,0,0.45), 0 0 ${16 * s}px ${t.accent2}20`,
         boxSizing: 'border-box',
         display: 'flex',
         alignItems: 'center',
@@ -1230,7 +1230,7 @@ function QrOrganicToken({
             width: svgSize,
             height: svgSize,
             display: 'block',
-            borderRadius: isCyber ? 0 : Math.max(4, 11 * s),
+            borderRadius: isCyber ? 4 * s : 12 * s,
           }}
         />
       ) : value ? (
@@ -1238,7 +1238,7 @@ function QrOrganicToken({
           value={value}
           size={svgSize}
           level="M"
-          marginSize={2}
+          marginSize={1}
           bgColor="transparent"
           fgColor={isLight ? palette.dark : '#f8fafc'}
         />
@@ -1296,24 +1296,24 @@ function Dock({
 
   const dockSurface: CSSProperties = isLight
     ? {
-        background: 'linear-gradient(135deg, rgba(255,255,255,0.84), rgba(250,248,242,0.72))',
-        backdropFilter: 'blur(20px) saturate(135%)',
-        border: '1px solid rgba(15,23,42,0.13)',
-        boxShadow: `0 22px 48px -12px rgba(15,23,42,0.18), 0 8px 24px -8px ${t.accent}28`,
+        background: 'rgba(255, 255, 255, 0.28)',
+        backdropFilter: 'blur(24px) saturate(140%)',
+        border: '1px solid rgba(15, 23, 42, 0.14)',
+        boxShadow: '0 20px 44px -14px rgba(15,23,42,0.16)',
       }
     : {
-        background: 'linear-gradient(135deg, rgba(9,13,25,0.82), rgba(16,23,42,0.64))',
-        backdropFilter: 'blur(22px) saturate(145%)',
-        border: '1px solid rgba(255,255,255,0.17)',
-        boxShadow: `0 24px 54px -12px rgba(0,0,0,0.72), 0 8px 26px -8px ${t.accent}35`,
+        background: 'rgba(255, 255, 255, 0.05)',
+        backdropFilter: 'blur(24px) saturate(145%)',
+        border: '1px solid rgba(255, 255, 255, 0.10)',
+        boxShadow: '0 24px 54px -16px rgba(0,0,0,0.65)',
       };
 
   const ink = isLight ? '#0f172a' : '#f8fafc';
-  const inkMuted = isLight ? 'rgba(15,23,42,0.72)' : 'rgba(226,232,240,0.78)';
+  const inkMuted = isLight ? 'rgba(15,23,42,0.74)' : 'rgba(226,232,240,0.82)';
   const eyebrowColor = ensureReadableAccent(isLight ? t.accent : t.accent2, isLight);
-  const waBg = isLight ? 'rgba(5,150,105,0.13)' : 'rgba(16,185,129,0.17)';
-  const waBorder = isLight ? 'rgba(5,150,105,0.36)' : 'rgba(52,211,153,0.44)';
-  const waInk = isLight ? '#065f46' : '#6ee7b7';
+  const waBg = isLight ? 'rgba(15, 23, 42, 0.06)' : 'rgba(255, 255, 255, 0.08)';
+  const waBorder = isLight ? 'rgba(15, 23, 42, 0.14)' : 'rgba(255, 255, 255, 0.14)';
+  const waInk = isLight ? '#065f46' : '#a7f3d0';
   const qrCaptionStyle: CSSProperties = {
     margin: 0,
     maxWidth: '100%',
@@ -2353,8 +2353,8 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
     const creamMid = mixHex('#f7f2e7', t.accent2, 0.07);
     const gradientOverlay =
       mode === 'light'
-        ? `linear-gradient(to bottom, rgba(255,253,249,0.52) 0%, transparent 22%), linear-gradient(to top, ${creamDeep} 0%, ${creamMid}f2 40%, ${creamMid}a8 62%, transparent 86%)`
-        : 'linear-gradient(to bottom, rgba(2,6,23,0.46) 0%, transparent 24%), linear-gradient(to top, #020617 0%, rgba(15,23,42,0.88) 38%, rgba(15,23,42,0.52) 60%, transparent 86%)';
+        ? `linear-gradient(to bottom, rgba(255,253,249,0.42) 0%, transparent 24%), linear-gradient(to top, rgba(253,251,247,0.95) 0%, ${creamMid}d8 38%, ${creamMid}88 58%, transparent 86%)`
+        : 'linear-gradient(to bottom, rgba(2,6,23,0.42) 0%, transparent 24%), linear-gradient(to top, #020617 0%, rgba(15,23,42,0.84) 36%, rgba(15,23,42,0.70) 56%, rgba(15,23,42,0.18) 78%, transparent 94%)';
 
     const topRight = priceOverlay ? (
       <PricePill brand={brand} t={heroTheme} s={s} />
@@ -2516,17 +2516,8 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
     headlineSize: number;
     diagonalCut?: boolean;
   }): ReactElement => {
-    const solidBg = mixHex(t.accent, '#080d19', 0.56);
-    const solidDeep = mixHex(t.accent2, '#04070e', 0.72);
-    const splitIsLight = relativeLuminance(solidBg) > 0.36;
-    const splitTheme: AfficheTheme = {
-      ...t,
-      light: splitIsLight,
-      text: splitIsLight ? '#0b0f18' : '#ffffff',
-      sub: splitIsLight ? 'rgba(15,23,42,0.82)' : 'rgba(241,245,249,0.88)',
-      accent: ensureReadableAccent(t.accent, splitIsLight),
-      accent2: ensureReadableAccent(t.accent2, splitIsLight),
-    };
+    const tintBg = mixHex(t.accent, '#020617', 0.48);
+    const tintDeep = mixHex(t.accent2, '#020617', 0.68);
 
     return (
       <div
@@ -2534,80 +2525,83 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
           position: 'relative',
           width: '100%',
           height: '100%',
-          display: 'flex',
-          flexDirection: 'column',
           overflow: 'hidden',
-          background: `radial-gradient(360px 220px at 88% 14%, ${t.accent2}2b, transparent 65%), linear-gradient(175deg, ${solidBg} 0%, ${solidDeep} 100%)`,
+          background: '#020617',
         }}
       >
-        {/* Mitad superior: fotografía con corte diagonal o fundido orgánico hacia el color extraído */}
+        {/* Fotografía 100% Full-Bleed edge-to-edge detrás de todo el afiche */}
+        <div style={{ position: 'absolute', inset: 0 }}>
+          <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
+        </div>
+
+        {/* Velo diagonal cromático translúcido armonizado con el color extraído */}
+        <div
+          aria-hidden="true"
+          style={{
+            position: 'absolute',
+            inset: 0,
+            background: `linear-gradient(155deg, ${tintBg}cc 0%, ${tintDeep}ea 100%)`,
+            clipPath: diagonalCut ? 'polygon(0 54%, 100% 42%, 100% 100%, 0 100%)' : undefined,
+            opacity: diagonalCut ? 0.56 : 0.28,
+            pointerEvents: 'none',
+          }}
+        />
+
+        {/* Gradiente agresivo Full-Bleed para flotado cristalino de tipografía y Dock */}
+        <div
+          aria-hidden="true"
+          style={{
+            position: 'absolute',
+            inset: 0,
+            background:
+              'linear-gradient(to bottom, rgba(2,6,23,0.44) 0%, transparent 24%), linear-gradient(to top, #020617 0%, rgba(15,23,42,0.82) 38%, rgba(15,23,42,0.70) 58%, transparent 88%)',
+          }}
+        />
+
         <div
           style={{
             position: 'relative',
-            height: isSquare ? '40%' : diagonalCut ? '48%' : '45%',
+            zIndex: 5,
             width: '100%',
-            flexShrink: 0,
-            overflow: 'hidden',
-            clipPath: diagonalCut ? 'polygon(0 0, 100% 0, 100% 82%, 0 100%)' : undefined,
+            height: '100%',
+            padding: pad,
+            boxSizing: 'border-box',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'space-between',
+            gap: isSquare ? 5 * s : 8 * s,
           }}
         >
-          <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
           <div
             style={{
-              position: 'absolute',
-              inset: 0,
-              background: diagonalCut
-                ? `linear-gradient(to bottom, rgba(2,6,23,0.38) 0%, transparent 32%, ${solidBg}88 100%)`
-                : `linear-gradient(to bottom, rgba(2,6,23,0.34) 0%, transparent 28%, transparent 56%, ${solidBg} 100%)`,
-            }}
-          />
-          <div
-            style={{
-              position: 'relative',
-              zIndex: 4,
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
-              padding: pad,
-              paddingRight: logoUrl ? pad + 52 * s : pad,
+              flexShrink: 0,
+              paddingRight: logoUrl ? 52 * s : 0,
             }}
           >
             <Badge text={badge} t={darkPhotoTheme} s={s} align="left" />
             {priceOverlay && <PricePill brand={brand} t={darkPhotoTheme} s={s} />}
           </div>
-        </div>
-
-        {/* Mitad inferior: bloque sólido armonioso tintado con el color dominante de la imagen */}
-        <div
-          style={{
-            flex: 1,
-            minHeight: 0,
-            marginTop: -2 * s,
-            padding: `0 ${pad}px ${pad}px`,
-            boxSizing: 'border-box',
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'space-between',
-            gap: isSquare ? 4 * s : 7 * s,
-          }}
-        >
-          <div style={{ display: 'flex', flexDirection: 'column', gap: isSquare ? 4 * s : 7 * s }}>
+          <div style={{ flex: 1, minHeight: isSquare ? 8 * s : 90 * s }} />
+          <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', gap: isSquare ? 5 * s : 7 * s }}>
             <Headline
               texts={texts}
-              t={splitTheme}
+              t={darkPhotoTheme}
               s={s}
-              size={isSquare ? headlineSize - 4 : headlineSize}
+              size={isSquare ? headlineSize - 2 : headlineSize}
               align={align}
               styleId={fontStyle}
               scale={hs}
               fullWidth
-              longShadow={!splitIsLight}
+              longShadow
             />
-            <SubHead text={texts.sub} t={splitTheme} s={s} align={align} />
+            <SubHead text={texts.sub} t={darkPhotoTheme} s={s} align={align} color="rgba(241,245,249,0.92)" />
             {showBenefits && benefits.length > 0 && (
               <BenefitsShowcase
                 items={benefits}
-                t={splitTheme}
+                t={darkPhotoTheme}
                 s={s}
                 mode={benefitStyle === 'auto' ? benefitMode : resolvedBenefitMode}
                 align={align}
@@ -2623,47 +2617,50 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
                 align={align}
               />
             )}
+            {showQr && (
+              <Dock
+                brand={brand}
+                t={darkPhotoTheme}
+                s={s}
+                qrUrl={qrUrl}
+                qrValue={qrValue}
+                qrStyle={qrStyle}
+                size={dockQrSize}
+                qrLabel={qrLabel}
+                displayFont={boardDisplayFont}
+                bodyFont={activeTypo.bodyFont}
+                variant={resolvedDockVariant}
+                brandColors={brandColors}
+                logoUrl={logoUrl}
+                qrMode={qrMode}
+              />
+            )}
           </div>
-          {showQr && (
-            <Dock
-              brand={brand}
-              t={splitTheme}
-              s={s}
-              qrUrl={qrUrl}
-              qrValue={qrValue}
-              qrStyle={qrStyle}
-              size={dockQrSize}
-              qrLabel={qrLabel}
-              displayFont={boardDisplayFont}
-              bodyFont={activeTypo.bodyFont}
-              variant={resolvedDockVariant}
-              brandColors={brandColors}
-              logoUrl={logoUrl}
-              qrMode={qrMode}
-            />
-          )}
         </div>
       </div>
     );
   };
 
   /**
-   * 🧩 V32.0 · Collage Minimalista Multi-Imagen:
-   * Fondo inmersivo difuminado + 2 fotografías reales encuadradas en profundidad
-   * orgánica (protagonista + toma secundaria) sin obstruir texto ni QR.
+   * 🧩 V33.0 · Collage Full-Bleed Multi-Imagen:
+   * Fotografía principal a sangre completa (100% edge-to-edge) + toma secundaria
+   * en ventana flotante de cristal superior sin romper ni cortar el fondo fotográfico.
    */
   const renderCollageHero = (): ReactElement => {
-    const headlineSz = isSquare ? 34 : 43;
+    const headlineSz = isSquare ? 36 : 45;
+    const hasDistinctSecondPhoto = Boolean(photo2 && photo2 !== photoUrl);
     return (
       <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: '#020617' }}>
-        <div style={{ position: 'absolute', inset: -16, filter: 'blur(26px) saturate(135%)', opacity: 0.42 }}>
-          <Photo url={photoUrl} zoom={1.25} posY={0.5} />
+        <div style={{ position: 'absolute', inset: 0 }}>
+          <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
         </div>
         <div
+          aria-hidden="true"
           style={{
             position: 'absolute',
             inset: 0,
-            background: `radial-gradient(420px 260px at 84% 18%, ${t.accent2}30, transparent 70%), linear-gradient(to top, #020617 0%, rgba(15,23,42,0.88) 42%, rgba(2,6,23,0.68) 100%)`,
+            background:
+              'linear-gradient(to bottom, rgba(2,6,23,0.44) 0%, transparent 24%), linear-gradient(to top, #020617 0%, rgba(15,23,42,0.84) 36%, rgba(15,23,42,0.70) 56%, transparent 90%)',
           }}
         />
         <div
@@ -2677,7 +2674,7 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'space-between',
-            gap: isSquare ? 6 * s : 10 * s,
+            gap: isSquare ? 6 * s : 8 * s,
           }}
         >
           <div
@@ -2693,51 +2690,25 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
             {priceOverlay && <PricePill brand={brand} t={darkPhotoTheme} s={s} />}
           </div>
 
-          {/* Escena multi-imagen orgánica */}
-          <div
-            style={{
-              position: 'relative',
-              flex: 1,
-              minHeight: isSquare ? 96 * s : 240 * s,
-              width: '100%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <div
-              style={{
-                position: 'absolute',
-                left: 4 * s,
-                top: 4 * s,
-                bottom: 8 * s,
-                width: '63%',
-                borderRadius: 22 * s,
-                overflow: 'hidden',
-                transform: 'rotate(-1.6deg)',
-                border: '1px solid rgba(255,255,255,0.22)',
-                boxShadow: `0 22px 46px -10px rgba(0,0,0,0.82), 0 0 28px -10px ${t.accent}44`,
-              }}
-            >
-              <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
-            </div>
-            <div
-              style={{
-                position: 'absolute',
-                right: 4 * s,
-                top: isSquare ? 12 * s : 26 * s,
-                bottom: 2 * s,
-                width: '44%',
-                borderRadius: 20 * s,
-                overflow: 'hidden',
-                transform: 'rotate(2.1deg)',
-                border: `2px solid ${t.accent2}88`,
-                boxShadow: '0 24px 50px -10px rgba(0,0,0,0.88)',
-                background: '#0f172a',
-              }}
-            >
-              <Photo url={photo2} zoom={1.08} posY={0.45} />
-            </div>
+          <div style={{ position: 'relative', flex: 1, minHeight: isSquare ? 8 * s : 90 * s }}>
+            {hasDistinctSecondPhoto && (
+              <div
+                style={{
+                  position: 'absolute',
+                  right: 2 * s,
+                  top: 6 * s,
+                  width: isSquare ? '30%' : '36%',
+                  height: isSquare ? 96 * s : 190 * s,
+                  borderRadius: 18 * s,
+                  overflow: 'hidden',
+                  transform: 'rotate(2deg)',
+                  border: '1.5px solid rgba(255,255,255,0.28)',
+                  boxShadow: '0 22px 48px -12px rgba(0,0,0,0.8)',
+                }}
+              >
+                <Photo url={photo2} zoom={1.06} posY={0.45} />
+              </div>
+            )}
           </div>
 
           {/* Bloque inferior editorial con jerarquía limpia */}

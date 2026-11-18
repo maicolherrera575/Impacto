@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { pruneStorageUrls } from './storagePruning.service';
 import type { Profile } from '../types';
 
 /**
@@ -60,11 +61,19 @@ export async function manageMerchant(
   return payload.profile;
 }
 
-/** Kill-switch: borra al instante una oferta peligrosa o fraudulenta (admin). */
+/** Kill-switch: borra al instante una oferta peligrosa o fraudulenta y limpia su imagen en Storage. */
 export async function adminDeleteOffer(offerId: string): Promise<void> {
+  let assetUrl: string | null = null;
+  try {
+    const { data: row } = await supabase.from('offers').select('image_thumb').eq('id', offerId).maybeSingle();
+    assetUrl = (row as { image_thumb?: string | null } | null)?.image_thumb ?? null;
+  } catch {
+    /* continuar con el borrado atómico en BD */
+  }
   const { data, error } = await supabase.rpc('admin_delete_offer_rpc', { p_offer_id: offerId });
   if (error) throw error;
   void data;
+  if (assetUrl) void pruneStorageUrls([assetUrl]);
 }
 
 /** 🪪 V20 · Expediente KYB pendiente de auditoría visual del administrador. */
@@ -99,16 +108,41 @@ export async function reviewKyb(merchantId: string, approve: boolean): Promise<v
   if (error) throw error;
 }
 
-/** 🧹 V20 · Optimización extrema de la BD gratuita: ofertas vencidas hace
- *  más de 30 días fuera + comprobantes resueltos con su miniatura liberada. */
+/** 🧹 V20/V33 · Optimización extrema de la BD gratuita + poda de Storage en ofertas vencidas. */
 export async function cleanupExpiredData(): Promise<{ offers_deleted: number; receipts_cleared: number }> {
+  try {
+    const { data: staleOffers } = await supabase
+      .from('offers')
+      .select('image_thumb')
+      .lt('expires_at', new Date(Date.now() - 30 * 86_400_000).toISOString())
+      .not('image_thumb', 'is', null)
+      .limit(100);
+    if (Array.isArray(staleOffers) && staleOffers.length > 0) {
+      await pruneStorageUrls(staleOffers.map((o) => (o as { image_thumb?: string | null }).image_thumb));
+    }
+  } catch {
+    /* best-effort Storage cleanup */
+  }
   const { data, error } = await supabase.rpc('cleanup_expired_data_rpc');
   if (error) throw error;
   return data as unknown as { offers_deleted: number; receipts_cleared: number };
 }
 
-/** Purga TODAS las ofertas vencidas para mantener la base liviana (admin). */
+/** Purga TODAS las ofertas vencidas y sus imágenes asociadas (admin). */
 export async function adminCleanupExpired(): Promise<number> {
+  try {
+    const { data: expiredOffers } = await supabase
+      .from('offers')
+      .select('image_thumb')
+      .lt('expires_at', new Date().toISOString())
+      .not('image_thumb', 'is', null)
+      .limit(150);
+    if (Array.isArray(expiredOffers) && expiredOffers.length > 0) {
+      await pruneStorageUrls(expiredOffers.map((o) => (o as { image_thumb?: string | null }).image_thumb));
+    }
+  } catch {
+    /* best-effort Storage cleanup */
+  }
   const { data, error } = await supabase.rpc('admin_cleanup_expired_rpc');
   if (error) throw error;
   const payload = data as unknown as { deleted: number };

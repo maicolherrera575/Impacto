@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Copy, Loader2, Map, X } from 'lucide-react';
+import { Copy, Loader2, Map } from 'lucide-react';
 import { ModalShell } from '../ui/ModalShell';
 import { useToast } from '../ui/Toast';
 
@@ -147,19 +147,10 @@ export function ForensicInspector({ data, onClose }: { data: ForensicData | null
 
   return (
     <ModalShell open onClose={onClose} escClose closeLabel="Cerrar inspector" panelClassName="max-w-md">
-      <div className="p-5 pt-14">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h3 className="text-lg font-extrabold text-white">🕵️‍♂️ Ficha Forense del Usuario</h3>
-            <p className="text-xs text-slate-400">Consulta de IP, operador y ubicación en vivo y gratis</p>
-          </div>
-          <button
-            onClick={onClose}
-            aria-label="Cerrar inspector"
-            className="pressable grid h-9 w-9 shrink-0 place-items-center rounded-full border border-white/10 bg-slate-950/60 text-slate-300"
-          >
-            <X className="h-5 w-5" />
-          </button>
+      <div className="p-5 pt-5">
+        <div className="pr-11">
+          <h3 className="text-lg font-extrabold text-white">🕵️‍♂️ Ficha Forense del Usuario</h3>
+          <p className="text-xs text-slate-400">Consulta de IP, operador y ubicación en vivo y gratis</p>
         </div>
 
         <div className="mt-4 space-y-2 text-sm">

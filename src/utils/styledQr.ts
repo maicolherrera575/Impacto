@@ -115,6 +115,7 @@ function drawFinderEye(
   style: QrStyle,
   eyeColor: string,
   darkColor: string,
+  transparentBg: boolean,
 ) {
   const outer = 7 * cell;
   const innerCut = 5 * cell;
@@ -148,14 +149,21 @@ function drawFinderEye(
     ctx.fill();
   }
 
-  // Anillo blanco interior
-  ctx.fillStyle = '#ffffff';
+  // Anillo interior: en modo transparente recorta alfa real (cero parche blanco)
+  ctx.save();
+  if (transparentBg) {
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.fillStyle = '#000000';
+  } else {
+    ctx.fillStyle = '#ffffff';
+  }
   if (style === 'cyber' || style === 'sharp') {
     ctx.fillRect(x + cell, y + cell, innerCut, innerCut);
   } else {
     drawRoundedRect(ctx, x + cell, y + cell, innerCut, innerCut, cutRadius);
     ctx.fill();
   }
+  ctx.restore();
 
   // Pupila central
   ctx.fillStyle = darkColor;
@@ -202,8 +210,8 @@ export async function generateStyledQrDataUrl(options: StyledQrOptions): Promise
   const n = qr.modules.size;
   const data = qr.modules.data;
 
-  // Quiet zone equilibrado de 2 módulos sobre superficie translúcida orgánica (cero bloque blanco rígido)
-  const quiet = 2;
+  // Quiet zone elegante y mínimo (1.5 módulos en transparente; 1.8 en claro redondeado)
+  const quiet = isLight ? 1.8 : 1.5;
   const totalCells = n + quiet * 2;
   const cell = size / totalCells;
   const offset = quiet * cell;
@@ -214,10 +222,14 @@ export async function generateStyledQrDataUrl(options: StyledQrOptions): Promise
   const ctx = canvas.getContext('2d');
   if (!ctx) return '';
 
-  // Fondo translúcido adaptado al tema con contraste >= 75% garantizado para Google Lens y cámaras
+  // Fondo transparente puro en modo oscuro (Glassmorphism) o píldora blanca muy redondeada en modo claro
   ctx.clearRect(0, 0, size, size);
-  ctx.fillStyle = isLight ? 'rgba(255, 255, 255, 0.68)' : 'rgba(6, 10, 20, 0.72)';
-  ctx.fillRect(0, 0, size, size);
+  const transparentBg = !isLight;
+  if (!transparentBg) {
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+    drawRoundedRect(ctx, 0, 0, size, size, size * 0.12);
+    ctx.fill();
+  }
 
   const centerIdx = n / 2;
   const clearRadiusCells = logoImg ? n * 0.145 : 0;
@@ -294,9 +306,9 @@ export async function generateStyledQrDataUrl(options: StyledQrOptions): Promise
   const cyberEyeColor = style === 'cyber' && !options.brandColors ? (isLight ? '#0284c7' : '#a5f3fc') : moduleEyeInk;
   const luxuryEyeColor = style === 'luxury' && !options.brandColors ? (isLight ? '#b47b09' : '#fde68a') : moduleEyeInk;
   const activeEyeColor = style === 'cyber' ? cyberEyeColor : style === 'luxury' ? luxuryEyeColor : moduleEyeInk;
-  drawFinderEye(ctx, offset, offset, cell, style, activeEyeColor, moduleDarkInk);
-  drawFinderEye(ctx, offset + (n - 7) * cell, offset, cell, style, activeEyeColor, moduleDarkInk);
-  drawFinderEye(ctx, offset, offset + (n - 7) * cell, cell, style, activeEyeColor, moduleDarkInk);
+  drawFinderEye(ctx, offset, offset, cell, style, activeEyeColor, moduleDarkInk, transparentBg);
+  drawFinderEye(ctx, offset + (n - 7) * cell, offset, cell, style, activeEyeColor, moduleDarkInk, transparentBg);
+  drawFinderEye(ctx, offset, offset + (n - 7) * cell, cell, style, activeEyeColor, moduleDarkInk, transparentBg);
 
   // 3. Insignia central EXCLUSIVAMENTE cuando el comercio subió un logo real
   if (logoImg) {
@@ -310,10 +322,19 @@ export async function generateStyledQrDataUrl(options: StyledQrOptions): Promise
           ? badgeSize * 0.12
           : badgeSize * 0.28;
 
-    // Halo de separación coordinado para garantizar contraste
-    ctx.fillStyle = isLight ? '#ffffff' : '#090d19';
-    drawRoundedRect(ctx, bx - cell * 0.35, by - cell * 0.35, badgeSize + cell * 0.7, badgeSize + cell * 0.7, bRad + cell * 0.25);
-    ctx.fill();
+    // Halo de separación coordinado (transparente en vidrio oscuro; blanco suave en tema claro)
+    if (transparentBg) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.fillStyle = '#000000';
+      drawRoundedRect(ctx, bx - cell * 0.35, by - cell * 0.35, badgeSize + cell * 0.7, badgeSize + cell * 0.7, bRad + cell * 0.25);
+      ctx.fill();
+      ctx.restore();
+    } else {
+      ctx.fillStyle = '#ffffff';
+      drawRoundedRect(ctx, bx - cell * 0.35, by - cell * 0.35, badgeSize + cell * 0.7, badgeSize + cell * 0.7, bRad + cell * 0.25);
+      ctx.fill();
+    }
 
     ctx.save();
     drawRoundedRect(ctx, bx, by, badgeSize, badgeSize, bRad);

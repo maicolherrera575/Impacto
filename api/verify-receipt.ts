@@ -77,11 +77,33 @@ function firstHeader(headers: IncomingMessage['headers'], name: string): string 
   return typeof v === 'string' ? v : '';
 }
 
+let activeVerifyKeyIdx = 0;
+
+function getGeminiKeyPool(): string[] {
+  return Array.from(
+    new Set(
+      [
+        process.env.GEMINI_API_KEY_1,
+        process.env.GEMINI_API_KEY_2,
+        process.env.GEMINI_API_KEY_3,
+        process.env.GEMINI_API_KEY,
+        process.env.VITE_GEMINI_API_KEY_1,
+        process.env.VITE_GEMINI_API_KEY_2,
+        process.env.VITE_GEMINI_API_KEY_3,
+        process.env.VITE_GEMINI_API_KEY,
+      ]
+        .map((k) => (k ?? '').trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
 function getEnv() {
   const supabaseUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim().replace(/\/+$/, '');
   const anonKey = (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '').trim();
-  const geminiKey = (process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || '').trim();
-  return { supabaseUrl, anonKey, geminiKey };
+  const keyPool = getGeminiKeyPool();
+  const geminiKey = keyPool[activeVerifyKeyIdx % Math.max(1, keyPool.length)] ?? '';
+  return { supabaseUrl, anonKey, geminiKey, keyPool };
 }
 
 function parseDataUrlImage(dataUrl: string): { mimeType: string; base64: string; bytes: Buffer } {
@@ -184,7 +206,9 @@ async function analyzeReceiptWithGeminiServer(
   adminPhone: string,
   adminKey: string,
 ): Promise<ServerReceiptAudit> {
-  if (!geminiKey) {
+  const keyPool = getGeminiKeyPool();
+  const effectivePool = keyPool.length > 0 ? keyPool : geminiKey ? [geminiKey] : [];
+  if (effectivePool.length === 0) {
     throw new Error('El servidor no tiene configurada GEMINI_API_KEY.');
   }
 
@@ -205,26 +229,37 @@ async function analyzeReceiptWithGeminiServer(
   let rawText = '';
   let lastErr = new Error('La IA no respondió');
   for (const model of MODEL_CHAIN) {
-    try {
-      const upstream = await fetch(`${GEMINI_BASE}/${model}:generateContent?key=${encodeURIComponent(geminiKey)}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const json: unknown = await upstream.json().catch(() => null);
-      if (!upstream.ok) {
-        const msg = (json as { error?: { message?: string } } | null)?.error?.message;
-        lastErr = new Error(msg || `Gemini HTTP ${upstream.status}`);
-        if (RETRYABLE_STATUS.has(upstream.status)) continue;
-        throw lastErr;
+    for (let attempt = 0; attempt < effectivePool.length; attempt += 1) {
+      const idx = (activeVerifyKeyIdx + attempt) % effectivePool.length;
+      const activeKey = effectivePool[idx];
+      try {
+        const upstream = await fetch(`${GEMINI_BASE}/${model}:generateContent?key=${encodeURIComponent(activeKey)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const json: unknown = await upstream.json().catch(() => null);
+        if (!upstream.ok) {
+          const msg = (json as { error?: { message?: string } } | null)?.error?.message;
+          lastErr = new Error(msg || `Gemini HTTP ${upstream.status}`);
+          if (upstream.status === 429 && effectivePool.length > 1) {
+            activeVerifyKeyIdx = (idx + 1) % effectivePool.length;
+            continue;
+          }
+          if (RETRYABLE_STATUS.has(upstream.status)) break;
+          throw lastErr;
+        }
+        activeVerifyKeyIdx = idx;
+        const candidates = (json as { candidates?: { content?: { parts?: { text?: string }[] } }[] } | null)?.candidates;
+        const parts = candidates?.[0]?.content?.parts ?? [];
+        rawText = parts.map((p) => (typeof p?.text === 'string' ? p.text : '')).join('').trim();
+        if (rawText) break;
+      } catch (err) {
+        lastErr = err instanceof Error ? err : new Error(String(err));
+        break;
       }
-      const candidates = (json as { candidates?: { content?: { parts?: { text?: string }[] } }[] } | null)?.candidates;
-      const parts = candidates?.[0]?.content?.parts ?? [];
-      rawText = parts.map((p) => (typeof p?.text === 'string' ? p.text : '')).join('').trim();
-      if (rawText) break;
-    } catch (err) {
-      lastErr = err instanceof Error ? err : new Error(String(err));
     }
+    if (rawText) break;
   }
 
   if (!rawText) throw lastErr;

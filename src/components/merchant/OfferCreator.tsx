@@ -193,8 +193,8 @@ export function OfferCreator({ open, onClose, profile, onPublished, initialForm 
 
   return (
     <ModalShell open={open} onClose={onClose} panelClassName="max-w-lg">
-      <div className="p-5 pt-14">
-        <h3 className="text-xl font-extrabold text-white">✨ Crear oferta</h3>
+      <div className="p-5 pt-5">
+        <h3 className="pr-11 text-xl font-extrabold text-white">✨ Crear oferta</h3>
         <p className="mt-1 text-sm text-slate-400">
           Escribe o dicta tu promoción como si le hablaras a un vecino. La IA hace el resto.
         </p>

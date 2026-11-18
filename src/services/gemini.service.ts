@@ -1,5 +1,5 @@
 import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
-import { GEMINI_API_KEY } from '../config/env';
+import { GEMINI_API_KEY, GEMINI_API_KEYS } from '../config/env';
 import type { Category, ParsedPromo } from '../types';
 import { buildPaletteFromHexTriplet } from '../utils/colorPalette';
 import type { ExtractedBrandPalette } from '../utils/colorPalette';
@@ -48,6 +48,36 @@ const VISION_MODEL_CHAIN = [
 
 export const AI_BUSY_FRIENDLY_MSG =
   'Nuestro motor de IA está procesando demasiadas solicitudes. Por favor, intenta crear la oferta manualmente o vuelve en un minuto.';
+
+/** 🔄 V33.0 · Rotación Multi-Key ante límites de cuota gratuita (HTTP 429 / RESOURCE_EXHAUSTED). */
+const API_KEY_POOL: string[] = Array.from(
+  new Set(
+    [
+      ...GEMINI_API_KEYS,
+      GEMINI_API_KEY,
+      typeof __APP_GEMINI_KEY__ === 'string' ? __APP_GEMINI_KEY__ : '',
+      typeof __APP_GEMINI_KEY_1__ === 'string' ? __APP_GEMINI_KEY_1__ : '',
+      typeof __APP_GEMINI_KEY_2__ === 'string' ? __APP_GEMINI_KEY_2__ : '',
+      typeof __APP_GEMINI_KEY_3__ === 'string' ? __APP_GEMINI_KEY_3__ : '',
+    ]
+      .map((k) => k.trim())
+      .filter(Boolean),
+  ),
+);
+
+let activeKeyIndex = 0;
+
+function rotateApiKey(): void {
+  if (API_KEY_POOL.length > 1) {
+    activeKeyIndex = (activeKeyIndex + 1) % API_KEY_POOL.length;
+  }
+}
+
+function isRateLimitError(status?: number, err?: unknown): boolean {
+  if (status === 429) return true;
+  const msg = err instanceof Error ? err.message : typeof err === 'string' ? err : '';
+  return /\b429\b|RESOURCE_EXHAUSTED|rate[_\s-]*limit|quota/i.test(msg);
+}
 
 type SdkModel = ReturnType<GoogleGenerativeAI['getGenerativeModel']>;
 type SdkRequest = Parameters<SdkModel['generateContent']>[0];
@@ -138,65 +168,83 @@ async function callProxy(options: GeminiCallOptions): Promise<string> {
   throw lastErr;
 }
 
-/** Llamada directa con el SDK recorriendo la cadena de modelos en cascada. */
+/** Llamada directa con el SDK recorriendo la cadena de modelos y rotando llaves ante HTTP 429. */
 async function callSdk(options: GeminiCallOptions): Promise<string> {
-  const sdk = new GoogleGenerativeAI(GEMINI_API_KEY);
+  if (API_KEY_POOL.length === 0) throw new Error(AI_BUSY_FRIENDLY_MSG);
   let lastErr: Error = new Error(AI_BUSY_FRIENDLY_MSG);
   for (const model of getCascadeModels(options)) {
-    try {
-      const sdkModel = sdk.getGenerativeModel({ model });
-      const { response } = await sdkModel.generateContent(buildPayload(options, model) as unknown as SdkRequest);
-      const text = response.text().trim();
-      if (text) return text;
-    } catch (err) {
-      console.warn(`[Impulso IA SDK] Modelo ${model} no disponible:`, err);
-      lastErr = new Error(AI_BUSY_FRIENDLY_MSG);
+    for (let attempt = 0; attempt < API_KEY_POOL.length; attempt += 1) {
+      const currentKey = API_KEY_POOL[activeKeyIndex % API_KEY_POOL.length];
+      try {
+        const sdk = new GoogleGenerativeAI(currentKey);
+        const sdkModel = sdk.getGenerativeModel({ model });
+        const { response } = await sdkModel.generateContent(buildPayload(options, model) as unknown as SdkRequest);
+        const text = response.text().trim();
+        if (text) return text;
+        break;
+      } catch (err) {
+        lastErr = new Error(AI_BUSY_FRIENDLY_MSG);
+        if (isRateLimitError(undefined, err) && API_KEY_POOL.length > 1) {
+          console.warn(`[Impulso IA SDK] Cuota 429 en llave #${activeKeyIndex + 1}; rotando llave…`);
+          rotateApiKey();
+          continue;
+        }
+        console.warn(`[Impulso IA SDK] Modelo ${model} no disponible:`, err);
+        break;
+      }
     }
   }
   throw lastErr;
 }
 
-/** Llamada directa REST a Gemini recorriendo la cadena de modelos en cascada. */
+/** Llamada directa REST a Gemini recorriendo modelos y rotando múltiples claves API ante HTTP 429. */
 async function callDirect(options: GeminiCallOptions): Promise<string> {
-  const key = (typeof __APP_GEMINI_KEY__ === 'string' ? __APP_GEMINI_KEY__ : '').trim();
-  if (!key) throw new Error(AI_BUSY_FRIENDLY_MSG);
+  if (API_KEY_POOL.length === 0) throw new Error(AI_BUSY_FRIENDLY_MSG);
   let lastErr: Error = new Error(AI_BUSY_FRIENDLY_MSG);
   for (const model of getCascadeModels(options)) {
-    let res: Response;
-    try {
-      res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(buildPayload(options, model)),
-        },
-      );
-    } catch {
-      lastErr = new Error(AI_BUSY_FRIENDLY_MSG);
-      continue;
+    for (let attempt = 0; attempt < API_KEY_POOL.length; attempt += 1) {
+      const key = API_KEY_POOL[activeKeyIndex % API_KEY_POOL.length];
+      let res: Response;
+      try {
+        res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(buildPayload(options, model)),
+          },
+        );
+      } catch {
+        lastErr = new Error(AI_BUSY_FRIENDLY_MSG);
+        break;
+      }
+      const rest: unknown = await res.json().catch(() => null);
+      if (!res.ok) {
+        lastErr = new Error(AI_BUSY_FRIENDLY_MSG);
+        if (isRateLimitError(res.status) && API_KEY_POOL.length > 1) {
+          console.warn(`[Impulso IA REST] HTTP 429 en llave #${activeKeyIndex + 1} (${model}); rotando a siguiente llave…`);
+          rotateApiKey();
+          continue;
+        }
+        console.warn(`[Impulso IA REST] Modelo ${model} respondió HTTP ${res.status}; intentando respaldo…`);
+        break;
+      }
+      const text = extractRestText(rest);
+      if (!text) {
+        lastErr = new Error(AI_BUSY_FRIENDLY_MSG);
+        break;
+      }
+      return text;
     }
-    const rest: unknown = await res.json().catch(() => null);
-    if (!res.ok) {
-      console.warn(`[Impulso IA Proxy] Modelo ${model} respondió HTTP ${res.status}; intentando respaldo…`);
-      lastErr = new Error(AI_BUSY_FRIENDLY_MSG);
-      continue;
-    }
-    const text = extractRestText(rest);
-    if (!text) {
-      lastErr = new Error(AI_BUSY_FRIENDLY_MSG);
-      continue;
-    }
-    return text;
   }
   throw lastErr;
 }
 
 /**
  * Wrapper unificado de llamada a Gemini con respaldo en cascada multinivel:
- * 1) Proxy /api/gemini (1.5-pro-latest → 1.5-flash-latest → 1.0-pro).
- * 2) REST directo con __APP_GEMINI_KEY__.
- * 3) SDK local con cascada de modelos.
+ * 1) Proxy /api/gemini (rotación multi-key + cascada de modelos en servidor).
+ * 2) REST directo con rotación multi-key en navegador.
+ * 3) SDK local con rotación multi-key.
  * Oculta errores crudos de API al usuario final.
  */
 async function callGemini(options: GeminiCallOptions): Promise<string> {
@@ -210,7 +258,7 @@ async function callGemini(options: GeminiCallOptions): Promise<string> {
   } catch (directErr) {
     console.warn('[Impulso IA] REST directo en cascada agotado:', directErr);
   }
-  if (GEMINI_API_KEY) {
+  if (API_KEY_POOL.length > 0) {
     try {
       return await callSdk(options);
     } catch (sdkErr) {
@@ -1939,7 +1987,7 @@ export interface SupportConciergeAssessment {
 const SUPPORT_ESCALATION_REPLY =
   'He detectado una incidencia importante y he creado un ticket de alta prioridad para el administrador. Nuestro equipo ya lo está revisando.';
 
-const SUPPORT_SYSTEM_PROMPT = `Eres el conserje experto de Impulso. Resuelve dudas de uso de la plataforma. Si detectas un error grave o un reporte de fraude, informa al usuario que has creado un ticket de alta prioridad para el administrador.
+const SUPPORT_SYSTEM_PROMPT = `Eres el conserje experto de Impulso. Responde SIEMPRE de forma concisa, resolutiva y extremadamente educada (trato cordial, humano y respetuoso). Resuelve dudas de uso de la plataforma con pasos claros y breves. Si detectas un error grave o un reporte de fraude, informa al usuario con amabilidad que has creado un ticket de alta prioridad para el administrador.
 Reglas de negocio reales de Impulso (portal colombiano de ofertas locales y publicidad en Cundinamarca):
 - Compradores NO necesitan crear cuenta ni pagar en la app: apartan con nombre y WhatsApp, reciben código y pagan directo al comercio al recibir.
 - Impulso es un portal tecnológico de contacto: no retiene dinero ni interviene en ventas entre terceros.
@@ -2088,7 +2136,7 @@ export async function askSupportConcierge(input: {
       severity,
       category,
       summary: (parsed.summary ?? cleanMsg).trim().slice(0, 200) || 'Solicitud de soporte',
-      aiAnalysis: (parsed.ai_analysis ?? cleanMsg).trim().slice(0, 600) || 'Clasificado por Conserje IA',
+      aiAnalysis: (parsed.ai_analysis ?? cleanMsg).trim().slice(0, 600) || 'Clasificado por Conserje de Soporte',
       reply: isTechnical
         ? SUPPORT_ESCALATION_REPLY
         : (parsed.reply ?? '').trim() || synthesizeLocalSupportFallback(cleanMsg, input.userRole).reply,

@@ -66,9 +66,10 @@ export function ModalShell({ open, onClose, children, size = 'md', panelClassNam
         )}
       >
         <button
+          type="button"
           onClick={onClose}
           aria-label={closeLabel}
-          className="pressable absolute right-3.5 top-3.5 z-10 grid h-9 w-9 place-items-center rounded-full border border-white/10 bg-slate-950/60 text-slate-300 hover:text-white"
+          className="pressable absolute right-3.5 top-3.5 z-30 grid h-9 w-9 place-items-center rounded-full border border-white/10 bg-slate-950/60 text-slate-300 hover:text-white"
         >
           <X className="h-5 w-5" />
         </button>

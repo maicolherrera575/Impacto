@@ -39,6 +39,7 @@ import type { ArtDirection, CampaignFocus, MarketingCampaign, PriceMode } from '
 import { loadBankPhoto, isPollinationsBlockImage, guessPhotoCategory, PHOTO_BANK, PHOTO_GALLERY_TABS } from '../../utils/commercialPhotoBank';
 import { extractPaletteFromImage } from '../../utils/colorPalette';
 import type { ExtractedBrandPalette } from '../../utils/colorPalette';
+import { compressImageToMicroWebP } from '../../services/imageCompressor';
 import { generateStyledQrDataUrl, QR_STYLES } from '../../utils/styledQr';
 import type { QrStyle } from '../../utils/styledQr';
 import {
@@ -1209,61 +1210,39 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     }
   }
 
-  /** 📷 Subida de foto propia: reemplaza la imagen IA/stock y extrae paleta automáticamente. */
-  function handlePhotoFile(file: File | undefined): void {
+  /** 📷 Subida de foto propia (WebP ≤ 800px / ≤ 75 KB) y extracción automática de paleta. */
+  async function handlePhotoFile(file: File | undefined): Promise<void> {
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const img = new Image();
-      img.onload = () => {
-        const scale = Math.min(1, 1400 / Math.max(img.width, img.height));
-        const c = document.createElement('canvas');
-        c.width = Math.round(img.width * scale);
-        c.height = Math.round(img.height * scale);
-        const ctx = c.getContext('2d');
-        if (!ctx) return;
-        ctx.drawImage(img, 0, 0, c.width, c.height);
-        photoGenRef.current += 1; // invalida descargas IA en curso
-        userOwnPhotoLockRef.current = true;
-        const dataUrl = c.toDataURL('image/jpeg', 0.88);
-        setCustomPhoto(dataUrl);
-        if (!effectiveLogoUrl) {
-          void extractPaletteFromImage(dataUrl, 'photo').then((pal) => {
-            if (!pal) return;
-            setBrandPalette(pal);
-            setUseBrandPalette(true);
-            toast.success(`🎨 Foto propia aplicada + paleta extraída (${pal.colors.join(' · ')})`);
-          });
-        } else {
-          toast.success('📷 Foto propia del negocio aplicada (reemplaza stock/IA)');
+    try {
+      const dataUrl = await compressImageToMicroWebP(file, 800, 0.66, 75 * 1024);
+      photoGenRef.current += 1; // invalida descargas IA en curso
+      userOwnPhotoLockRef.current = true;
+      setCustomPhoto(dataUrl);
+      if (!effectiveLogoUrl) {
+        const pal = await extractPaletteFromImage(dataUrl, 'photo').catch(() => null);
+        if (pal) {
+          setBrandPalette(pal);
+          setUseBrandPalette(true);
+          toast.success(`🎨 Foto propia WebP aplicada + paleta extraída (${pal.colors.join(' · ')})`);
+          return;
         }
-      };
-      img.src = String(reader.result);
-    };
-    reader.readAsDataURL(file);
+      }
+      toast.success('📷 Foto propia del negocio optimizada (WebP ≤ 75 KB) y aplicada');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'No se pudo optimizar la imagen');
+    }
   }
 
-  /** 🏷️ Subida de logo del comercio (PNG recomendado): extrae paleta e integra al afiche. */
-  function handleLogoFile(file: File | undefined): void {
+  /** 🏷️ Subida de logo del comercio optimizado en WebP y extracción automática de paleta. */
+  async function handleLogoFile(file: File | undefined): Promise<void> {
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const img = new Image();
-      img.onload = () => {
-        const scale = Math.min(1, 360 / Math.max(img.width, img.height));
-        const c = document.createElement('canvas');
-        c.width = Math.round(img.width * scale);
-        c.height = Math.round(img.height * scale);
-        const ctx = c.getContext('2d');
-        if (!ctx) return;
-        ctx.drawImage(img, 0, 0, c.width, c.height);
-        const dataUrl = c.toDataURL('image/png');
-        setExtLogoUrl(dataUrl);
-        toast.success('🏷️ Logo del comercio aplicado: extrayendo paleta de colores…');
-      };
-      img.src = String(reader.result);
-    };
-    reader.readAsDataURL(file);
+    try {
+      const dataUrl = await compressImageToMicroWebP(file, 360, 0.68, 45 * 1024);
+      setExtLogoUrl(dataUrl);
+      toast.success('🏷️ Logo optimizado (WebP) aplicado: extrayendo paleta de colores…');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'No se pudo optimizar el logo');
+    }
   }
 
   /** ✨ Gemini Vision: analiza el logo o foto actual para deducir 3 colores hex exactos. */
@@ -2138,7 +2117,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
                 <span className="text-[9px] font-semibold text-slate-400">
                   PNG sin fondo recomendado · se coloca en el afiche y QR
                 </span>
-                <input type="file" accept="image/*" className="hidden" onChange={(e) => handleLogoFile(e.target.files?.[0])} />
+                <input type="file" accept="image/*" className="hidden" onChange={(e) => void handleLogoFile(e.target.files?.[0])} />
               </label>
               {extLogoUrl && (
                 <button
@@ -2173,7 +2152,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
                 <span className="text-[9px] font-semibold text-slate-400">
                   Reemplaza la imagen de stock o IA en el diseño
                 </span>
-                <input type="file" accept="image/*" className="hidden" onChange={(e) => handlePhotoFile(e.target.files?.[0])} />
+                <input type="file" accept="image/*" className="hidden" onChange={(e) => void handlePhotoFile(e.target.files?.[0])} />
               </label>
               {customPhoto && (
                 <button

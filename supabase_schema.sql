@@ -1300,7 +1300,8 @@ begin
 
   update public.offers
      set reports_count = v_total_reports,
-         status = case when status = 'active' and v_should_pause then 'cancelled' else status end
+         status = case when status = 'active' and v_should_pause then 'cancelled' else status end,
+         image_thumb = case when status = 'active' and v_should_pause then null else image_thumb end
    where id = p_offer_id;
 
   return jsonb_build_object(
@@ -2495,12 +2496,19 @@ declare
   v_expired  integer;
   v_requests integer;
 begin
-  -- Marca como vencidas las ofertas cuyo reloj llegó a cero
+  -- Marca como vencidas las ofertas cuyo reloj llegó a cero y libera sus miniaturas
   update public.offers
-     set status = 'expired'
+     set status = 'expired',
+         image_thumb = null
    where status = 'active'
      and expires_at < now();
   get diagnostics v_expired = row_count;
+
+  -- Libera miniaturas huérfanas de ofertas ya expiradas o tumbadas por reporte
+  update public.offers
+     set image_thumb = null
+   where status in ('expired', 'cancelled')
+     and image_thumb is not null;
 
   -- Borra pedidos de la comunidad vencidos hace más de 6 horas
   delete from public.quick_requests
@@ -2972,6 +2980,20 @@ begin
    where status in ('approved', 'rejected')
      and receipt_thumb is not null;
   get diagnostics v_receipts = row_count;
+
+  -- 3. Poda de miniaturas de ofertas ya expiradas o canceladas
+  update public.offers
+     set image_thumb = null
+   where status in ('expired', 'cancelled')
+     and image_thumb is not null;
+
+  -- 4. Poda de imágenes KYB resueltas hace > 7 días (el resultado y el hash permanecen)
+  update public.kyb_verifications
+     set doc_image = '',
+         face_image = ''
+   where status in ('approved', 'rejected')
+     and reviewed_at < now() - interval '7 days'
+     and (doc_image <> '' or face_image <> '');
 
   return jsonb_build_object('offers_deleted', v_offers, 'receipts_cleared', v_receipts);
 end;

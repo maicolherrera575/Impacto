@@ -481,10 +481,10 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
     async (file: File | undefined, slot: 'doc' | 'face') => {
       if (!file) return;
       try {
-        const webp = await compressImageToMicroWebP(file, 800, 0.6);
+        const webp = await compressImageToMicroWebP(file, 800, 0.65, 72 * 1024);
         if (slot === 'doc') setKybDoc(webp);
         else setKybFace(webp);
-        toast.success(`🪪 Imagen optimizada: de ${Math.round(file.size / 1024)} KB a ${Math.round(webp.length * 0.75 / 1024)} KB`);
+        toast.success(`🪪 Imagen WebP optimizada: de ${Math.round(file.size / 1024)} KB a ${Math.round((webp.length * 0.75) / 1024)} KB`);
       } catch (err) {
         toast.error(friendlyError(err));
       }

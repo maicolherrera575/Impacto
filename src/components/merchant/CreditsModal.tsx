@@ -311,21 +311,12 @@ export function CreditsModal({ open, onClose, profile, onCreditsApproved }: Cred
 
   return (
     <ModalShell open={open} onClose={onClose} closeLabel="Cerrar caja de créditos">
-      <div className="p-5 pt-14">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h3 className="text-lg font-extrabold text-white">⚡ Recargar Créditos</h3>
-            <p className="mt-0.5 text-xs text-slate-400">
-              Pago Nequi · Daviplata · Llave · QR — Validación de Pago con Verificación de Seguridad Asegurada.
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            aria-label="Cerrar"
-            className="pressable grid h-9 w-9 shrink-0 place-items-center rounded-full border border-white/10 bg-slate-950/60 text-slate-300"
-          >
-            <X className="h-5 w-5" />
-          </button>
+      <div className="p-5 pt-5">
+        <div className="pr-11">
+          <h3 className="text-lg font-extrabold text-white">⚡ Recargar Créditos</h3>
+          <p className="mt-0.5 text-xs text-slate-400">
+            Pago Nequi · Daviplata · Llave · QR — Validación de Pago con Verificación de Seguridad Asegurada.
+          </p>
         </div>
 
         {/* Planes */}

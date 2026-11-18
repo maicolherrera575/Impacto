@@ -1,6 +1,7 @@
 import { supabase } from './supabase';
 import { getDeviceId } from './deviceFingerprint';
 import { getEdgeClientIp } from './ip.service';
+import { pruneStorageUrls } from './storagePruning.service';
 import { validateOfferSecurity } from '../utils/securityFilter';
 import type { Category, Offer } from '../types';
 
@@ -151,7 +152,16 @@ export async function reportOffer(
     error = retry.error;
   }
   if (error) throw error;
-  return data as unknown as ReportResult;
+  const result = data as unknown as ReportResult;
+  if (result.cancelled) {
+    void supabase
+      .from('offers')
+      .select('image_thumb')
+      .eq('id', offerId)
+      .maybeSingle()
+      .then(({ data: row }) => pruneStorageUrls([(row as { image_thumb?: string | null } | null)?.image_thumb]), () => undefined);
+  }
+  return result;
 }
 
 /** Incremento atómico de vistas (fire-and-forget). */
@@ -169,6 +179,19 @@ export function incrementViews(offerId: string): void {
  * viejos de la comunidad (la app la llama 1 vez cada 12 horas).
  */
 export async function autoPruneData(): Promise<{ offers_expired: number; requests_deleted: number }> {
+  try {
+    const { data: expiredOffers } = await supabase
+      .from('offers')
+      .select('image_thumb')
+      .lt('expires_at', new Date().toISOString())
+      .not('image_thumb', 'is', null)
+      .limit(60);
+    if (Array.isArray(expiredOffers) && expiredOffers.length > 0) {
+      await pruneStorageUrls(expiredOffers.map((o) => (o as { image_thumb?: string | null }).image_thumb));
+    }
+  } catch {
+    /* best-effort Storage pruning */
+  }
   const { data, error } = await supabase.rpc('auto_prune_expired_data_rpc');
   if (error) throw error;
   return data as unknown as { offers_expired: number; requests_deleted: number };

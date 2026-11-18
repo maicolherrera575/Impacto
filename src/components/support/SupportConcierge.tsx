@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { CheckCircle2, Headphones, Loader2, Send, Sparkles, X } from 'lucide-react';
+import { CheckCircle2, Headphones, Loader2, Send, Sparkles } from 'lucide-react';
 import { ModalShell } from '../ui/ModalShell';
 import { useToast } from '../ui/Toast';
 import { askSupportConcierge } from '../../services/gemini.service';
@@ -124,37 +124,27 @@ export function SupportConcierge({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        aria-label="Abrir asistente de soporte Impulso"
-        title="Asistente de Soporte Impulso"
+        aria-label="Abrir Conserje de soporte Impulso"
+        title="Conserje de Soporte Impulso"
         className={cx(
           'pressable fixed right-3.5 z-30 flex items-center gap-2 rounded-full border border-impulso-emerald/35 bg-slate-950/90 px-3.5 py-2.5 text-xs font-extrabold text-white shadow-[0_12px_32px_rgba(0,0,0,0.55),0_0_20px_rgba(16,185,129,0.22)] backdrop-blur-xl transition hover:border-impulso-emerald/60',
           bottomOffsetClass,
         )}
       >
         <Headphones className="h-4 w-4 text-impulso-mint" />
-        <span className="hidden sm:inline">Soporte IA</span>
+        <span className="hidden sm:inline">Conserje</span>
       </button>
 
-      <ModalShell open={open} onClose={() => setOpen(false)} escClose panelClassName="max-w-md">
-        <div className="flex max-h-[82dvh] flex-col p-4 pt-12">
-          <div className="flex items-center justify-between gap-2 pb-3">
-            <div className="flex items-center gap-2.5">
-              <div className="grid h-10 w-10 place-items-center rounded-2xl bg-gradient-to-br from-impulso-emerald/25 to-cyan-500/20 ring-1 ring-impulso-emerald/40">
-                <Sparkles className="h-5 w-5 text-impulso-mint" />
-              </div>
-              <div>
-                <h3 className="text-base font-extrabold text-white">Conserje de Impulso</h3>
-                <p className="text-[11px] font-semibold text-slate-400">Soporte inteligente en vivo</p>
-              </div>
+      <ModalShell open={open} onClose={() => setOpen(false)} escClose closeLabel="Cerrar soporte" panelClassName="max-w-md">
+        <div className="flex max-h-[82dvh] flex-col p-4 pt-5">
+          <div className="flex items-center gap-2.5 pb-3 pr-11">
+            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-impulso-emerald/25 to-cyan-500/20 ring-1 ring-impulso-emerald/40">
+              <Sparkles className="h-5 w-5 text-impulso-mint" />
             </div>
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              aria-label="Cerrar soporte"
-              className="pressable grid h-9 w-9 place-items-center rounded-full border border-white/10 bg-slate-950/60 text-slate-300"
-            >
-              <X className="h-4 w-4" />
-            </button>
+            <div>
+              <h3 className="text-base font-extrabold text-white">Conserje de Impulso</h3>
+              <p className="text-[11px] font-semibold text-slate-400">Soporte personalizado en vivo</p>
+            </div>
           </div>
 
           {/* Chips rápidos */}
