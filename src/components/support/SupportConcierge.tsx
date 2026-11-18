@@ -27,9 +27,15 @@ const QUICK_PROMPTS_MERCHANT = [
   'Vincular huella en equipo nuevo',
 ] as const;
 
+interface ConciergeMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  at: string;
+}
+
 /**
- * 🤖 El Conserje de Impulso (V30):
- * Botón flotante sutil con chat resolutivo por IA y escalamiento automático a `support_tickets`.
+ * 🤖 El Conserje de Impulso (V34):
+ * Chat conversacional real con memoria multi-turno en Gemini y registro silencioso de tickets.
  */
 export function SupportConcierge({
   userRole,
@@ -42,13 +48,13 @@ export function SupportConcierge({
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [ticketSentId, setTicketSentId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<SupportChatMessage[]>(() => [
+  const [messages, setMessages] = useState<ConciergeMessage[]>(() => [
     {
       role: 'assistant',
-      text:
+      content:
         userRole === 'merchant'
-          ? '¡Hola! Soy el Conserje de Impulso. ¿Tienes dudas con créditos, publicaciones o algún fallo técnico?'
-          : '¡Hola! Soy el Conserje de Impulso. ¿Necesitas ayuda para apartar una oferta o reportar algún problema?',
+          ? '¡Hola! Soy el Conserje de Impulso. ¿En qué te puedo ayudar hoy con tus ofertas, recargas o reservas?'
+          : '¡Hola! Soy el Conserje de Impulso. ¿En qué te ayudo para explorar ofertas o apartar hoy?',
       at: new Date().toISOString(),
     },
   ]);
@@ -66,7 +72,7 @@ export function SupportConcierge({
     const clean = (textOverride ?? input).trim();
     if (!clean || busy) return;
 
-    const userMsg: SupportChatMessage = { role: 'user', text: clean, at: new Date().toISOString() };
+    const userMsg: ConciergeMessage = { role: 'user', content: clean, at: new Date().toISOString() };
     const nextHistory = [...messages, userMsg];
     setMessages(nextHistory);
     if (!textOverride) setInput('');
@@ -75,22 +81,27 @@ export function SupportConcierge({
 
     try {
       const assessment = await askSupportConcierge({
-        history: nextHistory.map((m) => ({ role: m.role, text: m.text })),
+        history: nextHistory.map((m) => ({ role: m.role, content: m.content })),
         latestMessage: clean,
         userRole,
         municipality,
       });
 
-      const assistantMsg: SupportChatMessage = {
+      const assistantMsg: ConciergeMessage = {
         role: 'assistant',
-        text: assessment.reply,
+        content: assessment.reply,
         at: new Date().toISOString(),
       };
-      const updatedTranscript = [...nextHistory, assistantMsg];
-      setMessages(updatedTranscript);
+      const updatedConversation = [...nextHistory, assistantMsg];
+      setMessages(updatedConversation);
       scrollToBottom();
 
       if (assessment.isTechnicalIssue) {
+        const transcriptForDb: SupportChatMessage[] = updatedConversation.map((m) => ({
+          role: m.role,
+          text: m.content,
+          at: m.at,
+        }));
         const res = await submitSupportTicket({
           userRole,
           userName,
@@ -98,18 +109,18 @@ export function SupportConcierge({
           category: assessment.category,
           severity: assessment.severity,
           summary: assessment.summary,
-          chatTranscript: updatedTranscript,
+          chatTranscript: transcriptForDb,
           aiAnalysis: assessment.aiAnalysis,
         });
         setTicketSentId(res.ticket?.id ?? `local-${Date.now()}`);
-        toast.info('🛠️ Reporte técnico registrado para revisión prioritaria.');
+        toast.info('🛠️ Ticket registrado para revisión prioritaria.');
       }
     } catch {
       setMessages((prev) => [
         ...prev,
         {
           role: 'assistant',
-          text: 'Entiendo la situación. He registrado este reporte y nuestro equipo técnico lo está revisando con prioridad.',
+          content: 'Tuve una interrupción momentánea de conexión. Intenta enviarme el detalle de nuevo en unos segundos.',
           at: new Date().toISOString(),
         },
       ]);
@@ -177,7 +188,7 @@ export function SupportConcierge({
                       : 'border border-white/10 bg-slate-900/90 text-slate-200 font-medium rounded-bl-sm',
                   )}
                 >
-                  {m.text}
+                  {m.content}
                 </div>
               </div>
             ))}

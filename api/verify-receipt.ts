@@ -17,7 +17,13 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 const OFFICIAL_ADMIN_NEQUI = '3158942112';
 const OFFICIAL_ADMIN_LLAVE = '@impulso3158942112';
 const MAX_BODY_BYTES = 512 * 1024;
-const MODEL_CHAIN = ['gemini-1.5-pro-latest', 'gemini-1.5-flash-latest', 'gemini-2.0-flash', 'gemini-1.5-flash'] as const;
+const MODEL_CHAIN = [
+  'gemini-3.8-flash',
+  'gemini-3.5-flash',
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite',
+  'gemini-2.0-flash',
+] as const;
 const RETRYABLE_STATUS = new Set([404, 408, 429, 500, 502, 503, 504]);
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 

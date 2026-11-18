@@ -942,14 +942,10 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
   }
 
   const effectiveQrIsLight = useMemo<boolean>(() => {
-    if (layout === 'swiss' || layout === 'zen' || layout === 'vip' || layout === 'arc' || layout === 'clinic' || layout === 'resort' || layout === 'eco' || layout === 'agro' || layout === 'float' || layout === 'polaroid') {
-      return true;
-    }
-    if (layout === 'split' || layout === 'diagonal' || layout === 'diagx' || layout === 'collage' || layout === 'cyber') {
-      return false;
-    }
+    // Pieza 1 (Maestro) es siempre Full-Bleed oscuro con degradado intenso -> QR luminoso transparente
+    if (piece === 0 || piece === 1 || piece === 2) return false;
     return Boolean(AFFICHE_THEMES[themeIdx]?.light);
-  }, [layout, themeIdx]);
+  }, [piece, themeIdx]);
 
   // V19/V31: QR translúcido adaptado al tema con contraste >= 75% e insignia o logo del negocio.
   useEffect(() => {
@@ -1073,8 +1069,9 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
         focus,
         targetUrl: primaryLink || brand.url,
         categoryHint: merchantCategory,
-        previousThemeId: lastArt?.themeId,
-        previousLayoutId: lastArt?.layoutId,
+        previousThemeId: lastArt?.themeId || AFFICHE_THEMES[lastThemeIdxRef.current]?.id,
+        previousLayoutId: lastArt?.layoutId || lastLayoutIdxRef.current,
+        previousFontId: AFFICHE_TYPOS[lastFontIdxRef.current]?.id,
       };
 
       // ── PASADA 1 · Estrategia y dirección de arte (con red de seguridad) ──
@@ -1087,8 +1084,9 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       } catch {
         // La API falló o tardó >7s: motor sintético local llenando TODO.
         const smart = synthesizeSmartCampaignFromBrief(input, {
-          previousThemeId: lastArt?.themeId,
-          previousLayoutId: lastArt?.layoutId,
+          previousThemeId: input.previousThemeId,
+          previousLayoutId: input.previousLayoutId,
+          previousFontId: input.previousFontId,
         });
         art = smart.art;
         res = smart.campaign;
@@ -1108,9 +1106,9 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       setDetectedCategory(art.categoryLabel);
       const bizName = brand.name.trim() || art.brandName;
       const product = brand.product.trim() || art.productTitle;
-      // ── V21/V22 · HIPER-VARIABILIDAD COHERENTE POR ARQUETIPOS (si hay logo, respeta su paleta):
+      // ── V34.0 · Variabilidad Obligatoria: aplica layoutId, themeId y typographyPair de la IA sin repetir anteriores
       const hasActiveLogo = Boolean(effectiveLogoUrl && useBrandPalette && brandPalette);
-      const picked = applyHyperVariability({ preserveBrandPalette: hasActiveLogo });
+      const picked = applyAiArtChoices(art, { preserveBrandPalette: hasActiveLogo });
       const ti = picked.themeIdx;
       const nextLayout = picked.layout;
 
@@ -1464,9 +1462,61 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
   }
 
   /**
-   * 🎲 V22.0 · Sorpréndeme Implacable:
-   * No solo cambia tema: rota arquitectura orgánica + carga foto diferente + solicita
-   * a Gemini un ángulo comercial fresco, regenera titular, sello y reordena beneficios.
+   * 🎨 V34.0 · Variabilidad Real desde IA: adopta el `layoutId`, `themeId` y `typographyPair`
+   * devueltos por Gemini (evitando repetir los anteriores incluso si la IA coincidiera).
+   */
+  function applyAiArtChoices(
+    art: ArtDirection,
+    opts?: { preserveBrandPalette?: boolean },
+  ): { themeIdx: number; layout: Layout; styleLabel: string } {
+    const validLayouts = AFFICHE_LAYOUTS.map((l) => l.id);
+    const candidateLayout = validLayouts.includes(art.layoutId as Layout) ? (art.layoutId as Layout) : null;
+    const altLayouts = validLayouts.filter((id) => id !== lastLayoutIdxRef.current);
+    const chosenLayout =
+      candidateLayout && candidateLayout !== lastLayoutIdxRef.current
+        ? candidateLayout
+        : altLayouts[Math.floor(Math.random() * altLayouts.length)] ?? 'immersive';
+    setLayout(chosenLayout);
+    lastLayoutIdxRef.current = chosenLayout;
+
+    let resolvedThemeIdx = themeIdx;
+    if (!opts?.preserveBrandPalette) {
+      const idxFromAi = AFFICHE_THEMES.findIndex((t) => t.id === art.themeId);
+      const altThemeIndices = AFFICHE_THEMES.map((_, i) => i).filter((i) => i !== lastThemeIdxRef.current);
+      resolvedThemeIdx =
+        idxFromAi >= 0 && idxFromAi !== lastThemeIdxRef.current
+          ? idxFromAi
+          : altThemeIndices[Math.floor(Math.random() * altThemeIndices.length)] ?? 0;
+      setThemeIdx(resolvedThemeIdx);
+      lastThemeIdxRef.current = resolvedThemeIdx;
+    }
+
+    const fontIdxFromAi = AFFICHE_TYPOS.findIndex((f) => f.id === art.typographyPair);
+    const altFonts = AFFICHE_TYPOS.map((_, i) => i).filter((i) => i !== lastFontIdxRef.current);
+    const resolvedFontIdx =
+      fontIdxFromAi >= 0 && fontIdxFromAi !== lastFontIdxRef.current
+        ? fontIdxFromAi
+        : altFonts[Math.floor(Math.random() * altFonts.length)] ?? 0;
+    setFontIdx(resolvedFontIdx);
+    lastFontIdxRef.current = resolvedFontIdx;
+
+    const qrOptions: QrStyle[] = ['rounded', 'dots', 'luxury', 'cyber', 'sharp'];
+    const altQrs = qrOptions.filter((q) => q !== lastQrStyleRef.current);
+    const nextQr = altQrs[Math.floor(Math.random() * altQrs.length)] ?? 'rounded';
+    setQrStyle(nextQr);
+    lastQrStyleRef.current = nextQr;
+
+    setBenefitStyle('editorial');
+    lastBenefitStyleRef.current = 'editorial';
+    setDockVariant('glass');
+
+    const label = AFFICHE_LAYOUTS.find((l) => l.id === chosenLayout)?.label ?? chosenLayout.toUpperCase();
+    return { themeIdx: resolvedThemeIdx, layout: chosenLayout, styleLabel: label };
+  }
+
+  /**
+   * 🎲 V22.0 / V34 · Sorpréndeme Implacable:
+   * Solicita nueva arquitectura/paleta/tipografía a Gemini y actualiza el artboard completo.
    */
   async function surpriseDesign(): Promise<void> {
     if (surprising) return;
@@ -1475,7 +1525,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     const genId = ++photoGenRef.current;
 
     const hasActiveLogo = Boolean(effectiveLogoUrl && useBrandPalette && brandPalette);
-    const picked = applyHyperVariability({ preserveBrandPalette: hasActiveLogo });
+    let picked = applyHyperVariability({ preserveBrandPalette: hasActiveLogo });
 
     const briefQuery = briefText.trim() || `${brand.name} ${brand.slogan} ${brand.product}`.trim();
     const freshBankPromise = userOwnPhotoLockRef.current
@@ -1508,7 +1558,8 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       targetUrl: primaryLink || brand.url,
       categoryHint: merchantCategory,
       previousThemeId: AFFICHE_THEMES[lastThemeIdxRef.current]?.id,
-      previousLayoutId: picked.layout,
+      previousLayoutId: lastLayoutIdxRef.current,
+      previousFontId: AFFICHE_TYPOS[lastFontIdxRef.current]?.id,
     };
 
     try {
@@ -1518,10 +1569,12 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       try {
         art = await withTimeout(generateArtDirection(input), 6500);
         res = await withTimeout(generateCampaignCopy({ ...input, businessName: brand.name || art.brandName, product: brand.product || art.productTitle }, art), 7500);
+        picked = applyAiArtChoices(art, { preserveBrandPalette: hasActiveLogo });
       } catch {
         const smart = synthesizeSmartCampaignFromBrief(input, {
           previousThemeId: input.previousThemeId,
           previousLayoutId: picked.layout,
+          previousFontId: input.previousFontId,
           seed: Math.floor(Math.random() * 100000),
         });
         art = smart.art;

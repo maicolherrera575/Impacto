@@ -28,28 +28,30 @@ Responde ÚNICAMENTE con el objeto JSON.`;
 // existe, intenta /api/gemini (útil con `vercel dev`).
 
 /**
- * 🛡️ V30/V31 · Cadena de resiliencia IA en cascada:
- * Intento 1: gemini-1.5-pro-latest → Intento 2: gemini-1.5-flash-latest → Intento 3: gemini-1.0-pro.
- * Para Vision con imágenes usa modelos multimodales equivalentes en cascada.
- * Si toda la cadena falla (404/429/503), oculta el detalle técnico y devuelve un aviso amigable.
+ * 🛡️ V34.0 · Modelos estables activos en cascada + Multi-Key Rotation circular:
+ * Prioriza los modelos Flash activos de Google AI Studio y recorre todo API_KEY_POOL
+ * ante HTTP 429 / RESOURCE_EXHAUSTED antes de devolver aviso amigable.
  */
 const MODEL_CHAIN = [
-  'gemini-1.5-pro-latest',
-  'gemini-1.5-flash-latest',
-  'gemini-1.0-pro',
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite',
+  'gemini-3.8-flash',
+  'gemini-3.5-flash',
+  'gemini-3.5-flash-lite',
+  'gemini-2.0-flash',
 ] as const;
 
 const VISION_MODEL_CHAIN = [
-  'gemini-1.5-pro-latest',
-  'gemini-1.5-flash-latest',
+  'gemini-2.5-flash',
+  'gemini-3.5-flash',
+  'gemini-3.8-flash',
   'gemini-2.0-flash',
-  'gemini-1.5-flash',
 ] as const;
 
 export const AI_BUSY_FRIENDLY_MSG =
   'Nuestro motor de IA está procesando demasiadas solicitudes. Por favor, intenta crear la oferta manualmente o vuelve en un minuto.';
 
-/** 🔄 V33.0 · Rotación Multi-Key ante límites de cuota gratuita (HTTP 429 / RESOURCE_EXHAUSTED). */
+/** 🔄 V34.0 · Pool Multi-Key deduplicado para rotación circular ante HTTP 429. */
 const API_KEY_POOL: string[] = Array.from(
   new Set(
     [
@@ -67,24 +69,33 @@ const API_KEY_POOL: string[] = Array.from(
 
 let activeKeyIndex = 0;
 
-function rotateApiKey(): void {
-  if (API_KEY_POOL.length > 1) {
-    activeKeyIndex = (activeKeyIndex + 1) % API_KEY_POOL.length;
-  }
-}
-
-function isRateLimitError(status?: number, err?: unknown): boolean {
+function isRateLimitError(status?: number, errOrPayload?: unknown): boolean {
   if (status === 429) return true;
-  const msg = err instanceof Error ? err.message : typeof err === 'string' ? err : '';
-  return /\b429\b|RESOURCE_EXHAUSTED|rate[_\s-]*limit|quota/i.test(msg);
+  if (errOrPayload && typeof errOrPayload === 'object') {
+    const errObj = (errOrPayload as { error?: { status?: string; message?: string; code?: number } }).error;
+    if (errObj?.code === 429) return true;
+    const nested = `${errObj?.status ?? ''} ${errObj?.message ?? ''}`;
+    if (/\b429\b|Too Many Requests|RESOURCE_EXHAUSTED|rate[_\s-]*limit|quota/i.test(nested)) {
+      return true;
+    }
+  }
+  const msg = errOrPayload instanceof Error ? errOrPayload.message : typeof errOrPayload === 'string' ? errOrPayload : '';
+  return /\b429\b|Too Many Requests|RESOURCE_EXHAUSTED|rate[_\s-]*limit|quota/i.test(msg);
 }
 
 type SdkModel = ReturnType<GoogleGenerativeAI['getGenerativeModel']>;
 type SdkRequest = Parameters<SdkModel['generateContent']>[0];
 
+export interface GeminiConversationTurn {
+  role: 'user' | 'model';
+  parts: Array<{ text: string }>;
+}
+
 interface GeminiCallOptions {
   systemInstruction?: string;
   prompt: string;
+  /** Historial multi-turno real para el Conserje conversacional con memoria. */
+  conversationContents?: GeminiConversationTurn[];
   /** Imagen inline base64 (sin el prefijo data:) para IA Vision. */
   image?: { mimeType: string; data: string };
   temperature: number;
@@ -95,30 +106,20 @@ function getCascadeModels(options: GeminiCallOptions): readonly string[] {
   return options.image ? VISION_MODEL_CHAIN : MODEL_CHAIN;
 }
 
-/** Payload adaptado al modelo: gemini-1.0-pro recibe instrucciones embebidas sin schema estricto. */
-function buildPayload(options: GeminiCallOptions, model?: string): Record<string, unknown> {
-  const isLegacyPro = model === 'gemini-1.0-pro';
-  const promptText =
-    isLegacyPro && options.systemInstruction
-      ? `${options.systemInstruction}\n\n${options.prompt}\n\nResponde ÚNICAMENTE con un objeto JSON válido.`
-      : options.prompt;
-
+/** Construye payload compatible con REST y SDK (soporta historial multi-turno). */
+function buildPayload(options: GeminiCallOptions): Record<string, unknown> {
   const parts: Record<string, unknown>[] = [];
-  if (options.image && !isLegacyPro) parts.push({ inlineData: options.image });
-  parts.push({ text: promptText });
+  if (options.image) parts.push({ inlineData: options.image });
+  if (options.prompt) parts.push({ text: options.prompt });
 
-  if (isLegacyPro) {
-    return {
-      contents: [{ role: 'user', parts }],
-      generationConfig: {
-        temperature: options.temperature,
-      },
-    };
-  }
+  const contents =
+    options.conversationContents && options.conversationContents.length > 0
+      ? options.conversationContents
+      : [{ role: 'user', parts }];
 
   return {
     ...(options.systemInstruction ? { systemInstruction: { parts: [{ text: options.systemInstruction }] } } : {}),
-    contents: [{ role: 'user', parts }],
+    contents,
     generationConfig: {
       temperature: options.temperature,
       responseMimeType: 'application/json',
@@ -137,7 +138,46 @@ function extractRestText(rest: unknown): string {
     .trim();
 }
 
-/** Llama al proxy serverless /api/gemini recorriendo la cadena de modelos en cascada. */
+/** Bucle estricto de rotación Multi-Key ante cuota agotada (429 / RESOURCE_EXHAUSTED). */
+async function executeWithKeyRotation(
+  runWithKey: (
+    apiKey: string,
+    keyIdx: number,
+  ) => Promise<{ ok: true; text: string } | { ok: false; rateLimited: boolean; err: Error }>,
+): Promise<string> {
+  if (API_KEY_POOL.length === 0) throw new Error(AI_BUSY_FRIENDLY_MSG);
+  let lastErr = new Error(AI_BUSY_FRIENDLY_MSG);
+
+  for (let attempt = 0; attempt < API_KEY_POOL.length; attempt += 1) {
+    const idx = activeKeyIndex % API_KEY_POOL.length;
+    const apiKey = API_KEY_POOL[idx];
+    try {
+      const outcome = await runWithKey(apiKey, idx);
+      if (outcome.ok) return outcome.text;
+      lastErr = outcome.err;
+      if (outcome.rateLimited && API_KEY_POOL.length > 1) {
+        console.warn(`[Impulso IA] Llave #${idx + 1} agotada (${outcome.err.message}), rotando...`);
+        activeKeyIndex = (idx + 1) % API_KEY_POOL.length;
+        continue;
+      }
+      if (!outcome.rateLimited) {
+        throw outcome.err;
+      }
+      activeKeyIndex = (idx + 1) % API_KEY_POOL.length;
+    } catch (err) {
+      lastErr = err instanceof Error ? err : new Error(AI_BUSY_FRIENDLY_MSG);
+      if (isRateLimitError(undefined, err) && API_KEY_POOL.length > 1) {
+        console.warn(`[Impulso IA] Llave #${idx + 1} agotada (${lastErr.message}), rotando...`);
+        activeKeyIndex = (idx + 1) % API_KEY_POOL.length;
+        continue;
+      }
+      throw lastErr;
+    }
+  }
+  throw lastErr;
+}
+
+/** Llama al proxy serverless /api/gemini recorriendo modelos activos. */
 async function callProxy(options: GeminiCallOptions): Promise<string> {
   let lastErr: Error = new Error(AI_BUSY_FRIENDLY_MSG);
   for (const model of getCascadeModels(options)) {
@@ -146,7 +186,7 @@ async function callProxy(options: GeminiCallOptions): Promise<string> {
       res = await fetch('/api/gemini', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model, payload: buildPayload(options, model) }),
+        body: JSON.stringify({ model, payload: buildPayload(options) }),
       });
     } catch {
       lastErr = new Error(AI_BUSY_FRIENDLY_MSG);
@@ -154,7 +194,7 @@ async function callProxy(options: GeminiCallOptions): Promise<string> {
     }
     const rest: unknown = await res.json().catch(() => null);
     if (!res.ok) {
-      console.warn(`[Impulso IA Proxy] Modelo ${model} respondió HTTP ${res.status}; intentando respaldo…`);
+      console.warn(`[Impulso IA Proxy] Modelo ${model} respondió HTTP ${res.status}; intentando siguiente modelo…`);
       lastErr = new Error(AI_BUSY_FRIENDLY_MSG);
       continue;
     }
@@ -168,84 +208,82 @@ async function callProxy(options: GeminiCallOptions): Promise<string> {
   throw lastErr;
 }
 
-/** Llamada directa con el SDK recorriendo la cadena de modelos y rotando llaves ante HTTP 429. */
+/** Llamada directa con el SDK usando el bucle estricto de rotación Multi-Key. */
 async function callSdk(options: GeminiCallOptions): Promise<string> {
-  if (API_KEY_POOL.length === 0) throw new Error(AI_BUSY_FRIENDLY_MSG);
-  let lastErr: Error = new Error(AI_BUSY_FRIENDLY_MSG);
-  for (const model of getCascadeModels(options)) {
-    for (let attempt = 0; attempt < API_KEY_POOL.length; attempt += 1) {
-      const currentKey = API_KEY_POOL[activeKeyIndex % API_KEY_POOL.length];
+  return executeWithKeyRotation(async (apiKey) => {
+    let lastModelErr = new Error(AI_BUSY_FRIENDLY_MSG);
+    for (const model of getCascadeModels(options)) {
       try {
-        const sdk = new GoogleGenerativeAI(currentKey);
+        const sdk = new GoogleGenerativeAI(apiKey);
         const sdkModel = sdk.getGenerativeModel({ model });
-        const { response } = await sdkModel.generateContent(buildPayload(options, model) as unknown as SdkRequest);
+        const { response } = await sdkModel.generateContent(buildPayload(options) as unknown as SdkRequest);
         const text = response.text().trim();
-        if (text) return text;
-        break;
+        if (text) return { ok: true, text };
       } catch (err) {
-        lastErr = new Error(AI_BUSY_FRIENDLY_MSG);
-        if (isRateLimitError(undefined, err) && API_KEY_POOL.length > 1) {
-          console.warn(`[Impulso IA SDK] Cuota 429 en llave #${activeKeyIndex + 1}; rotando llave…`);
-          rotateApiKey();
-          continue;
+        if (isRateLimitError(undefined, err)) {
+          return {
+            ok: false,
+            rateLimited: true,
+            err: err instanceof Error ? err : new Error('429 RESOURCE_EXHAUSTED'),
+          };
         }
-        console.warn(`[Impulso IA SDK] Modelo ${model} no disponible:`, err);
-        break;
+        console.warn(`[Impulso IA SDK] Modelo ${model} falló:`, err);
+        lastModelErr = err instanceof Error ? err : new Error(AI_BUSY_FRIENDLY_MSG);
       }
     }
-  }
-  throw lastErr;
+    return { ok: false, rateLimited: false, err: lastModelErr };
+  });
 }
 
-/** Llamada directa REST a Gemini recorriendo modelos y rotando múltiples claves API ante HTTP 429. */
+/** Llamada directa REST a Gemini usando el bucle estricto de rotación Multi-Key. */
 async function callDirect(options: GeminiCallOptions): Promise<string> {
-  if (API_KEY_POOL.length === 0) throw new Error(AI_BUSY_FRIENDLY_MSG);
-  let lastErr: Error = new Error(AI_BUSY_FRIENDLY_MSG);
-  for (const model of getCascadeModels(options)) {
-    for (let attempt = 0; attempt < API_KEY_POOL.length; attempt += 1) {
-      const key = API_KEY_POOL[activeKeyIndex % API_KEY_POOL.length];
+  return executeWithKeyRotation(async (apiKey) => {
+    let lastModelErr = new Error(AI_BUSY_FRIENDLY_MSG);
+    for (const model of getCascadeModels(options)) {
       let res: Response;
       try {
         res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(buildPayload(options, model)),
+            body: JSON.stringify(buildPayload(options)),
           },
         );
-      } catch {
-        lastErr = new Error(AI_BUSY_FRIENDLY_MSG);
-        break;
+      } catch (netErr) {
+        lastModelErr = netErr instanceof Error ? netErr : new Error(AI_BUSY_FRIENDLY_MSG);
+        continue;
       }
       const rest: unknown = await res.json().catch(() => null);
       if (!res.ok) {
-        lastErr = new Error(AI_BUSY_FRIENDLY_MSG);
-        if (isRateLimitError(res.status) && API_KEY_POOL.length > 1) {
-          console.warn(`[Impulso IA REST] HTTP 429 en llave #${activeKeyIndex + 1} (${model}); rotando a siguiente llave…`);
-          rotateApiKey();
-          continue;
+        if (isRateLimitError(res.status, rest)) {
+          return {
+            ok: false,
+            rateLimited: true,
+            err: new Error(`HTTP ${res.status} RESOURCE_EXHAUSTED`),
+          };
         }
         console.warn(`[Impulso IA REST] Modelo ${model} respondió HTTP ${res.status}; intentando respaldo…`);
-        break;
+        lastModelErr = new Error(AI_BUSY_FRIENDLY_MSG);
+        continue;
       }
       const text = extractRestText(rest);
       if (!text) {
-        lastErr = new Error(AI_BUSY_FRIENDLY_MSG);
-        break;
+        lastModelErr = new Error(AI_BUSY_FRIENDLY_MSG);
+        continue;
       }
-      return text;
+      return { ok: true, text };
     }
-  }
-  throw lastErr;
+    return { ok: false, rateLimited: false, err: lastModelErr };
+  });
 }
 
 /**
  * Wrapper unificado de llamada a Gemini con respaldo en cascada multinivel:
- * 1) Proxy /api/gemini (rotación multi-key + cascada de modelos en servidor).
- * 2) REST directo con rotación multi-key en navegador.
- * 3) SDK local con rotación multi-key.
- * Oculta errores crudos de API al usuario final.
+ * 1) Proxy /api/gemini (rotación multi-key en Vercel + modelos activos).
+ * 2) REST directo con rotación multi-key circular.
+ * 3) SDK local con rotación multi-key circular.
+ * Solo tras agotar llaves y rutas emite AI_BUSY_FRIENDLY_MSG.
  */
 async function callGemini(options: GeminiCallOptions): Promise<string> {
   try {
@@ -793,6 +831,7 @@ const INDUSTRY_IDS: IndustryType[] = [
 ];
 
 const THEME_IDS = ['wood', 'marble', 'cyber', 'kraft', 'ember', 'emerald', 'obsidian', 'clinic', 'terracotta', 'pop', 'aurora', 'slate', 'arena', 'vino', 'oceano', 'carbon'] as const;
+const TYPOGRAPHY_PAIR_IDS = ['impacto', 'lujo', 'tech', 'anton', 'gruesa', 'marcador', 'suiza', 'pop'] as const;
 const LAYOUT_IDS = [
   'bento', 'magazine', 'diagonal', 'polaroid', 'arc', 'portal', 'swiss', 'split',
   'brutal', 'vip', 'cyber', 'rustic', 'retail', 'eco', 'cinema', 'float',
@@ -842,6 +881,8 @@ export interface ArtDirection {
   industryType: IndustryType;
   themeId: string;
   layoutId: string;
+  /** Par tipográfico editorial elegido por la IA (rotación obligatoria). */
+  typographyPair: string;
   /** Nombre comercial deducido del brief por la IA. */
   brandName: string;
   /** Título del servicio/producto estrella deducido del brief. */
@@ -908,9 +949,10 @@ export interface CampaignInput {
   targetUrl: string;
   /** Categoría del comercio registrado (ayuda a la PASADA 1 a clasificar). */
   categoryHint?: string;
-  /** Tema/layout de la generación anterior: la IA debe variarlos SIEMPRE. */
+  /** Tema/layout/tipografía de la generación anterior: la IA debe variarlos SIEMPRE. */
   previousThemeId?: string;
   previousLayoutId?: string;
+  previousFontId?: string;
 }
 
 /** Normaliza espacios: NUNCA dos palabras pegadas, NUNCA bordes sucios. */
@@ -1043,12 +1085,13 @@ Analizarás el brief y definirás la ESTRATEGIA VISUAL y COMERCIAL. Devuelve ÚN
  "product_title": "título del servicio o producto estrella DEDUCIDO del brief (máx 6 palabras, reescrito con vocabulario de agencia, no literal)",
  "category_label": "rubro/categoría COMERCIAL y VISIBLE del afiche en español (2 a 5 palabras, específico del giro, ej: 'Marketing Digital & Ventas', 'Comida Rápida Casera', 'Odontología Moderna', 'Insumos Agropecuarios'). PROHIBIDO genéricos tipo 'Servicios' o 'Comercio'",
  "dynamic_tagline": "tagline o sello superior CORTO en MAYÚSCULAS (2 a 4 palabras, SIN emojis) que resuma la esencia o ventaja única del brief (ej: 'VENTAS QUE ESCALAN', 'SABOR DE LA REGIÓN', 'DESPACHO EN MINUTOS'). PROHIBIDO clichés genéricos como 'CRECE CON EXPERTOS' o 'CALIDAD GARANTIZADA'",
- "theme_id": uno de [wood, marble, cyber, kraft, ember, emerald, obsidian, clinic, terracotta, pop, aurora, slate, arena, vino, oceano, carbon]. Varía entre las 4 familias estéticas (Neón Cyber: cyber/aurora/oceano; Editorial Minimalista: marble/clinic/slate/arena; Rústico Gourmet: wood/kraft/ember/terracotta/emerald; Lujo Dorado: obsidian/vino/pop) según el brief y NUNCA repitas el anterior.
- "layout_id": uno de [bento, magazine, diagonal, polaroid, arc, portal, swiss, split, brutal, vip, cyber, rustic, retail, eco, cinema, float, hud, resort, menu, clinic, agro, diamond, flash, bento3d, diagx, orbits, bleed, zen, immersive, collage]. Prioriza composiciones orgánicas y asimétricas (immersive, collage, diagx, orbits, bleed, magazine, float, bento3d, zen, diamond, diagonal, split, portal) y NUNCA repitas el anterior.
+ "theme_id": uno de [wood, marble, cyber, kraft, ember, emerald, obsidian, clinic, terracotta, pop, aurora, slate, arena, vino, oceano, carbon]. Varía libremente entre paletas y NUNCA repitas la anterior.
+ "layout_id": uno de [bento, magazine, diagonal, polaroid, arc, portal, swiss, split, brutal, vip, cyber, rustic, retail, eco, cinema, float, hud, resort, menu, clinic, agro, diamond, flash, bento3d, diagx, orbits, bleed, zen, immersive, collage]. No repitas la arquitectura del diseño anterior. Elige una de las 30 disponibles al azar.
+ "typography_pair": uno de [impacto, lujo, tech, anton, gruesa, marcador, suiza, pop]. Elige un par tipográfico DISTINTO al anterior en cada generación.
  "value_proposition": "la promesa comercial de alto calibre del negocio: transforma la idea básica del brief en un beneficio concreto, específico y creíble. PROHIBIDO copiar frases literales del brief: reescríbelas con vocabulario de agencia senior",
  "image_prompt_en": "hyper-detailed commercial editorial photography prompt IN ENGLISH of EXACTLY what the brief describes (its real products, workspace or service in action): subject, environment, cinematic 8k lighting setup, lens and mood. The image must NEVER contain text, logos or watermarks"
 }
-En el prompt recibirás además una SEMILLA CREATIVA y el tema/layout de la generación ANTERIOR: usa un ángulo creativo fresco y NUNCA repitas ese tema ni ese layout.`;
+En el prompt recibirás además una SEMILLA ALEATORIA ('randomSeed') y los valores de la generación ANTERIOR ('theme_id', 'layout_id', 'typography_pair'): es OBLIGATORIO elegir valores completamente distintos en los tres campos.`;
 
 const ART_SCHEMA: Record<string, unknown> = {
   type: SchemaType.OBJECT,
@@ -1060,10 +1103,11 @@ const ART_SCHEMA: Record<string, unknown> = {
     dynamic_tagline: { type: SchemaType.STRING },
     theme_id: { type: SchemaType.STRING, format: 'enum', enum: [...THEME_IDS] },
     layout_id: { type: SchemaType.STRING, format: 'enum', enum: [...LAYOUT_IDS] },
+    typography_pair: { type: SchemaType.STRING, format: 'enum', enum: [...TYPOGRAPHY_PAIR_IDS] },
     value_proposition: { type: SchemaType.STRING },
     image_prompt_en: { type: SchemaType.STRING },
   },
-  required: ['industry_type', 'brand_name', 'product_title', 'category_label', 'dynamic_tagline', 'theme_id', 'layout_id', 'value_proposition', 'image_prompt_en'],
+  required: ['industry_type', 'brand_name', 'product_title', 'category_label', 'dynamic_tagline', 'theme_id', 'layout_id', 'typography_pair', 'value_proposition', 'image_prompt_en'],
 };
 
 /** Nombres de marca de reserva por rubro (solo si la IA omite brand_name). */
@@ -1106,15 +1150,13 @@ const CREATIVE_ANGLES = [
 export async function generateArtDirection(input: CampaignInput): Promise<ArtDirection> {
   const angle = CREATIVE_ANGLES[Math.floor(Math.random() * CREATIVE_ANGLES.length)];
   const focusRule = FOCUS_DIRECTIVES[input.focus];
-  const seedLine = `SEMILLA CREATIVA #${Math.floor(Math.random() * 9000 + 1000)} · ÁNGULO OBLIGATORIO: ${angle}. Usa una metáfora, un titular y una composición totalmente nuevas.`;
-  const avoidLine =
-    input.previousThemeId || input.previousLayoutId
-      ? `La generación ANTERIOR usó tema "${input.previousThemeId ?? '—'}" y layout "${input.previousLayoutId ?? '—'}": ELIGE tema y layout DIFERENTES esta vez.`
-      : '';
+  const randomSeed = Math.floor(Math.random() * 900000 + 100000);
+  const seedLine = `randomSeed=${randomSeed} · ÁNGULO OBLIGATORIO: ${angle}. No repitas la arquitectura del diseño anterior. Elige una de las 30 disponibles al azar.`;
+  const avoidLine = `Generación ANTERIOR: theme_id="${input.previousThemeId ?? '—'}", layout_id="${input.previousLayoutId ?? '—'}", typography_pair="${input.previousFontId ?? '—'}". Devuelve theme_id, layout_id y typography_pair DIFERENTES obligatoriamente.`;
   const jsonText = await callGemini({
     systemInstruction: ART_SYSTEM_PROMPT,
     prompt: [campaignFacts(input), focusRule.prompt, seedLine, avoidLine].filter(Boolean).join('\n\n'),
-    temperature: 0.85,
+    temperature: 0.95,
     responseSchema: ART_SCHEMA,
   });
   let raw: Record<string, unknown>;
@@ -1126,6 +1168,14 @@ export async function generateArtDirection(input: CampaignInput): Promise<ArtDir
   const industry: IndustryType = INDUSTRY_IDS.includes(raw.industry_type as IndustryType)
     ? (raw.industry_type as IndustryType)
     : industryFromHint(input.categoryHint);
+
+  const pickNonRepeating = (candidate: unknown, pool: readonly string[], prev?: string, fallback?: string): string => {
+    const valid = typeof candidate === 'string' && pool.includes(candidate) ? candidate : '';
+    if (valid && valid !== prev) return valid;
+    const altPool = pool.filter((x) => x !== prev);
+    return altPool[Math.floor(Math.random() * altPool.length)] ?? fallback ?? pool[0];
+  };
+
   const art: ArtDirection = {
     industryType: industry,
     brandName: normSpaces(raw.brand_name) || input.businessName.trim() || INDUSTRY_NAMES[industry],
@@ -1135,12 +1185,9 @@ export async function generateArtDirection(input: CampaignInput): Promise<ArtDir
       stripPictographics(normSpaces(raw.dynamic_tagline)).toUpperCase() ||
       normSpaces(raw.category_label).toUpperCase() ||
       INDUSTRY_CATEGORY_LABELS[industry].toUpperCase(),
-    themeId: THEME_IDS.includes(raw.theme_id as (typeof THEME_IDS)[number])
-      ? (raw.theme_id as string)
-      : INDUSTRY_ART[industry].themeId,
-    layoutId: LAYOUT_IDS.includes(raw.layout_id as (typeof LAYOUT_IDS)[number])
-      ? (raw.layout_id as string)
-      : INDUSTRY_ART[industry].layoutId,
+    themeId: pickNonRepeating(raw.theme_id, THEME_IDS, input.previousThemeId, INDUSTRY_ART[industry].themeId),
+    layoutId: pickNonRepeating(raw.layout_id, LAYOUT_IDS, input.previousLayoutId, INDUSTRY_ART[industry].layoutId),
+    typographyPair: pickNonRepeating(raw.typography_pair, TYPOGRAPHY_PAIR_IDS, input.previousFontId, TYPOGRAPHY_PAIR_IDS[0]),
     valueProposition: normSpaces(raw.value_proposition),
     imagePromptEn:
       normSpaces(raw.image_prompt_en) || INDUSTRY_PHOTO_PROMPTS[industry],
@@ -1785,23 +1832,18 @@ function detectNiche(brief: string, categoryHint?: string): Niche {
  */
 export function synthesizeArtDirection(
   input: CampaignInput,
-  opts?: { previousThemeId?: string; previousLayoutId?: string; seed?: number },
+  opts?: { previousThemeId?: string; previousLayoutId?: string; previousFontId?: string; seed?: number },
 ): ArtDirection {
   const seed = opts?.seed ?? Math.floor(Math.random() * 100000);
   const niche = detectNiche(`${input.brief} ${input.slogan} ${input.product} ${input.businessName}`, input.categoryHint);
   const industry = niche.industry;
   const focusRule = FOCUS_DIRECTIVES[input.focus] ?? FOCUS_DIRECTIVES.confianza;
 
-  // V32.0 Arquitectura Líquida + Enfoque Psicológico real: rota entre composiciones distintas sin repetir anterior
-  const dynamicLayouts = [
-    'immersive', 'magazine', 'swiss', 'diagonal', 'collage',
-    'diagx', 'orbits', 'bleed', 'float', 'bento3d', 'zen', 'diamond',
-    'split', 'portal', 'hud', 'menu', 'arc', 'polaroid', 'bento',
-  ];
   const preferredThemePool = focusRule.preferredThemes.filter((id) => id !== opts?.previousThemeId);
   const preferredLayoutPool = focusRule.preferredLayouts.filter((id) => id !== opts?.previousLayoutId);
   const candidateThemes = THEME_IDS.filter((id) => id !== opts?.previousThemeId);
-  const candidateLayouts = dynamicLayouts.filter((id) => id !== opts?.previousLayoutId);
+  const candidateLayouts = LAYOUT_IDS.filter((id) => id !== opts?.previousLayoutId);
+  const candidateFonts = TYPOGRAPHY_PAIR_IDS.filter((id) => id !== opts?.previousFontId);
 
   const pickedTheme =
     (seed % 3 !== 0 && preferredThemePool.length > 0
@@ -1811,6 +1853,8 @@ export function synthesizeArtDirection(
     (seed % 2 === 0 && preferredLayoutPool.length > 0
       ? preferredLayoutPool[seed % preferredLayoutPool.length]
       : candidateLayouts[Math.floor(Math.random() * candidateLayouts.length)]) || niche.layout;
+  const pickedFont =
+    candidateFonts[Math.floor(Math.random() * candidateFonts.length)] || TYPOGRAPHY_PAIR_IDS[0];
 
   const dynamicBadge = rotate(focusRule.badges, seed) || stripPictographics(rotate(niche.badges, Math.floor(seed / 11))).toUpperCase();
 
@@ -1822,6 +1866,7 @@ export function synthesizeArtDirection(
     dynamicTagline: dynamicBadge,
     themeId: pickedTheme,
     layoutId: pickedLayout,
+    typographyPair: pickedFont,
     valueProposition: `${focusRule.subPrefix} ${rotate(niche.subs, Math.floor(seed / 3))}`,
     imagePromptEn: INDUSTRY_PHOTO_PROMPTS[industry],
   };
@@ -1935,7 +1980,7 @@ export function synthesizeCampaign(input: CampaignInput, art: ArtDirection): Mar
 /** Conveniencia: dirección de arte + campaña sintética en una sola llamada. */
 export function synthesizeSmartCampaignFromBrief(
   input: CampaignInput,
-  opts?: { previousThemeId?: string; previousLayoutId?: string; seed?: number },
+  opts?: { previousThemeId?: string; previousLayoutId?: string; previousFontId?: string; seed?: number },
 ): { art: ArtDirection; campaign: MarketingCampaign } {
   const art = synthesizeArtDirection(input, opts);
   const campaign = synthesizeCampaign(input, art);
@@ -1984,36 +2029,36 @@ export interface SupportConciergeAssessment {
   aiAnalysis: string;
 }
 
-const SUPPORT_ESCALATION_REPLY =
-  'He detectado una incidencia importante y he creado un ticket de alta prioridad para el administrador. Nuestro equipo ya lo está revisando.';
+const SUPPORT_SYSTEM_PROMPT = `Eres el Conserje experto de la plataforma Impulso (portal colombiano de ofertas locales y publicidad en Cundinamarca). Respondes de forma breve, útil y altamente profesional. Si hay problemas técnicos, ofreces soluciones reales paso a paso. No repitas respuestas enlatadas.
 
-const SUPPORT_SYSTEM_PROMPT = `Eres el conserje experto de Impulso. Responde SIEMPRE de forma concisa, resolutiva y extremadamente educada (trato cordial, humano y respetuoso). Resuelve dudas de uso de la plataforma con pasos claros y breves. Si detectas un error grave o un reporte de fraude, informa al usuario con amabilidad que has creado un ticket de alta prioridad para el administrador.
-Reglas de negocio reales de Impulso (portal colombiano de ofertas locales y publicidad en Cundinamarca):
-- Compradores NO necesitan crear cuenta ni pagar en la app: apartan con nombre y WhatsApp, reciben código y pagan directo al comercio al recibir.
-- Impulso es un portal tecnológico de contacto: no retiene dinero ni interviene en ventas entre terceros.
+Conocimiento operativo real de Impulso:
+- Compradores NO necesitan crear cuenta ni pagar en la app: apartan con nombre y WhatsApp, reciben código único y pagan directo al comercio al recibir.
+- Impulso es un portal de contacto: no retiene dinero ni ejecuta transferencias entre usuarios.
 - Comercios publican ofertas usando créditos (3 gratis al registrarse). Para recargar créditos van a Mi Panel → Recargar créditos (Nequi / Daviplata / Llave / QR oficial del administrador) y suben su comprobante para validación.
-- Acceso con huella/FaceID: primero se vincula en el panel tras iniciar sesión con contraseña; en un equipo nuevo se entra con contraseña primero.
-- GPS: solo se activa cuando el usuario toca Activar GPS; si está apagado el radar funciona igual en el municipio elegido.
+- Acceso biométrico (huella/FaceID): primero se vincula en Mi Panel tras iniciar sesión con contraseña; en un dispositivo nuevo se inicia primero con contraseña.
+- GPS: solo se activa cuando el usuario toca Activar GPS; si está apagado o en modo aproximado, el radar opera igual sobre el municipio elegido.
 
-Analiza el mensaje del usuario y el historial. Responde ÚNICAMENTE con este JSON:
+Lee TODO el historial de conversación de forma natural y responde en contexto como un asistente humano experto. Devuelve ÚNICAMENTE este JSON válido:
 {
   "is_technical_issue": true|false,
   "severity": "low"|"medium"|"high"|"critical",
   "category": "usage"|"technical"|"bug"|"billing"|"abuse",
-  "summary": "resumen corto (máx 120 caracteres)",
-  "ai_analysis": "diagnóstico breve para el equipo técnico (máx 300 caracteres)",
-  "reply": "respuesta empática, clara y concisa en español para el usuario"
+  "summary": "resumen corto del tema actual (máx 120 caracteres)",
+  "ai_analysis": "diagnóstico breve para el administrador si aplica (máx 300 caracteres)",
+  "reply": "respuesta conversacional única, breve, resolutiva y empática adaptada exactamente a lo que dijo el usuario"
 }
 Reglas estrictas:
-- Si es una duda de uso normal ("¿cómo recargo créditos?", "¿cómo aparto?", "¿cómo cambio municipio?", "¿cómo activo mi huella?"), pon "is_technical_issue": false y responde con pasos claros.
-- Si reporta un fallo técnico, pantalla en blanco, cobro no reflejado, error al subir pago, fallo de botón o abuso/estafa, pon "is_technical_issue": true, asigna severidad real ("high" o "critical" para cobros o bloqueos) y en "reply" inicia exactamente con: "${SUPPORT_ESCALATION_REPLY}".
-- Jamás menciones detalles técnicos internos como SHA-256, claves API o nombres de modelos.`;
+- NUNCA devuelvas la misma frase genérica ni ignores preguntas de seguimiento: contesta directamente lo último que escribió el usuario considerando los mensajes previos.
+- Si reporta fallo técnico grave, cobro no reflejado o fraude, pon "is_technical_issue": true, asigna severidad "high" o "critical", ofrécele una solución o verificación concreta en "reply" y aclárale amablemente que además registraste un ticket prioritario para el administrador.
+- Jamás menciones detalles internos como SHA-256, claves API o nombres de modelos.`;
 
 function synthesizeLocalSupportFallback(
   message: string,
   userRole: 'client' | 'merchant' | 'admin',
+  turnCount: number,
 ): SupportConciergeAssessment {
   const m = message.toLowerCase();
+  const isFollowUp = turnCount > 2;
   const looksTechnical =
     /error|no\s+(funciona|carga|abre|sirve|deja|llega)|fall[ao]|bug|roto|blanco|congel|bloque|duplicad|cobr[oó]|descont[oó]|no\s+se\s+reflej|problema\s+t[eé]cnico|estafa|fraude/i.test(
       m,
@@ -2026,44 +2071,10 @@ function synthesizeLocalSupportFallback(
       severity: isBillingOrCritical ? 'high' : 'medium',
       category: /estafa|fraude/i.test(m) ? 'abuse' : isBillingOrCritical ? 'billing' : 'technical',
       summary: message.trim().slice(0, 120) || 'Reporte técnico del usuario',
-      aiAnalysis: `Incidencia reportada por ${userRole === 'merchant' ? 'comercio' : 'cliente'}: "${message.trim().slice(0, 220)}". Escalada automáticamente por detección de fallo o cobro.`,
-      reply: SUPPORT_ESCALATION_REPLY,
-    };
-  }
-
-  if (/cr[eé]dit|recarg|nequi|daviplata|pagar|plan/i.test(m)) {
-    return {
-      isTechnicalIssue: false,
-      severity: 'low',
-      category: 'usage',
-      summary: 'Consulta sobre recarga de créditos',
-      aiAnalysis: 'Duda de uso resuelta automáticamente sobre recarga de créditos.',
-      reply:
-        'Para recargar créditos entra a Mi Panel → "Recargar créditos por Nequi", elige tu paquete, transfiere al Nequi/Llave o QR oficial del administrador y sube tu comprobante para validación rápida.',
-    };
-  }
-
-  if (/apart|reserv|compr|c[oó]digo|recog/i.test(m)) {
-    return {
-      isTechnicalIssue: false,
-      severity: 'low',
-      category: 'usage',
-      summary: 'Consulta sobre cómo apartar ofertas',
-      aiAnalysis: 'Duda de uso resuelta sobre el flujo de apartado sin registro.',
-      reply:
-        'No necesitas crear cuenta para aprovechar una oferta: toca la tarjeta que te guste → "Apartar el mío YA", escribe tu nombre y WhatsApp y recibirás tu código único para pagar directo al comercio al recoger.',
-    };
-  }
-
-  if (/huella|faceid|biometr|contrase/i.test(m)) {
-    return {
-      isTechnicalIssue: false,
-      severity: 'low',
-      category: 'usage',
-      summary: 'Consulta sobre acceso biométrico',
-      aiAnalysis: 'Duda de uso sobre biometría en dispositivo nuevo.',
-      reply:
-        'En un dispositivo nuevo inicia sesión primero con tu correo y contraseña; luego, desde Mi Panel, podrás vincular tu huella o FaceID para entrar con un toque.',
+      aiAnalysis: `Incidencia reportada por ${userRole === 'merchant' ? 'comercio' : 'cliente'}: "${message.trim().slice(0, 220)}".`,
+      reply: isBillingOrCritical
+        ? 'Lamento mucho este inconveniente con tu pago o seguridad. Ya creé un ticket prioritario para el administrador. Mientras lo verifican, revisa si el comprobante corresponde exactamente al número Nequi oficial o comparte el número de referencia para agilizarlo.'
+        : 'Gracias por reportarlo. Ya registré un ticket prioritario para revisar el fallo; mientras tanto prueba recargar la página o cerrar y volver a abrir el módulo donde ocurrió.',
     };
   }
 
@@ -2071,36 +2082,50 @@ function synthesizeLocalSupportFallback(
     isTechnicalIssue: false,
     severity: 'low',
     category: 'usage',
-    summary: 'Consulta general en plataforma',
-    aiAnalysis: 'Consulta general atendida por el Conserje de Impulso.',
-    reply:
-      userRole === 'merchant'
-        ? '¡Hola! Puedo ayudarte con publicación de ofertas, recarga de créditos por Nequi/QR, reservas de clientes o cualquier falla que estés viendo. Cuéntame exactamente qué necesitas.'
-        : '¡Hola! Puedo orientarte para apartar ofertas sin registro, usar el mapa cercano o reportar algún inconveniente técnico. ¿En qué te ayudo hoy?',
+    summary: message.trim().slice(0, 120) || 'Consulta en plataforma',
+    aiAnalysis: 'Consulta atendida por Conserje.',
+    reply: isFollowUp
+      ? `Sobre "${message.trim().slice(0, 60)}": en este momento la red de asistencia está ocupada, así que cuéntame exactamente en qué pantalla te encuentras (Radar, Apartados o Mi Panel) para guiarte paso a paso.`
+      : userRole === 'merchant'
+        ? `Respecto a "${message.trim().slice(0, 60)}": desde Mi Panel puedes gestionar publicaciones, recargas por Nequi y pedidos. ¿En qué paso específico te detuviste?`
+        : `Sobre "${message.trim().slice(0, 60)}": puedes explorar ofertas por municipio, apartar con tu WhatsApp y revisar tus códigos en Apartados. ¿Qué detalle necesitas resolver?`,
   };
 }
 
 /**
- * 🤖 El Conserje de Impulso (V30): analiza dudas y fallas en tiempo real
- * mediante la cascada de modelos IA y clasifica tickets para el Administrador.
+ * 🤖 El Conserje de Impulso (V34): agente conversacional real con memoria multi-turno.
+ * Envía el historial completo en `conversationContents` para mantener contexto natural.
  */
 export async function askSupportConcierge(input: {
-  history: Array<{ role: 'user' | 'assistant'; text: string }>;
-  latestMessage: string;
+  history: Array<{ role: 'user' | 'assistant'; content: string }>;
+  latestMessage?: string;
   userRole: 'client' | 'merchant' | 'admin';
   municipality: string;
 }): Promise<SupportConciergeAssessment> {
-  const cleanMsg = input.latestMessage.trim();
-  const transcriptText = input.history
-    .slice(-8)
-    .map((m) => `${m.role === 'user' ? 'Usuario' : 'Conserje'}: ${m.text}`)
-    .join('\n');
+  const cleanMsg =
+    (input.latestMessage ?? input.history[input.history.length - 1]?.content ?? '').trim();
+  const recentTurns = input.history.slice(-12);
+
+  const conversationContents: GeminiConversationTurn[] = recentTurns.map((m, idx) => {
+    const isLastUser = idx === recentTurns.length - 1 && m.role === 'user';
+    return {
+      role: m.role === 'assistant' ? 'model' : 'user',
+      parts: [
+        {
+          text: isLastUser
+            ? `[Contexto: usuario=${input.userRole}, municipio=${input.municipality}]\n${m.content}`
+            : m.content,
+        },
+      ],
+    };
+  });
 
   try {
     const raw = await callGemini({
       systemInstruction: SUPPORT_SYSTEM_PROMPT,
-      prompt: `Contexto: rol=${input.userRole}, municipio=${input.municipality}\nHistorial reciente:\n${transcriptText || '(inicio de conversación)'}\n\nÚltimo mensaje del usuario: """${cleanMsg}"""`,
-      temperature: 0.25,
+      prompt: cleanMsg,
+      conversationContents,
+      temperature: 0.45,
     });
 
     interface ParsedSupport {
@@ -2131,17 +2156,18 @@ export async function askSupportConcierge(input: {
           ? 'technical'
           : 'usage';
 
+    const dynamicReply = (parsed.reply ?? '').trim();
     return {
       isTechnicalIssue: isTechnical,
       severity,
       category,
       summary: (parsed.summary ?? cleanMsg).trim().slice(0, 200) || 'Solicitud de soporte',
       aiAnalysis: (parsed.ai_analysis ?? cleanMsg).trim().slice(0, 600) || 'Clasificado por Conserje de Soporte',
-      reply: isTechnical
-        ? SUPPORT_ESCALATION_REPLY
-        : (parsed.reply ?? '').trim() || synthesizeLocalSupportFallback(cleanMsg, input.userRole).reply,
+      reply:
+        dynamicReply ||
+        synthesizeLocalSupportFallback(cleanMsg, input.userRole, recentTurns.length).reply,
     };
   } catch {
-    return synthesizeLocalSupportFallback(cleanMsg, input.userRole);
+    return synthesizeLocalSupportFallback(cleanMsg, input.userRole, recentTurns.length);
   }
 }

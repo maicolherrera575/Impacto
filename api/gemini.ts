@@ -14,13 +14,17 @@
  */
 
 const ALLOWED_MODELS = new Set([
-  'gemini-1.5-pro-latest',
-  'gemini-1.5-flash-latest',
-  'gemini-1.0-pro',
+  'gemini-3.8-flash',
+  'gemini-3.5-flash',
+  'gemini-3.5-flash-lite',
   'gemini-2.5-flash',
   'gemini-2.5-flash-lite',
+  'gemini-2.5-pro',
   'gemini-2.0-flash',
+  'gemini-1.5-pro-latest',
+  'gemini-1.5-flash-latest',
   'gemini-1.5-flash',
+  'gemini-1.0-pro',
 ]);
 
 /** ~2.5 MB: sobrado para una oferta y miniaturas de comprobante de ~35 KB. */
@@ -160,6 +164,13 @@ export default async function handler(req: VercelLikeRequest, res: VercelLikeRes
     return;
   }
 
+function isUpstreamQuotaOrKeyIssue(status: number, json: unknown): boolean {
+  if (status === 429) return true;
+  const errObj = (json as { error?: { status?: string; message?: string; code?: number } } | null)?.error;
+  const msg = `${errObj?.status ?? ''} ${errObj?.message ?? ''}`;
+  return /\b429\b|RESOURCE_EXHAUSTED|Too Many Requests|rate[_\s-]*limit|quota|exceeded/i.test(msg);
+}
+
   try {
     let lastStatus = 502;
     let lastJson: unknown = { error: { message: 'No se pudo contactar la IA en este momento. Intenta de nuevo.' } };
@@ -175,7 +186,8 @@ export default async function handler(req: VercelLikeRequest, res: VercelLikeRes
       const json: unknown = await upstream.json().catch(() => ({ error: { message: 'Respuesta ilegible de la IA' } }));
       lastStatus = upstream.status;
       lastJson = json;
-      if (upstream.status === 429 && keyPool.length > 1) {
+      if (isUpstreamQuotaOrKeyIssue(upstream.status, json) && keyPool.length > 1) {
+        console.warn(`[Impulso Proxy IA] Llave #${idx + 1} agotada (HTTP ${upstream.status}), rotando...`);
         activeServerKeyIndex = (idx + 1) % keyPool.length;
         continue;
       }

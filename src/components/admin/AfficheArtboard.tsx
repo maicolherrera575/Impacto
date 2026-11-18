@@ -489,15 +489,15 @@ function Headline({
 }) {
   const typo = AFFICHE_TYPOS.find((x) => x.id === styleId) ?? AFFICHE_TYPOS[0];
   const eff = typo.effect;
-  const computedSize = size * 1.12 * typo.opticalBoost * scale * s;
+  const computedSize = size * 1.18 * typo.opticalBoost * scale * s;
   const isLight = Boolean(t.light);
   const readableAccent2 = ensureReadableAccent(t.accent2, isLight);
   const baseInk = color ?? (isLight ? t.text : '#ffffff');
   const shadowColor = longShadow
-    ? `0 6px 18px rgba(0,0,0,0.95), 0 ${14 * s}px ${36 * s}px rgba(0,0,0,0.88), 0 0 ${26 * s}px ${readableAccent2}4d`
+    ? `0 10px 26px rgba(0,0,0,0.95), 0 ${18 * s}px ${42 * s}px rgba(0,0,0,0.90), 0 0 ${26 * s}px ${readableAccent2}4d`
     : isLight && !color
       ? '0 2px 10px rgba(255,255,255,0.45)'
-      : '0 6px 18px rgba(0,0,0,0.95), 0 14px 34px rgba(0,0,0,0.85)';
+      : '0 8px 22px rgba(0,0,0,0.95), 0 16px 38px rgba(0,0,0,0.88)';
 
   const base: CSSProperties = {
     margin: 0,
@@ -511,7 +511,7 @@ function Headline({
     letterSpacing: -1.1 * s,
     color: baseInk,
     textShadow: shadowColor,
-    filter: longShadow ? 'drop-shadow(0 25px 25px rgba(0,0,0,0.75))' : undefined,
+    filter: longShadow ? 'drop-shadow(0 25px 25px rgba(0,0,0,0.85))' : undefined,
   };
 
   const highlight = (): ReactElement => {
@@ -692,7 +692,6 @@ function BenefitsShowcase({
   mode: ResolvedBenefitMode;
   align?: 'center' | 'left';
 }) {
-  const g = glass(t);
   const cleanItems = items.slice(0, 3).map((b) => splitBenefit(b).body).filter(Boolean);
   if (cleanItems.length === 0) return null;
 
@@ -700,7 +699,7 @@ function BenefitsShowcase({
     return (
       <div style={{ display: 'flex', alignItems: 'stretch', justifyContent: 'center', gap: 9 * s, flexShrink: 0 }}>
         {cleanItems.map((body, i) => {
-          const offsetY = i === 1 ? -4 * s : 3 * s;
+          const offsetY = i === 1 ? -3 * s : 2 * s;
           return (
             <div
               key={i}
@@ -708,20 +707,22 @@ function BenefitsShowcase({
                 flex: 1,
                 minWidth: 0,
                 transform: `translateY(${offsetY}px)`,
-                ...g.card,
-                borderRadius: 22 * s,
-                padding: `${10 * s}px ${9 * s}px`,
+                background: 'rgba(255, 255, 255, 0.08)',
+                backdropFilter: 'blur(14px)',
+                border: '1px solid rgba(255, 255, 255, 0.16)',
+                borderRadius: 20 * s,
+                padding: `${9 * s}px ${8 * s}px`,
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
                 textAlign: 'center',
-                gap: 6 * s,
+                gap: 5 * s,
               }}
             >
               <span
                 style={{
-                  width: 34 * s,
-                  height: 34 * s,
+                  width: 30 * s,
+                  height: 30 * s,
                   borderRadius: '50%',
                   background: `linear-gradient(145deg, ${t.accent}, ${t.accent2})`,
                   boxShadow: `0 6px 18px ${t.accent}55`,
@@ -731,14 +732,15 @@ function BenefitsShowcase({
                   flexShrink: 0,
                 }}
               >
-                <GlyphIcon kind={i} size={16 * s} color={contrastTextOn(t.accent, t.accent2)} />
+                <GlyphIcon kind={i} size={15 * s} color={contrastTextOn(t.accent, t.accent2)} />
               </span>
               <span
                 style={{
-                  fontSize: 12 * s,
+                  fontSize: 11.5 * s,
                   fontWeight: 800,
                   lineHeight: 1.18,
                   color: t.text,
+                  textShadow: '0 2px 8px rgba(0,0,0,0.85)',
                   display: '-webkit-box',
                   WebkitLineClamp: 2,
                   WebkitBoxOrient: 'vertical',
@@ -758,6 +760,11 @@ function BenefitsShowcase({
     const first = cleanItems[0];
     const second = cleanItems[1];
     const third = cleanItems[2];
+    const glassTile: CSSProperties = {
+      background: 'rgba(255, 255, 255, 0.07)',
+      backdropFilter: 'blur(14px)',
+      border: '1px solid rgba(255, 255, 255, 0.16)',
+    };
     return (
       <div
         style={{
@@ -769,7 +776,7 @@ function BenefitsShowcase({
       >
         <div
           style={{
-            ...g.card,
+            ...glassTile,
             borderRadius: 20 * s,
             padding: `${11 * s}px ${13 * s}px`,
             position: 'relative',
@@ -777,7 +784,7 @@ function BenefitsShowcase({
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'space-between',
-            minHeight: 74 * s,
+            minHeight: 70 * s,
           }}
         >
           <span
@@ -789,7 +796,7 @@ function BenefitsShowcase({
               fontSize: 38 * s,
               fontWeight: 900,
               color: t.accent2,
-              opacity: 0.22,
+              opacity: 0.25,
               lineHeight: 1,
             }}
           >
@@ -808,7 +815,7 @@ function BenefitsShowcase({
           >
             <GlyphIcon kind={0} size={13 * s} color={t.accent2} />
           </span>
-          <p style={{ margin: 0, marginTop: 6 * s, fontSize: 14 * s, fontWeight: 900, lineHeight: 1.16, color: t.text }}>
+          <p style={{ margin: 0, marginTop: 6 * s, fontSize: 13.5 * s, fontWeight: 900, lineHeight: 1.16, color: t.text, textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}>
             {first}
           </p>
         </div>
@@ -818,7 +825,7 @@ function BenefitsShowcase({
             {second && (
               <div
                 style={{
-                  ...g.card,
+                  ...glassTile,
                   borderRadius: 16 * s,
                   padding: `${8 * s}px ${11 * s}px`,
                   display: 'flex',
@@ -834,7 +841,7 @@ function BenefitsShowcase({
             {third && (
               <div
                 style={{
-                  ...g.card,
+                  ...glassTile,
                   borderRadius: 16 * s,
                   padding: `${8 * s}px ${11 * s}px`,
                   display: 'flex',
@@ -857,9 +864,7 @@ function BenefitsShowcase({
     return (
       <div
         style={{
-          ...g.card,
-          borderRadius: 20 * s,
-          padding: `${10 * s}px ${13 * s}px`,
+          padding: `${2 * s}px 0`,
           display: 'flex',
           flexDirection: 'column',
           gap: 7 * s,
@@ -879,9 +884,9 @@ function BenefitsShowcase({
           >
             <span
               style={{
-                width: 24 * s,
-                height: 24 * s,
-                borderRadius: 8 * s,
+                width: 22 * s,
+                height: 22 * s,
+                borderRadius: 7 * s,
                 background: `linear-gradient(135deg, ${t.accent}, ${t.accent2})`,
                 display: 'flex',
                 alignItems: 'center',
@@ -890,15 +895,16 @@ function BenefitsShowcase({
                 boxShadow: `0 6px 14px ${t.accent}44`,
               }}
             >
-              <GlyphIcon kind={i} size={13 * s} color={contrastTextOn(t.accent, t.accent2)} />
+              <GlyphIcon kind={i} size={12 * s} color={contrastTextOn(t.accent, t.accent2)} />
             </span>
             <span
               style={{
-                fontSize: 14.5 * s,
+                fontSize: 14 * s,
                 fontWeight: 800,
                 letterSpacing: -0.2 * s,
                 color: t.text,
                 lineHeight: 1.18,
+                textShadow: '0 2px 10px rgba(0,0,0,0.9)',
               }}
             >
               {body}
@@ -948,7 +954,9 @@ function BenefitsShowcase({
             <span
               key={i}
               style={{
-                ...g.card,
+                background: 'rgba(255, 255, 255, 0.08)',
+                backdropFilter: 'blur(14px)',
+                border: '1px solid rgba(255, 255, 255, 0.16)',
                 borderRadius: 999,
                 padding: `${5.5 * s}px ${11 * s}px`,
                 display: 'inline-flex',
@@ -989,7 +997,7 @@ function BenefitsShowcase({
         style={{
           display: 'flex',
           flexDirection: 'column',
-          gap: 6.5 * s,
+          gap: 6 * s,
           flexShrink: 0,
           alignItems: align === 'left' ? 'stretch' : 'center',
         }}
@@ -998,12 +1006,9 @@ function BenefitsShowcase({
           <div
             key={i}
             style={{
-              ...g.card,
-              borderRadius: 14 * s,
-              borderLeft: `3.5px solid ${lineInk}`,
-              padding: `${7 * s}px ${12 * s}px`,
               display: 'inline-flex',
               alignItems: 'center',
+              justifyContent: align === 'left' ? 'flex-start' : 'center',
               gap: 9 * s,
               maxWidth: '100%',
             }}
@@ -1014,7 +1019,7 @@ function BenefitsShowcase({
                 height: 22 * s,
                 borderRadius: 8 * s,
                 background: `${lineInk}26`,
-                border: `1px solid ${lineInk}55`,
+                border: `1px solid ${lineInk}66`,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -1025,11 +1030,12 @@ function BenefitsShowcase({
             </span>
             <span
               style={{
-                fontSize: 12.5 * s,
+                fontSize: 13 * s,
                 fontWeight: 800,
                 color: t.text,
                 letterSpacing: 0.1 * s,
-                lineHeight: 1.18,
+                lineHeight: 1.2,
+                textShadow: '0 2px 10px rgba(0,0,0,0.9)',
               }}
             >
               {body}
@@ -1040,18 +1046,20 @@ function BenefitsShowcase({
     );
   }
 
-  // 'ribbons': Cintas de cristal translúcidas con icono vectorial
+  // 'ribbons': Cintas de cristal minimalistas sobre fotografía
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 * s, justifyContent: align === 'left' ? 'flex-start' : 'center', flexShrink: 0 }}>
       {cleanItems.map((body, i) => (
         <span
           key={i}
           style={{
-            ...g.card,
+            background: 'rgba(255, 255, 255, 0.08)',
+            backdropFilter: 'blur(14px)',
+            border: '1px solid rgba(255, 255, 255, 0.16)',
             borderRadius: 14 * s,
             borderLeft: `3px solid ${i % 2 === 0 ? t.accent2 : t.accent}`,
-            padding: `${7 * s}px ${12 * s}px`,
-            fontSize: 12.5 * s,
+            padding: `${6.5 * s}px ${11 * s}px`,
+            fontSize: 12 * s,
             fontWeight: 800,
             color: t.text,
             display: 'inline-flex',
@@ -1296,15 +1304,15 @@ function Dock({
 
   const dockSurface: CSSProperties = isLight
     ? {
-        background: 'rgba(255, 255, 255, 0.28)',
-        backdropFilter: 'blur(24px) saturate(140%)',
-        border: '1px solid rgba(15, 23, 42, 0.14)',
+        background: 'rgba(255, 255, 255, 0.16)',
+        backdropFilter: 'blur(24px) saturate(145%)',
+        border: '1px solid rgba(255, 255, 255, 0.25)',
         boxShadow: '0 20px 44px -14px rgba(15,23,42,0.16)',
       }
     : {
-        background: 'rgba(255, 255, 255, 0.05)',
+        background: 'rgba(255, 255, 255, 0.10)',
         backdropFilter: 'blur(24px) saturate(145%)',
-        border: '1px solid rgba(255, 255, 255, 0.10)',
+        border: '1px solid rgba(255, 255, 255, 0.20)',
         boxShadow: '0 24px 54px -16px rgba(0,0,0,0.65)',
       };
 
@@ -1689,6 +1697,7 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
     benefitStyle = 'auto',
     dockVariant = 'auto',
     photoUrl2,
+    photoUrl3,
     brandPalette,
     logoUrl,
     qrMode = 'wa',
@@ -1696,6 +1705,7 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
 
   const hs = headlineScale ?? 1.2;
   const photo2 = photoUrl2 ?? photoUrl;
+  const photo3 = photoUrl3 ?? photo2;
   const baseTheme = AFFICHE_THEMES.find((x) => x.id === themeId) ?? AFFICHE_THEMES[1];
   const t = buildBrandTheme(baseTheme, brandPalette);
   const brandColors = brandPalette
@@ -1755,12 +1765,12 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
         <div style={{ position: 'absolute', inset: 0 }}>
           <Photo url={photo2} zoom={photoZoom} posY={photoPosY} />
         </div>
-        {/* Overlay negro estricto al 70% para máximo drama y legibilidad absoluta */}
+        {/* Degradado agresivo Full-Bleed para contraste absoluto */}
         <div
           style={{
             position: 'absolute',
             inset: 0,
-            background: 'rgba(0, 0, 0, 0.70)',
+            background: 'linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.58) 55%, rgba(0,0,0,0.28) 100%)',
           }}
         />
 
@@ -1895,21 +1905,33 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
           height: H,
           flexShrink: 0,
           position: 'relative',
-          background: 'linear-gradient(155deg, #060a14 0%, #0f172a 54%, #080d1a 100%)',
+          background: '#020617',
           color: uiInk,
           fontFamily: boardBodyFont,
           borderRadius: 24 * s,
           overflow: 'hidden',
         }}
       >
-        {/* Capas ambientales sutiles de vidrio esmerilado (sin foto ni fondo blanco plano) */}
+        {/* Fotografía Full-Bleed base + gradiente agresivo */}
+        <div style={{ position: 'absolute', inset: 0 }}>
+          <Photo url={photo3} zoom={photoZoom} posY={photoPosY} />
+        </div>
         <div
           style={{
             position: 'absolute',
             inset: 0,
             background:
-              `radial-gradient(420px 260px at 88% 8%, ${t.accent}33, transparent 62%),` +
-              `radial-gradient(400px 260px at 12% 92%, ${t.accent2}2b, transparent 64%)`,
+              'linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.72) 52%, rgba(0,0,0,0.48) 100%)',
+            pointerEvents: 'none',
+          }}
+        />
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            background:
+              `radial-gradient(420px 260px at 88% 8%, ${t.accent}28, transparent 62%),` +
+              `radial-gradient(400px 260px at 12% 92%, ${t.accent2}22, transparent 64%)`,
             pointerEvents: 'none',
           }}
         />
@@ -2313,26 +2335,17 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
     );
   }
 
-  // ═══ PIEZA 1 · AFICHE MAESTRO (V29.0 · 3 ARQUETIPOS LÍQUIDOS: OSCURO, LUMINOSO Y SPLIT COLOR) ═══
+  // ═══ PIEZA 1 · AFICHE MAESTRO (V34.0 · FULL-BLEED REAL ESTRICTO Y GLASSMORPHISM) ═══
   const darkPhotoTheme: AfficheTheme = {
     ...t,
     light: false,
     text: '#ffffff',
-    sub: 'rgba(255,255,255,0.88)',
+    sub: 'rgba(255,255,255,0.90)',
     accent: ensureReadableAccent(t.accent, false),
     accent2: ensureReadableAccent(t.accent2, false),
   };
-  const lightPhotoTheme: AfficheTheme = {
-    ...t,
-    light: true,
-    text: '#0b0f18',
-    sub: 'rgba(15,23,42,0.82)',
-    accent: ensureReadableAccent(t.accent, true),
-    accent2: ensureReadableAccent(t.accent2, true),
-  };
 
   const renderFullBleedHero = ({
-    mode,
     align = 'left',
     benefitMode,
     headlineSize,
@@ -2340,7 +2353,6 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
     showMunicipalityTag = false,
     editorialAccentRule = false,
   }: {
-    mode: 'dark' | 'light';
     align?: 'left' | 'center';
     benefitMode: ResolvedBenefitMode;
     headlineSize: number;
@@ -2348,13 +2360,9 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
     showMunicipalityTag?: boolean;
     editorialAccentRule?: boolean;
   }): ReactElement => {
-    const heroTheme = mode === 'light' ? lightPhotoTheme : darkPhotoTheme;
-    const creamDeep = mixHex('#fdfbf7', t.accent, 0.05);
-    const creamMid = mixHex('#f7f2e7', t.accent2, 0.07);
+    const heroTheme = darkPhotoTheme;
     const gradientOverlay =
-      mode === 'light'
-        ? `linear-gradient(to bottom, rgba(255,253,249,0.42) 0%, transparent 24%), linear-gradient(to top, rgba(253,251,247,0.95) 0%, ${creamMid}d8 38%, ${creamMid}88 58%, transparent 86%)`
-        : 'linear-gradient(to bottom, rgba(2,6,23,0.42) 0%, transparent 24%), linear-gradient(to top, #020617 0%, rgba(15,23,42,0.84) 36%, rgba(15,23,42,0.70) 56%, rgba(15,23,42,0.18) 78%, transparent 94%)';
+      'linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.50) 52%, transparent 94%)';
 
     const topRight = priceOverlay ? (
       <PricePill brand={brand} t={heroTheme} s={s} />
@@ -2364,9 +2372,9 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
           fontSize: 10 * s,
           fontWeight: 800,
           letterSpacing: 1.8,
-          color: mode === 'light' ? 'rgba(15,23,42,0.72)' : 'rgba(255,255,255,0.88)',
+          color: 'rgba(255,255,255,0.88)',
           textTransform: 'uppercase',
-          textShadow: mode === 'light' ? 'none' : '0 2px 10px rgba(0,0,0,0.85)',
+          textShadow: '0 2px 10px rgba(0,0,0,0.85)',
         }}
       >
         {(brand.municipality || 'Gachetá').toUpperCase()}
@@ -2374,7 +2382,7 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
     ) : null;
 
     return (
-      <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: mode === 'light' ? creamDeep : '#020617' }}>
+      <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: '#000000' }}>
         <div style={{ position: 'absolute', inset: 0 }}>
           <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
         </div>
@@ -2385,7 +2393,7 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
             style={{
               position: 'absolute',
               inset: 0,
-              background: `radial-gradient(380px 260px at 14% 72%, ${t.accent}2a, transparent 68%)`,
+              background: `radial-gradient(380px 260px at 14% 72%, ${t.accent}24, transparent 68%)`,
               pointerEvents: 'none',
             }}
           />
@@ -2401,11 +2409,11 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
               margin: 0,
               textAlign: 'center',
               fontFamily: `"${boardDisplayFont}", system-ui, sans-serif`,
-              fontSize: 110 * s,
+              fontSize: 112 * s,
               fontWeight: 900,
               letterSpacing: -3 * s,
               lineHeight: 0.85,
-              color: mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(255,255,255,0.08)',
+              color: 'rgba(255,255,255,0.08)',
               transform: 'rotate(-4deg)',
               whiteSpace: 'nowrap',
               pointerEvents: 'none',
@@ -2452,7 +2460,7 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
                 styleId={fontStyle}
                 scale={hs}
                 fullWidth
-                longShadow={mode === 'dark'}
+                longShadow
               />
             </div>
             <SubHead
@@ -2460,7 +2468,7 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
               t={heroTheme}
               s={s}
               align={align}
-              color={mode === 'light' ? 'rgba(15,23,42,0.84)' : 'rgba(255,255,255,0.92)'}
+              color="rgba(255,255,255,0.92)"
             />
             {showBenefits && benefits.length > 0 && (
               <BenefitsShowcase
@@ -2516,9 +2524,6 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
     headlineSize: number;
     diagonalCut?: boolean;
   }): ReactElement => {
-    const tintBg = mixHex(t.accent, '#020617', 0.48);
-    const tintDeep = mixHex(t.accent2, '#020617', 0.68);
-
     return (
       <div
         style={{
@@ -2526,7 +2531,7 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
           width: '100%',
           height: '100%',
           overflow: 'hidden',
-          background: '#020617',
+          background: '#000000',
         }}
       >
         {/* Fotografía 100% Full-Bleed edge-to-edge detrás de todo el afiche */}
@@ -2534,29 +2539,31 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
           <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
         </div>
 
-        {/* Velo diagonal cromático translúcido armonizado con el color extraído */}
-        <div
-          aria-hidden="true"
-          style={{
-            position: 'absolute',
-            inset: 0,
-            background: `linear-gradient(155deg, ${tintBg}cc 0%, ${tintDeep}ea 100%)`,
-            clipPath: diagonalCut ? 'polygon(0 54%, 100% 42%, 100% 100%, 0 100%)' : undefined,
-            opacity: diagonalCut ? 0.56 : 0.28,
-            pointerEvents: 'none',
-          }}
-        />
-
-        {/* Gradiente agresivo Full-Bleed para flotado cristalino de tipografía y Dock */}
+        {/* Gradiente masivo único para contraste Full-Bleed real */}
         <div
           aria-hidden="true"
           style={{
             position: 'absolute',
             inset: 0,
             background:
-              'linear-gradient(to bottom, rgba(2,6,23,0.44) 0%, transparent 24%), linear-gradient(to top, #020617 0%, rgba(15,23,42,0.82) 38%, rgba(15,23,42,0.70) 58%, transparent 88%)',
+              'linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.50) 52%, transparent 94%)',
           }}
         />
+        {diagonalCut && (
+          <div
+            aria-hidden="true"
+            style={{
+              position: 'absolute',
+              left: '-10%',
+              right: '-10%',
+              top: '44%',
+              height: 2 * s,
+              transform: 'rotate(-7deg)',
+              background: `linear-gradient(90deg, transparent, ${t.accent2}88, transparent)`,
+              pointerEvents: 'none',
+            }}
+          />
+        )}
 
         <div
           style={{
@@ -2647,10 +2654,10 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
    * en ventana flotante de cristal superior sin romper ni cortar el fondo fotográfico.
    */
   const renderCollageHero = (): ReactElement => {
-    const headlineSz = isSquare ? 36 : 45;
+    const headlineSz = isSquare ? 42 : 52;
     const hasDistinctSecondPhoto = Boolean(photo2 && photo2 !== photoUrl);
     return (
-      <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: '#020617' }}>
+      <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: '#000000' }}>
         <div style={{ position: 'absolute', inset: 0 }}>
           <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
         </div>
@@ -2660,7 +2667,7 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
             position: 'absolute',
             inset: 0,
             background:
-              'linear-gradient(to bottom, rgba(2,6,23,0.44) 0%, transparent 24%), linear-gradient(to top, #020617 0%, rgba(15,23,42,0.84) 36%, rgba(15,23,42,0.70) 56%, transparent 90%)',
+              'linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.50) 52%, transparent 94%)',
           }}
         />
         <div
@@ -2782,10 +2789,9 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
     case 'float':
     case 'polaroid': {
       body = renderFullBleedHero({
-        mode: 'light',
         align: layout === 'swiss' || layout === 'zen' ? 'left' : 'center',
-        benefitMode: layout === 'vip' || layout === 'arc' ? 'editorial' : 'callouts',
-        headlineSize: isSquare ? 36 : 46,
+        benefitMode: 'editorial',
+        headlineSize: isSquare ? 42 : 52,
         showMunicipalityTag: true,
       });
       break;
@@ -2817,8 +2823,8 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
         layout === 'diamond';
       body = renderSplitScreenHero({
         align: layout === 'retail' || layout === 'diamond' || layout === 'flash' || layout === 'menu' ? 'center' : 'left',
-        benefitMode: layout === 'diagonal' || layout === 'cyber' ? 'ribbons' : 'callouts',
-        headlineSize: isSquare ? 36 : 44,
+        benefitMode: 'callouts',
+        headlineSize: isSquare ? 42 : 50,
         diagonalCut: hasDiagonalCut,
       });
       break;
@@ -2829,10 +2835,9 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
     case 'portal':
     case 'orbits': {
       body = renderFullBleedHero({
-        mode: 'dark',
         align: 'center',
         benefitMode: 'callouts',
-        headlineSize: isSquare ? 38 : 48,
+        headlineSize: isSquare ? 44 : 54,
         watermarkText: layout === 'immersive' || layout === 'orbits' ? blendWord : undefined,
       });
       break;
@@ -2843,10 +2848,9 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
     case 'magazine':
     default: {
       body = renderFullBleedHero({
-        mode: t.light ? 'light' : 'dark',
         align: 'left',
-        benefitMode: layout === 'magazine' ? 'editorial' : 'bento',
-        headlineSize: isSquare ? 38 : 48,
+        benefitMode: 'editorial',
+        headlineSize: isSquare ? 44 : 54,
         showMunicipalityTag: layout === 'bento',
         editorialAccentRule: true,
       });
