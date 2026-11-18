@@ -1,6 +1,7 @@
 import { supabase } from './supabase';
 import { getDeviceId } from './deviceFingerprint';
 import { getEdgeClientIp } from './ip.service';
+import { validateOfferSecurity } from '../utils/securityFilter';
 import type { Category, Offer } from '../types';
 
 const MERCHANT_EMBED =
@@ -91,6 +92,10 @@ export interface PublishOfferInput {
  * atómica y ejecuta la auto-purga inteligente en el servidor.
  */
 export async function publishOffer(input: PublishOfferInput): Promise<Offer> {
+  const sec = validateOfferSecurity(`${input.title} ${input.description}`);
+  if (!sec.ok) {
+    throw new Error(sec.reason);
+  }
   const { data, error } = await supabase.rpc('publish_offer_rpc', {
     p_category: input.category,
     p_title: input.title,

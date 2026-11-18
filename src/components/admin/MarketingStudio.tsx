@@ -738,7 +738,15 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasBrandNow, customPhoto, brand.photo, mode, merchantId, extName, extSlogan, extProduct]);
 
-  /** Textos por defecto derivados de la marca (siempre neutrales y honestos). */
+  /** Textos por defecto derivados de la marca y el destino activo del QR. */
+  const defaultCtaByQr = useMemo<string>(() => {
+    const service = priceMode === 'servicio';
+    if (qrMode === 'perfil') return 'Ver todas las ofertas';
+    if (qrMode === 'externo') return 'Visita nuestro sitio';
+    if (qrMode === 'oferta') return 'Aparta tu cupo hoy';
+    return service ? 'Cotiza en 1 clic' : 'Escríbenos por WhatsApp';
+  }, [qrMode, priceMode]);
+
   const dflt = useMemo<Texts>(() => {
     const service = priceMode === 'servicio';
     return {
@@ -748,14 +756,10 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       benefits: service
         ? ['🤝 Atención personalizada', '⏱️ Respuesta rápida', '📍 Cerca de ti en el pueblo']
         : ['🥇 Calidad garantizada', '⚡ Atención inmediata', '⏰ Disponible HOY'],
-      cta: service
-        ? texts.priceLabel.trim() || '💬 Cotiza gratis por WhatsApp'
-        : brand.promoPrice != null
-          ? `¡Pide el tuyo HOY a solo ${formatCOP(brand.promoPrice)}! 👉`
-          : '¡Aparta el tuyo HOY! Escríbenos 👉',
+      cta: defaultCtaByQr,
       priceLabel: texts.priceLabel,
     };
-  }, [brand, priceMode, texts.priceLabel]);
+  }, [brand, priceMode, texts.priceLabel, defaultCtaByQr]);
 
   /** Textos finales del artboard: editables con defaults inteligentes. */
   const T = useMemo<Texts>(() => {
@@ -894,12 +898,15 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
   const activeBrandPalette = useBrandPalette ? brandPalette : null;
   const activeThemeId = AFFICHE_THEMES[themeIdx]?.id ?? 'marble';
 
-  // 🎨 V22.0 · Extracción automática de paleta de color desde el logo del comercio
-  // o logo subido (si hay logo, no forzamos temas genéricos encima de su identidad).
+  // 🎨 V29.0 · Extracción automática de color dominante (ColorThief/Canvas):
+  // Prioriza el logo del negocio; si no hay logo, extrae la paleta de la fotografía
+  // activa (subida, banco HD o IA) para armonizar iconos, CTA, titulares y Split Screen.
   useEffect(() => {
-    if (!effectiveLogoUrl) return;
+    const src = effectiveLogoUrl || effectivePhoto;
+    if (!src) return;
+    const sourceKind: 'logo' | 'photo' = effectiveLogoUrl ? 'logo' : 'photo';
     let alive = true;
-    void extractPaletteFromImage(effectiveLogoUrl, 'logo').then((pal) => {
+    void extractPaletteFromImage(src, sourceKind).then((pal) => {
       if (!alive || !pal) return;
       setBrandPalette(pal);
       setUseBrandPalette(true);
@@ -907,7 +914,30 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     return () => {
       alive = false;
     };
-  }, [effectiveLogoUrl]);
+  }, [effectiveLogoUrl, effectivePhoto]);
+
+  /** Sincroniza el destino del QR y actualiza automáticamente un CTA coherente si no fue personalizado aparte. */
+  function selectQrMode(nextMode: QrMode): void {
+    setQrMode(nextMode);
+    const service = priceMode === 'servicio';
+    const nextDefault =
+      nextMode === 'perfil'
+        ? 'Ver todas las ofertas'
+        : nextMode === 'externo'
+          ? 'Visita nuestro sitio'
+          : nextMode === 'oferta'
+            ? 'Aparta tu cupo hoy'
+            : service
+              ? 'Cotiza en 1 clic'
+              : 'Escríbenos por WhatsApp';
+    setTexts((prev) => {
+      const cur = prev.cta.trim();
+      const isGenericOrPreviousAuto =
+        !cur ||
+        /whatsapp|pide el tuyo|aparta|cotiza|ver todas las ofertas|visita nuestro|perfil|saber m[aá]s/i.test(cur);
+      return isGenericOrPreviousAuto ? { ...prev, cta: nextDefault } : prev;
+    });
+  }
 
   // V19/V22: QR vectorial personalizado por tema o paleta de marca extraída,
   // con ojos personalizados, alto contraste e iniciales o logo del negocio en el centro.
@@ -963,6 +993,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     dockVariant,
     brandPalette: activeBrandPalette,
     logoUrl: effectiveLogoUrl,
+    qrMode,
     brand: {
       name: brand.name,
       slogan: dockSlogan,
@@ -1105,7 +1136,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
         highlight: normSpaces(res.headline.highlight),
         sub: normSpaces(res.sub),
         benefits: benefits.map((b) => normSpaces(b)),
-        cta: normSpaces(res.cta),
+        cta: qrMode === 'wa' ? normSpaces(res.cta) || defaultCtaByQr : defaultCtaByQr,
         priceLabel: res.priceLabel ?? prev.priceLabel,
       }));
       const bTag = normSpaces(res.dynamicTagline || res.badgeText);
@@ -1327,9 +1358,10 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
   }
 
   /**
-   * 🧬 V22.0 · Motor de Hiper-Variabilidad Coherente:
-   * Enlaza Layout (incluidos los orgánicos immersive/collage) + Emparejamiento Tipográfico
-   * + Paleta/Textura (respetando logo si existe) + Posición de QR + Beneficios fluidos.
+   * 🧬 V29.0 · Motor de Variabilidad Pura (3 arquetipos cinematográficos rotativos):
+   *  0. Fondo Completo Oscuro (100% foto + gradiente negro intenso)
+   *  1. Fondo Completo Luminoso (100% foto + gradiente blanco/crema + tinta negra)
+   *  2. Split Screen Elegante (mitad foto + mitad color sólido extraído de la imagen)
    */
   function applyHyperVariability(opts?: { preserveBrandPalette?: boolean }): { themeIdx: number; layout: Layout; styleLabel: string } {
     const groups: Array<{
@@ -1344,33 +1376,33 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     }> = [
       {
         id: 0,
-        styleLabel: 'Estilo 1 · Cyber Neón & Collage',
-        layouts: ['collage', 'diagx', 'split', 'diagonal', 'bento3d', 'cyber'],
-        themeIds: ['cyber', 'aurora', 'oceano', 'carbon'],
-        fontIndices: [0, 3, 5],
-        dockVariant: 'corner',
-        benefits: ['ribbons', 'bento', 'watermark'],
-        qrStyles: ['cyber', 'sharp'],
+        styleLabel: 'Estilo 1 · Fondo Completo Oscuro',
+        layouts: ['immersive', 'magazine', 'bento', 'cinema'],
+        themeIds: ['obsidian', 'emerald', 'aurora', 'oceano'],
+        fontIndices: [0, 3, 4],
+        dockVariant: 'glass',
+        benefits: ['callouts', 'watermark', 'editorial'],
+        qrStyles: ['luxury', 'rounded', 'dots'],
       },
       {
         id: 1,
-        styleLabel: 'Estilo 2 · Editorial Inmersivo Luxury',
-        layouts: ['magazine', 'bento', 'immersive'],
-        themeIds: ['obsidian', 'vino', 'emerald', 'carbon'],
+        styleLabel: 'Estilo 2 · Fondo Completo Luminoso',
+        layouts: ['swiss', 'zen', 'vip', 'arc'],
+        themeIds: ['marble', 'clinic', 'arena', 'kraft'],
         fontIndices: [1, 6],
         dockVariant: 'centered',
-        benefits: ['callouts', 'editorial'],
-        qrStyles: ['luxury', 'dots'],
+        benefits: ['editorial', 'callouts', 'badges'],
+        qrStyles: ['sharp', 'dots', 'luxury'],
       },
       {
         id: 2,
-        styleLabel: 'Estilo 3 · Inmersivo Full-Bleed',
-        layouts: ['immersive', 'magazine', 'bleed', 'orbits', 'float', 'portal'],
-        themeIds: ['obsidian', 'emerald', 'wood', 'terracotta', 'vino', 'kraft'],
-        fontIndices: [2, 4, 7],
-        dockVariant: 'glass',
-        benefits: ['callouts', 'watermark', 'badges', 'editorial'],
-        qrStyles: ['luxury', 'rounded', 'dots'],
+        styleLabel: 'Estilo 3 · Split Screen Elegante',
+        layouts: ['split', 'diagonal', 'diagx', 'collage', 'cyber'],
+        themeIds: ['cyber', 'slate', 'terracotta', 'carbon'],
+        fontIndices: [2, 5, 7],
+        dockVariant: 'corner',
+        benefits: ['ribbons', 'badges', 'callouts'],
+        qrStyles: ['cyber', 'rounded', 'sharp'],
       },
     ];
 
@@ -1500,7 +1532,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
           normSpaces(shuffledBenefits[1]) || prev.benefits[1] || '',
           normSpaces(shuffledBenefits[2]) || prev.benefits[2] || '',
         ],
-        cta: normSpaces(res.cta) || prev.cta,
+        cta: qrMode === 'wa' ? normSpaces(res.cta) || defaultCtaByQr : defaultCtaByQr,
         priceLabel: res.priceLabel ?? prev.priceLabel,
       }));
       const bTag = normSpaces(res.dynamicTagline || res.badgeText);
@@ -2300,7 +2332,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
             {QR_MODES.map((m) => (
               <button
                 key={m.id}
-                onClick={() => setQrMode(m.id)}
+                onClick={() => selectQrMode(m.id)}
                 className={cx(
                   'pressable flex w-full items-start gap-2.5 rounded-xl border px-3 py-2 text-left transition',
                   qrMode === m.id
@@ -2950,7 +2982,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
           </div>
           <div>
             <p className={labelCls}>Llamado a la acción (CTA)</p>
-            <input value={texts.cta} onChange={(e) => setTexts((p) => ({ ...p, cta: e.target.value }))} placeholder="Ej: ¡Pide el tuyo HOY! 👉" className={inputCls} />
+            <input value={texts.cta} onChange={(e) => setTexts((p) => ({ ...p, cta: e.target.value }))} placeholder="Ej: Escríbenos por WhatsApp" className={inputCls} />
           </div>
           {priceMode === 'servicio' && (
             <div>

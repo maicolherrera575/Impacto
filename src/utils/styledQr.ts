@@ -200,8 +200,8 @@ export async function generateStyledQrDataUrl(options: StyledQrOptions): Promise
   const n = qr.modules.size;
   const data = qr.modules.data;
 
-  // Quiet zone sólido de 3 módulos en blanco puro para escaneo instantáneo sin exceso de marco
-  const quiet = 3;
+  // Quiet zone elegante de 2 módulos en blanco puro dentro del canvas + p-2 CSS
+  const quiet = 2;
   const totalCells = n + quiet * 2;
   const cell = size / totalCells;
   const offset = quiet * cell;

@@ -3,6 +3,7 @@ import { GEMINI_API_KEY } from '../config/env';
 import type { Category, ParsedPromo } from '../types';
 import { buildPaletteFromHexTriplet } from '../utils/colorPalette';
 import type { ExtractedBrandPalette } from '../utils/colorPalette';
+import { detectFraudSignals, SECURITY_BLOCK_MESSAGE } from '../utils/securityFilter';
 
 const CATEGORY_IDS: Category[] = ['comida', 'transporte_flete', 'agro_mercado', 'servicios_comercios'];
 
@@ -298,24 +299,8 @@ export async function parsePromoFromText(freeText: string): Promise<ParsedPromo>
  * de extorsión, gota a gota, giros anticipados o citas peligrosas en el
  * texto de una oferta o de un pedido de la comunidad.
  */
-export const FRAUD_MESSAGE =
-  '🛡️ Impulso protege a la comunidad: no se permiten giros de dinero por adelantado, préstamos gota a gota, dinero fácil ni encuentros en sitios despoblados. Publica productos y servicios reales de tu negocio.';
-
-const FRAUD_PATTERNS: RegExp[] = [
-  /\bgota\s*a\s*gota\b/i,
-  /\bpr[eé]stamo[s]?\s+(f[aá]cil(es)?|r[aá]pido[s]?|inmediato[s]?|express|sin\s*(requisitos|papeleo|fiador))/i,
-  /\bfinanciaci[oó]n\s+inmediata\b/i,
-  /\b(giro[s]?|transferencia[s]?|consignaci[oó]n|dinero|pago)\s+(por\s+adelantado|anticipado\s+obligatorio)\b/i,
-  /\b(abono|anticipo)\s+(por\s+adelantado|anticipado|obligatorio)\b/i,
-  /\b(dinero|ganancia)\s+f[aá]cil\b|duplica\s+tu\s+dinero|inversi[oó]n\s+(f[aá]cil|segura)\s+duplic/i,
-  /\b(pir[aá]mide\s+financiera|d[oó]lares\s+bitcoin|trading\s+garantizado)\b/i,
-  /\bservicios?\s+(sexuale?s?|er[oó]ticos?)\b/i,
-  /\b(cita[s]?\s+a\s+solas|encuentro\s+[ií]ntimo|sitios?\s+despoblados?)\b/i,
-];
-
-export function detectFraudSignals(text: string): boolean {
-  return FRAUD_PATTERNS.some((p) => p.test(text));
-}
+export const FRAUD_MESSAGE = SECURITY_BLOCK_MESSAGE;
+export { detectFraudSignals };
 
 /** Resultado del análisis de IA Vision sobre un comprobante de pago. */
 export interface ReceiptVerification {
@@ -1739,7 +1724,7 @@ export function synthesizeCampaign(input: CampaignInput, art: ArtDirection): Mar
     // 🎯 V21 · Cero emojis en el afiche: el motor sintético limpia los
     // pictográficos de nicho (los íconos los dibuja el sistema vectorial).
     benefits: [stripPictographics(b0), stripPictographics(b1), stripPictographics(b2)],
-    cta: isService ? 'Agenda hoy por WhatsApp' : 'Pide el tuyo HOY por WhatsApp',
+    cta: isService ? 'Cotiza en 1 clic' : 'Escríbenos por WhatsApp',
     priceLabel: isService
       ? input.priceLabel.trim() || `${art.productTitle} · Cotiza sin compromiso`
       : null,

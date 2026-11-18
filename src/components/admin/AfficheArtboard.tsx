@@ -20,6 +20,7 @@ import { contrastTextOn, ensureReadableAccent, mixHex, relativeLuminance } from 
 import type { ExtractedBrandPalette } from '../../utils/colorPalette';
 
 export type AfficheFormat = 'story' | 'square';
+export type AfficheQrMode = 'wa' | 'perfil' | 'oferta' | 'externo';
 export type AfficheLayout =
   | 'bento' | 'magazine' | 'diagonal' | 'polaroid' | 'arc' | 'portal' | 'swiss'
   | 'split' | 'brutal' | 'vip' | 'cyber' | 'rustic' | 'retail' | 'eco' | 'cinema' | 'float'
@@ -256,6 +257,34 @@ export interface AfficheProps {
   photoUrl4?: string | null;
   brandPalette?: ExtractedBrandPalette | null;
   logoUrl?: string | null;
+  qrMode?: AfficheQrMode;
+}
+
+/**
+ * Orquesta dinámicamente el texto del botón CTA según el destino del Código QR.
+ */
+function resolveAdaptiveCta(
+  qrMode: AfficheQrMode | undefined,
+  rawCta: string,
+  isService: boolean,
+): string {
+  const cleaned = cleanPosterCopy(rawCta);
+  const hasWaCopy = /whatsapp|pide\s+el\s+tuyo|cotiza/i.test(cleaned);
+  if (qrMode === 'perfil') {
+    return hasWaCopy || !cleaned ? 'Ver todas las ofertas' : cleaned;
+  }
+  if (qrMode === 'externo') {
+    return /whatsapp|pide\s+el\s+tuyo|cotiza|aparta|ver\s+todas/i.test(cleaned) || !cleaned
+      ? 'Visita nuestro sitio'
+      : cleaned;
+  }
+  if (qrMode === 'oferta') {
+    return /whatsapp|visita\s+nuestro\s+sitio|ver\s+todas/i.test(cleaned) || !cleaned
+      ? 'Aparta tu cupo hoy'
+      : cleaned;
+  }
+  if (cleaned) return cleaned;
+  return isService ? 'Cotiza en 1 clic' : 'Escríbenos por WhatsApp';
 }
 
 /**
@@ -396,53 +425,6 @@ function Photo({ url, zoom, posY }: { url: string | null; zoom: number; posY: nu
           transformOrigin: `50% ${Math.round(posY * 100)}%`,
         }}
       />
-    </div>
-  );
-}
-
-function ScenicBg({ url, t, frame = false }: { url: string | null; t: AfficheTheme; frame?: boolean }) {
-  return (
-    <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', borderRadius: 'inherit' }}>
-      {url ? (
-        <div
-          style={{
-            position: 'absolute',
-            inset: -48,
-            backgroundImage: `url(${url})`,
-            backgroundSize: 'cover',
-            backgroundPosition: 'center',
-            filter: t.light
-              ? 'blur(34px) brightness(1.06) saturate(1.12)'
-              : 'blur(32px) brightness(0.38) saturate(1.38)',
-            transform: 'scale(1.2)',
-          }}
-        />
-      ) : null}
-      <div
-        style={{
-          position: 'absolute',
-          inset: 0,
-          background: t.light
-            ? 'linear-gradient(180deg, rgba(250,248,242,0.68), rgba(250,248,242,0.46))'
-            : 'linear-gradient(165deg, rgba(6,8,14,0.42) 0%, rgba(6,8,14,0.22) 44%, rgba(6,8,14,0.68) 100%)',
-        }}
-      />
-      <div
-        style={{
-          position: 'absolute',
-          inset: 0,
-          background:
-            `radial-gradient(360px 220px at 84% 8%, ${t.accent}3c, transparent 65%),` +
-            `radial-gradient(400px 260px at 8% 92%, ${t.accent2}2e, transparent 65%),` +
-            'linear-gradient(118deg, rgba(255,255,255,0.08) 0%, transparent 28%, transparent 66%, rgba(255,255,255,0.06) 100%)',
-        }}
-      />
-      {frame && (
-        <>
-          <div style={{ position: 'absolute', inset: 14, border: '1px solid rgba(255,255,255,0.22)', borderRadius: 18, pointerEvents: 'none' }} />
-          <div style={{ position: 'absolute', inset: 22, border: '1px solid rgba(255,255,255,0.09)', borderRadius: 14, pointerEvents: 'none' }} />
-        </>
-      )}
     </div>
   );
 }
@@ -1129,37 +1111,39 @@ function CtaButton({
   bg = '#10b981',
   accent2,
   color = '#ffffff',
+  align = 'center',
 }: {
   label: string;
   s: number;
   bg?: string;
   accent2?: string;
   color?: string;
+  align?: 'center' | 'left';
 }) {
   const clean = cleanPosterCopy(label);
   if (!clean) return null;
   const endColor = accent2 || bg;
   return (
-    <div style={{ display: 'flex', justifyContent: 'center', flexShrink: 0 }}>
+    <div style={{ display: 'flex', justifyContent: align === 'left' ? 'flex-start' : 'center', flexShrink: 0 }}>
       <span
         style={{
           background: `linear-gradient(135deg, ${bg} 0%, ${endColor} 100%)`,
           color,
           borderRadius: 999,
           border: '1px solid rgba(255,255,255,0.28)',
-          padding: `${10 * s}px ${22 * s}px`,
-          fontSize: 14.5 * s,
+          padding: `${9 * s}px ${20 * s}px`,
+          fontSize: 13.5 * s,
           fontWeight: 900,
-          letterSpacing: 0.4,
+          letterSpacing: 0.35,
           display: 'inline-flex',
           alignItems: 'center',
           gap: 7 * s,
-          boxShadow: `0 0 ${24 * s}px ${endColor}66, 0 ${12 * s}px ${26 * s}px -6px rgba(0,0,0,0.55)`,
+          boxShadow: `0 0 ${22 * s}px ${endColor}55, 0 ${10 * s}px ${24 * s}px -6px rgba(0,0,0,0.48)`,
           whiteSpace: 'nowrap',
         }}
       >
         {clean}
-        <ArrowUpRight size={15 * s} color={color} strokeWidth={2.8} aria-hidden />
+        <ArrowUpRight size={14.5 * s} color={color} strokeWidth={2.8} aria-hidden />
       </span>
     </div>
   );
@@ -1198,9 +1182,8 @@ function QrOrganicToken({
   const outerRadius = isCyber ? 0 : (qrStyle === 'sharp' ? 10 : isLuxury ? 20 : 18) * s;
   const innerRadius = isCyber ? 0 : (qrStyle === 'sharp' ? 6 : isLuxury ? 14 : 12) * s;
   const bezelPad = 2 * s;
-  // Quiet zone limpio de ~3 módulos: styledQr ya dibuja 3 módulos blancos dentro del PNG,
-  // evitando marcos blancos gruesos mientras preserva legibilidad perfecta al escanear.
-  const matrixPad = qrUrl ? Math.max(2, Math.round(2 * s)) : Math.max(8, Math.round(size * 0.055));
+  // Quiet zone mínimo y elegante (~p-2 en blanco puro) manteniendo 100% lectura en cámara y Lens
+  const matrixPad = qrUrl ? Math.max(6, Math.round(8 * s)) : Math.max(8, Math.round(10 * s));
   const svgSize = Math.max(48, Math.round(size - (bezelPad + matrixPad) * 2));
   const isLight = Boolean(t.light);
   const cut = Math.round(12 * s);
@@ -1276,7 +1259,7 @@ function QrOrganicToken({
             value={value}
             size={svgSize}
             level="M"
-            marginSize={3}
+            marginSize={2}
             bgColor="#ffffff"
             fgColor={palette.dark}
           />
@@ -1287,10 +1270,8 @@ function QrOrganicToken({
 }
 
 /**
- * 💎 V22.0 · DOCK GLASSMORPHISM DE ÉLITE:
- *  - Soporta 3 geometrías coordinadas (`glass`, `corner`, `centered`),
- *    variables de marca (`brandPalette`) e insignia discreta de `logoUrl`.
- *  - Etiqueta QR refinada en monospace `tracking-widest` diminuta y elegante.
+ * 💎 V29.0 · DOCK GLASSMORPHISM DE ÉLITE:
+ *  - Adaptado dinámicamente al destino del Código QR (`qrMode`), sin líneas divisorias innecesarias.
  */
 function Dock({
   brand,
@@ -1306,6 +1287,7 @@ function Dock({
   variant = 'glass',
   brandColors,
   logoUrl,
+  qrMode = 'wa',
 }: {
   brand: AfficheBrand;
   t: AfficheTheme;
@@ -1320,8 +1302,17 @@ function Dock({
   variant?: Exclude<DockVariant, 'auto'>;
   brandColors?: { primary: string; accent: string; secondary?: string } | null;
   logoUrl?: string | null;
+  qrMode?: AfficheQrMode;
 }) {
   const phone = (brand.phoneDisplay || 'Escríbenos').replace(/^[^\p{L}\p{N}+]+/u, '').trim();
+  const actionChipText =
+    qrMode === 'perfil'
+      ? 'Perfil Oficial'
+      : qrMode === 'externo'
+        ? 'Enlace Oficial'
+        : qrMode === 'oferta'
+          ? 'Aparta Cupo Hoy'
+          : phone || 'WhatsApp Directo';
   const isLight = Boolean(t.light);
   const resolvedLabel = cleanPosterCopy(qrLabel || 'ESCANEA AQUÍ').toUpperCase();
 
@@ -1414,8 +1405,8 @@ function Dock({
               {cleanPosterCopy(brand.address || brand.municipality || 'Casco Urbano')}
             </span>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4.5 * s, fontSize: 12 * s, fontWeight: 900, color: waInk }}>
-              <PhoneIcon size={11.5 * s} color={waInk} />
-              {phone || 'WhatsApp Directo'}
+              {qrMode === 'wa' ? <PhoneIcon size={11.5 * s} color={waInk} /> : <ArrowUpRight size={11.5 * s} color={waInk} strokeWidth={2.5} aria-hidden />}
+              {actionChipText}
             </span>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 * s, flexShrink: 0 }}>
@@ -1458,8 +1449,7 @@ function Dock({
             flexDirection: 'column',
             alignItems: 'center',
             gap: 4 * s,
-            borderBottom: `1px solid ${isLight ? 'rgba(15,23,42,0.1)' : 'rgba(255,255,255,0.12)'}`,
-            paddingBottom: 8 * s,
+            paddingBottom: 4 * s,
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 * s }}>
@@ -1495,10 +1485,9 @@ function Dock({
               <MapPin size={11.5 * s} color={inkMuted} strokeWidth={2.2} aria-hidden />
               {cleanPosterCopy(brand.address || brand.municipality || 'Casco Urbano')}
             </span>
-            <span style={{ color: eyebrowColor, fontWeight: 900 }}>·</span>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4.5 * s, fontSize: 12 * s, fontWeight: 900, color: waInk }}>
-              <PhoneIcon size={11.5 * s} color={waInk} />
-              {phone || 'WhatsApp Directo'}
+              {qrMode === 'wa' ? <PhoneIcon size={11.5 * s} color={waInk} /> : <ArrowUpRight size={11.5 * s} color={waInk} strokeWidth={2.5} aria-hidden />}
+              {actionChipText}
             </span>
           </div>
         </div>
@@ -1633,7 +1622,7 @@ function Dock({
               maxWidth: '100%',
             }}
           >
-            <PhoneIcon size={12 * s} color={waInk} />
+            {qrMode === 'wa' ? <PhoneIcon size={12 * s} color={waInk} /> : <ArrowUpRight size={12 * s} color={waInk} strokeWidth={2.5} aria-hidden />}
             <span
               style={{
                 fontSize: 13.5 * s,
@@ -1646,7 +1635,7 @@ function Dock({
                 textOverflow: 'ellipsis',
               }}
             >
-              {phone || 'WhatsApp Directo'}
+              {actionChipText}
             </span>
           </div>
         </div>
@@ -1704,14 +1693,13 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
     benefitStyle = 'auto',
     dockVariant = 'auto',
     photoUrl2,
-    photoUrl3,
     brandPalette,
     logoUrl,
+    qrMode = 'wa',
   } = props;
 
   const hs = headlineScale ?? 1.2;
   const photo2 = photoUrl2 ?? photoUrl;
-  const photo3 = photoUrl3 ?? photoUrl;
   const baseTheme = AFFICHE_THEMES.find((x) => x.id === themeId) ?? AFFICHE_THEMES[1];
   const t = buildBrandTheme(baseTheme, brandPalette);
   const brandColors = brandPalette
@@ -1733,95 +1721,21 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
   const pad = 18 * s;
   const benefits = texts.benefits.filter(Boolean);
   const priceOverlay = showPrice && brand.promoPrice != null && piece === 0;
-  const priceLabel = texts.cta.trim();
   const isService = brand.promoPrice == null;
+  const adaptiveCta = resolveAdaptiveCta(qrMode, texts.cta, isService);
 
-  const PHOTO_MAX = (isSquare ? 136 : 315) * s;
-  // QR protagonista >= 40% del ancho de su tarjeta/lienzo (224px de 540px = 41.5% -> 448x448 reales en @2x)
-  const dockQrSize = Math.round(W * 0.415);
+  // V29.0 · QR compacto y equilibrado (tamaño ágil para Lens sin inflar el contenedor blanco)
+  const dockQrSize = isSquare ? 156 : 196;
   const resolvedBenefitMode: ResolvedBenefitMode =
-    benefitStyle === 'auto' ? (LAYOUT_BENEFIT_MAP[layout] ?? 'bento') : benefitStyle;
+    benefitStyle === 'auto' ? (LAYOUT_BENEFIT_MAP[layout] ?? 'editorial') : benefitStyle;
   const resolvedDockVariant: Exclude<DockVariant, 'auto'> =
     dockVariant !== 'auto'
       ? dockVariant
       : layout === 'swiss' || layout === 'zen' || layout === 'vip' || layout === 'arc'
         ? 'centered'
-        : layout === 'diagx' || layout === 'split' || layout === 'hud' || layout === 'bento3d' || layout === 'diagonal' || layout === 'cyber' || layout === 'collage'
+        : layout === 'diagx' || layout === 'split' || layout === 'diagonal' || layout === 'cyber' || layout === 'collage'
           ? 'corner'
           : 'glass';
-
-  const photoBlock = (extra?: CSSProperties): ReactElement => (
-    <div
-      style={{
-        flex: 1,
-        minHeight: 0,
-        maxHeight: PHOTO_MAX,
-        position: 'relative',
-        borderRadius: 26 * s,
-        border: `1px solid ${t.light ? 'rgba(15,23,42,0.12)' : 'rgba(255,255,255,0.16)'}`,
-        boxShadow: `0 24px 52px -12px rgba(0,0,0,0.62), 0 10px 28px -8px ${t.accent}44`,
-        overflow: 'hidden',
-        ...extra,
-      }}
-    >
-      <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
-      {/* Degradado atmosférico en el tercio inferior para integrar la foto al tema */}
-      <div
-        style={{
-          position: 'absolute',
-          inset: 0,
-          pointerEvents: 'none',
-          background: t.light
-            ? `linear-gradient(to top, rgba(2,6,23,0.46) 0%, rgba(15,23,42,0.14) 38%, transparent 72%)`
-            : `linear-gradient(to top, ${mixHex(t.accent, '#020617', 0.88)}e6 0%, ${mixHex(t.accent2, '#0f172a', 0.86)}66 38%, transparent 74%)`,
-        }}
-      />
-      {priceOverlay && (
-        <div style={{ position: 'absolute', bottom: 14 * s, right: 14 * s }}>
-          <PricePill brand={brand} t={t} s={s} />
-        </div>
-      )}
-    </div>
-  );
-
-  const contentBlocks = (
-    align: 'center' | 'left' = 'center',
-    forceMode?: ResolvedBenefitMode,
-  ): ReactElement => (
-    <>
-      <SubHead text={texts.sub} t={t} s={s} align={align} />
-      {showBenefits && benefits.length > 0 && (
-        <BenefitsShowcase
-          items={benefits}
-          t={t}
-          s={s}
-          mode={forceMode ?? resolvedBenefitMode}
-          align={align}
-        />
-      )}
-      {isService && priceLabel ? (
-        <CtaButton label={priceLabel} s={s} bg={t.accent} accent2={t.accent2} color={contrastTextOn(t.accent, t.accent2)} />
-      ) : null}
-    </>
-  );
-
-  const masterDock = showQr ? (
-    <Dock
-      brand={brand}
-      t={t}
-      s={s}
-      qrUrl={qrUrl}
-      qrValue={qrValue}
-      qrStyle={qrStyle}
-      size={dockQrSize}
-      qrLabel={qrLabel}
-      displayFont={boardDisplayFont}
-      bodyFont={activeTypo.bodyFont}
-      variant={resolvedDockVariant}
-      brandColors={brandColors}
-      logoUrl={logoUrl}
-    />
-  ) : null;
 
   // ═══ PIEZA 2 · GANCHO VIRAL EXTREMO (SOLO FOTO + OVERLAY 70% + PREGUNTA + CTA MÍNIMO) ═══
   // Cero lista de beneficios, cero tarjetas, cero QR: foco absoluto en detener el scroll.
@@ -2403,121 +2317,301 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
     );
   }
 
-  // ═══ PIEZA 1 · AFICHE MAESTRO (ARQUITECTURAS INMERSIVAS + FULL-BLEED DE ÉLITE) ═══
-  const isEdgeToEdge = layout === 'magazine' || layout === 'immersive' || layout === 'bento';
+  // ═══ PIEZA 1 · AFICHE MAESTRO (V29.0 · 3 ARQUETIPOS LÍQUIDOS: OSCURO, LUMINOSO Y SPLIT COLOR) ═══
   const darkPhotoTheme: AfficheTheme = {
     ...t,
     light: false,
     text: '#ffffff',
-    sub: 'rgba(255,255,255,0.84)',
+    sub: 'rgba(255,255,255,0.88)',
+    accent: ensureReadableAccent(t.accent, false),
+    accent2: ensureReadableAccent(t.accent2, false),
+  };
+  const lightPhotoTheme: AfficheTheme = {
+    ...t,
+    light: true,
+    text: '#0b0f18',
+    sub: 'rgba(15,23,42,0.82)',
+    accent: ensureReadableAccent(t.accent, true),
+    accent2: ensureReadableAccent(t.accent2, true),
   };
 
   const renderFullBleedHero = ({
+    mode,
+    align = 'left',
     benefitMode,
     headlineSize,
-    longShadow = true,
-    topRight,
     watermarkText,
+    showMunicipalityTag = false,
   }: {
+    mode: 'dark' | 'light';
+    align?: 'left' | 'center';
     benefitMode: ResolvedBenefitMode;
     headlineSize: number;
-    longShadow?: boolean;
-    topRight?: ReactElement | null;
     watermarkText?: string;
-  }): ReactElement => (
-    <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: '#020617' }}>
-      <div style={{ position: 'absolute', inset: 0 }}>
-        <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
-      </div>
-      {/* Viñeta superior sutil + degradado negro puro inferior para contraste editorial absoluto */}
-      <div
+    showMunicipalityTag?: boolean;
+  }): ReactElement => {
+    const heroTheme = mode === 'light' ? lightPhotoTheme : darkPhotoTheme;
+    const creamDeep = mixHex('#fdfbf7', t.accent, 0.05);
+    const creamMid = mixHex('#f7f2e7', t.accent2, 0.07);
+    const gradientOverlay =
+      mode === 'light'
+        ? `linear-gradient(to bottom, rgba(255,253,249,0.52) 0%, transparent 22%), linear-gradient(to top, ${creamDeep} 0%, ${creamMid}f2 40%, ${creamMid}a8 62%, transparent 86%)`
+        : 'linear-gradient(to bottom, rgba(0,0,0,0.42) 0%, transparent 22%), linear-gradient(to top, rgba(0,0,0,0.96) 0%, rgba(0,0,0,0.82) 38%, rgba(0,0,0,0.48) 62%, transparent 86%)';
+
+    const topRight = priceOverlay ? (
+      <PricePill brand={brand} t={heroTheme} s={s} />
+    ) : showMunicipalityTag ? (
+      <span
         style={{
-          position: 'absolute',
-          inset: 0,
-          background:
-            'linear-gradient(to bottom, rgba(0,0,0,0.45) 0%, transparent 24%), linear-gradient(to top, #000000 0%, rgba(0,0,0,0.84) 40%, rgba(0,0,0,0.28) 68%, transparent 100%)',
+          fontSize: 10 * s,
+          fontWeight: 800,
+          letterSpacing: 1.8,
+          color: mode === 'light' ? 'rgba(15,23,42,0.72)' : 'rgba(255,255,255,0.88)',
+          textTransform: 'uppercase',
+          textShadow: mode === 'light' ? 'none' : '0 2px 10px rgba(0,0,0,0.85)',
         }}
-      />
-      {watermarkText && (
-        <p
-          aria-hidden="true"
+      >
+        {(brand.municipality || 'Gachetá').toUpperCase()}
+      </span>
+    ) : null;
+
+    return (
+      <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: mode === 'light' ? creamDeep : '#020617' }}>
+        <div style={{ position: 'absolute', inset: 0 }}>
+          <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
+        </div>
+        <div style={{ position: 'absolute', inset: 0, background: gradientOverlay }} />
+        {watermarkText && (
+          <p
+            aria-hidden="true"
+            style={{
+              position: 'absolute',
+              top: '18%',
+              left: '-6%',
+              right: '-6%',
+              margin: 0,
+              textAlign: 'center',
+              fontFamily: `"${boardDisplayFont}", system-ui, sans-serif`,
+              fontSize: 110 * s,
+              fontWeight: 900,
+              letterSpacing: -3 * s,
+              lineHeight: 0.85,
+              color: mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(255,255,255,0.08)',
+              transform: 'rotate(-4deg)',
+              whiteSpace: 'nowrap',
+              pointerEvents: 'none',
+            }}
+          >
+            {watermarkText}
+          </p>
+        )}
+        <div
           style={{
-            position: 'absolute',
-            top: '18%',
-            left: '-6%',
-            right: '-6%',
-            margin: 0,
-            textAlign: 'center',
-            fontFamily: `"${boardDisplayFont}", system-ui, sans-serif`,
-            fontSize: 112 * s,
-            fontWeight: 900,
-            letterSpacing: -3 * s,
-            lineHeight: 0.85,
-            color: 'rgba(255,255,255,0.08)',
-            transform: 'rotate(-4deg)',
-            whiteSpace: 'nowrap',
-            pointerEvents: 'none',
+            position: 'relative',
+            zIndex: 5,
+            width: '100%',
+            height: '100%',
+            padding: pad,
+            boxSizing: 'border-box',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'space-between',
+            gap: isSquare ? 5 * s : 8 * s,
           }}
         >
-          {watermarkText}
-        </p>
-      )}
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexShrink: 0,
+              paddingRight: logoUrl ? 52 * s : 0,
+            }}
+          >
+            <Badge text={badge} t={heroTheme} s={s} align="left" />
+            {topRight}
+          </div>
+          <div style={{ flex: 1, minHeight: isSquare ? 8 * s : 90 * s }} />
+          <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', gap: isSquare ? 5 * s : 7 * s }}>
+            <Headline
+              texts={texts}
+              t={heroTheme}
+              s={s}
+              size={headlineSize}
+              align={align}
+              styleId={fontStyle}
+              scale={hs}
+              fullWidth
+              longShadow={mode === 'dark'}
+            />
+            <SubHead
+              text={texts.sub}
+              t={heroTheme}
+              s={s}
+              align={align}
+              color={mode === 'light' ? 'rgba(15,23,42,0.84)' : 'rgba(255,255,255,0.92)'}
+            />
+            {showBenefits && benefits.length > 0 && (
+              <BenefitsShowcase
+                items={benefits}
+                t={heroTheme}
+                s={s}
+                mode={benefitStyle === 'auto' ? benefitMode : resolvedBenefitMode}
+                align={align}
+              />
+            )}
+            {adaptiveCta && (
+              <CtaButton
+                label={adaptiveCta}
+                s={s}
+                bg={t.accent}
+                accent2={t.accent2}
+                color={contrastTextOn(t.accent, t.accent2)}
+                align={align}
+              />
+            )}
+            {showQr && (
+              <Dock
+                brand={brand}
+                t={heroTheme}
+                s={s}
+                qrUrl={qrUrl}
+                qrValue={qrValue}
+                qrStyle={qrStyle}
+                size={dockQrSize}
+                qrLabel={qrLabel}
+                displayFont={boardDisplayFont}
+                bodyFont={activeTypo.bodyFont}
+                variant={resolvedDockVariant}
+                brandColors={brandColors}
+                logoUrl={logoUrl}
+                qrMode={qrMode}
+              />
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderSplitScreenHero = ({
+    align = 'left',
+    benefitMode,
+    headlineSize,
+  }: {
+    align?: 'left' | 'center';
+    benefitMode: ResolvedBenefitMode;
+    headlineSize: number;
+  }): ReactElement => {
+    const solidBg = mixHex(t.accent, '#080d19', 0.56);
+    const solidDeep = mixHex(t.accent2, '#04070e', 0.72);
+    const splitIsLight = relativeLuminance(solidBg) > 0.36;
+    const splitTheme: AfficheTheme = {
+      ...t,
+      light: splitIsLight,
+      text: splitIsLight ? '#0b0f18' : '#ffffff',
+      sub: splitIsLight ? 'rgba(15,23,42,0.82)' : 'rgba(241,245,249,0.88)',
+      accent: ensureReadableAccent(t.accent, splitIsLight),
+      accent2: ensureReadableAccent(t.accent2, splitIsLight),
+    };
+
+    return (
       <div
         style={{
           position: 'relative',
-          zIndex: 5,
           width: '100%',
           height: '100%',
-          padding: pad,
-          boxSizing: 'border-box',
           display: 'flex',
           flexDirection: 'column',
-          justifyContent: 'space-between',
-          gap: 8 * s,
+          overflow: 'hidden',
+          background: `radial-gradient(360px 220px at 88% 14%, ${t.accent2}2b, transparent 65%), linear-gradient(175deg, ${solidBg} 0%, ${solidDeep} 100%)`,
         }}
       >
+        {/* Mitad superior: fotografía edge-to-edge con fundido atmosférico hacia el color extraído */}
         <div
           style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
+            position: 'relative',
+            height: isSquare ? '39%' : '45%',
+            width: '100%',
             flexShrink: 0,
-            paddingRight: logoUrl ? 52 * s : 0,
+            overflow: 'hidden',
           }}
         >
-          <Badge text={badge} t={darkPhotoTheme} s={s} align="left" />
-          {topRight}
-        </div>
-        <div style={{ flex: 1, minHeight: isSquare ? 8 * s : 110 * s }} />
-        <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 7 * s }}>
-          <Headline
-            texts={texts}
-            t={darkPhotoTheme}
-            s={s}
-            size={headlineSize}
-            align="left"
-            styleId={fontStyle}
-            scale={hs}
-            fullWidth
-            longShadow={longShadow}
+          <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              background: `linear-gradient(to bottom, rgba(0,0,0,0.32) 0%, transparent 28%, transparent 56%, ${solidBg} 100%)`,
+            }}
           />
-          <SubHead text={texts.sub} t={darkPhotoTheme} s={s} align="left" color="rgba(255,255,255,0.9)" />
-          {showBenefits && benefits.length > 0 && (
-            <BenefitsShowcase
-              items={benefits}
-              t={darkPhotoTheme}
+          <div
+            style={{
+              position: 'relative',
+              zIndex: 4,
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: pad,
+              paddingRight: logoUrl ? pad + 52 * s : pad,
+            }}
+          >
+            <Badge text={badge} t={darkPhotoTheme} s={s} align="left" />
+            {priceOverlay && <PricePill brand={brand} t={darkPhotoTheme} s={s} />}
+          </div>
+        </div>
+
+        {/* Mitad inferior: bloque sólido armonioso tintado con el color dominante de la imagen */}
+        <div
+          style={{
+            flex: 1,
+            minHeight: 0,
+            marginTop: -2 * s,
+            padding: `0 ${pad}px ${pad}px`,
+            boxSizing: 'border-box',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'space-between',
+            gap: isSquare ? 4 * s : 7 * s,
+          }}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: isSquare ? 4 * s : 7 * s }}>
+            <Headline
+              texts={texts}
+              t={splitTheme}
               s={s}
-              mode={benefitStyle === 'auto' ? benefitMode : resolvedBenefitMode}
-              align="left"
+              size={isSquare ? headlineSize - 4 : headlineSize}
+              align={align}
+              styleId={fontStyle}
+              scale={hs}
+              fullWidth
+              longShadow={!splitIsLight}
             />
-          )}
-          {isService && priceLabel && (
-            <CtaButton label={priceLabel} s={s} bg={t.accent} accent2={t.accent2} color={contrastTextOn(t.accent, t.accent2)} />
-          )}
+            <SubHead text={texts.sub} t={splitTheme} s={s} align={align} />
+            {showBenefits && benefits.length > 0 && (
+              <BenefitsShowcase
+                items={benefits}
+                t={splitTheme}
+                s={s}
+                mode={benefitStyle === 'auto' ? benefitMode : resolvedBenefitMode}
+                align={align}
+              />
+            )}
+            {adaptiveCta && (
+              <CtaButton
+                label={adaptiveCta}
+                s={s}
+                bg={t.accent}
+                accent2={t.accent2}
+                color={contrastTextOn(t.accent, t.accent2)}
+                align={align}
+              />
+            )}
+          </div>
           {showQr && (
             <Dock
               brand={brand}
-              t={darkPhotoTheme}
+              t={splitTheme}
               s={s}
               qrUrl={qrUrl}
               qrValue={qrValue}
@@ -2529,839 +2623,79 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
               variant={resolvedDockVariant}
               brandColors={brandColors}
               logoUrl={logoUrl}
+              qrMode={qrMode}
             />
           )}
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
+  const blendWord = (cleanPosterCopy(brand.product || brand.name || 'IMPULSO').split(/\s+/)[0] || 'OFERTA').toUpperCase();
   let body: ReactElement;
   switch (layout) {
-    case 'magazine': {
-      body = renderFullBleedHero({
-        benefitMode: 'editorial',
-        headlineSize: isSquare ? 38 : 48,
-        longShadow: true,
-        topRight: priceOverlay ? <PricePill brand={brand} t={darkPhotoTheme} s={s} /> : null,
-      });
-      break;
-    }
-
-    case 'diagonal': {
-      // Corte Diagonal Fraccionado Flexbox: banda fotográfica superior separada estrictamente de titular + QR
-      body = (
-        <div style={{ position: 'relative', width: '100%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 8 * s }}>
-          <div style={{ position: 'relative', marginLeft: -pad, marginRight: -pad, marginTop: -pad, height: isSquare ? 104 : 258, flexShrink: 0, overflow: 'visible' }}>
-            <div
-              style={{
-                width: '100%',
-                height: '100%',
-                clipPath: 'polygon(0 0, 100% 0, 100% 82%, 0 100%)',
-                overflow: 'hidden',
-                position: 'relative',
-              }}
-            >
-              <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
-              <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(15,23,42,0.34), transparent 38%, rgba(15,23,42,0.52) 100%)' }} />
-            </div>
-            <div style={{ position: 'absolute', top: pad, left: pad, right: pad, display: 'flex', justifyContent: 'space-between', alignItems: 'center', zIndex: 3 }}>
-              <Badge text={badge} t={t} s={s} align="left" />
-            </div>
-            <div
-              style={{
-                position: 'absolute',
-                bottom: 0,
-                left: 0,
-                right: 0,
-                height: 5 * s,
-                background: `linear-gradient(90deg, ${t.accent}, ${t.accent2})`,
-                transform: 'rotate(-2.4deg)',
-                boxShadow: `0 8px 24px ${t.accent}77`,
-                zIndex: 3,
-              }}
-            />
-            {priceOverlay && (
-              <div style={{ position: 'absolute', bottom: 14 * s, right: pad, transform: 'rotate(2.5deg)', zIndex: 5 }}>
-                <PricePill brand={brand} t={t} s={s} />
-              </div>
-            )}
-          </div>
-          <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 6 * s, zIndex: 4 }}>
-            <Headline texts={texts} t={t} s={s} size={isSquare ? 36 : 44} align="left" styleId={fontStyle} scale={hs} />
-            {contentBlocks('left')}
-            {masterDock}
-          </div>
-        </div>
-      );
-      break;
-    }
-
+    case 'swiss':
+    case 'zen':
+    case 'vip':
+    case 'arc':
+    case 'clinic':
+    case 'resort':
+    case 'eco':
+    case 'agro':
+    case 'float':
     case 'polaroid': {
-      // Polaroid 3D Out-of-Bounds: foto inclinada sobresaliendo + sello de precio flotante
-      const fw = (isSquare ? 210 : 340) * s;
-      body = (
-        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 10 * s, height: '100%' }}>
-          <Badge text={badge} t={t} s={s} />
-          <div style={{ display: 'flex', justifyContent: 'center', position: 'relative', overflow: 'visible' }}>
-            <div
-              style={{
-                width: fw,
-                transform: 'rotate(-3deg)',
-                background: '#fcfbf7',
-                borderRadius: 18 * s,
-                padding: 10 * s,
-                boxShadow: `0 26px 52px -10px rgba(0,0,0,0.52), 0 10px 26px ${t.accent}35`,
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 7 * s,
-              }}
-            >
-              <div style={{ height: (isSquare ? 130 : 230) * s, borderRadius: 12 * s, overflow: 'hidden' }}>
-                <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
-              </div>
-              <p style={{ margin: 0, fontSize: 12 * s, fontWeight: 800, color: '#1e293b', textAlign: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {(texts.sub.trim() || brand.product).slice(0, 44)}
-              </p>
-            </div>
-            {priceOverlay && (
-              <div style={{ position: 'absolute', bottom: -10 * s, right: 16 * s, transform: 'rotate(5deg)', zIndex: 4 }}>
-                <PricePill brand={brand} t={t} s={s} />
-              </div>
-            )}
-          </div>
-          <Headline texts={texts} t={t} s={s} size={46} align="center" styleId={fontStyle} scale={hs} />
-          {showBenefits && benefits.length > 0 && (
-            <BenefitsShowcase items={benefits} t={t} s={s} mode={benefitStyle === 'auto' ? 'badges' : resolvedBenefitMode} />
-          )}
-          {masterDock}
-        </div>
-      );
-      break;
-    }
-
-    case 'arc': {
-      body = (
-        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 10 * s, height: '100%' }}>
-          <Badge text={badge} t={t} s={s} />
-          <div
-            style={{
-              flex: 1,
-              minHeight: 0,
-              maxHeight: PHOTO_MAX,
-              position: 'relative',
-              borderRadius: `270px 270px ${26 * s}px ${26 * s}px`,
-              border: `2.5px solid ${t.accent2}cc`,
-              boxShadow: `0 0 0 6px ${t.light ? 'rgba(15,23,42,0.06)' : 'rgba(255,255,255,0.08)'}, 0 24px 50px -10px rgba(0,0,0,0.52)`,
-              overflow: 'hidden',
-            }}
-          >
-            <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
-            {priceOverlay && (
-              <div style={{ position: 'absolute', bottom: 14 * s, right: 14 * s }}>
-                <PricePill brand={brand} t={t} s={s} />
-              </div>
-            )}
-          </div>
-          <Headline texts={texts} t={t} s={s} size={48} align="center" styleId={fontStyle} scale={hs} />
-          {contentBlocks('center')}
-          {masterDock}
-        </div>
-      );
-      break;
-    }
-
-    case 'portal': {
-      const d = (isSquare ? 156 : 250) * s;
-      body = (
-        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 10 * s, height: '100%' }}>
-          <Badge text={badge} t={t} s={s} />
-          <div style={{ display: 'flex', justifyContent: 'center', position: 'relative' }}>
-            <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', width: d + 54 * s, height: d + 54 * s, borderRadius: '50%', border: `1px solid ${t.accent2}44` }} />
-            <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', width: d + 28 * s, height: d + 28 * s, borderRadius: '50%', border: `1.5px dashed ${t.accent}77` }} />
-            <div style={{ position: 'relative', width: d + 16 * s, height: d + 16 * s }}>
-              <div style={{ position: 'absolute', inset: 4 * s, borderRadius: '50%', overflow: 'hidden', border: `3px solid ${t.accent2}`, boxShadow: `0 0 36px ${t.accent}55` }}>
-                <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
-              </div>
-              {priceOverlay && (
-                <div style={{ position: 'absolute', bottom: -8 * s, right: -12 * s, transform: 'rotate(-4deg)' }}>
-                  <PricePill brand={brand} t={t} s={s} />
-                </div>
-              )}
-            </div>
-          </div>
-          <Headline texts={texts} t={t} s={s} size={46} align="center" styleId={fontStyle} scale={hs} />
-          {contentBlocks('center')}
-          {masterDock}
-        </div>
-      );
-      break;
-    }
-
-    case 'swiss': {
-      const line = t.light ? 'rgba(15,23,42,0.18)' : 'rgba(255,255,255,0.20)';
-      body = (
-        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 10 * s, height: '100%' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${line}`, paddingBottom: 8 * s }}>
-            <Badge text={badge} t={t} s={s} align="left" />
-            <span style={{ fontFamily: `"${t.font}", system-ui, sans-serif`, fontSize: 18 * s, fontWeight: 900, color: t.accent2 }}>01 / HOY</span>
-          </div>
-          {photoBlock({ borderRadius: 16 * s, border: `1px solid ${line}` })}
-          <Headline texts={texts} t={t} s={s} size={46} align="left" styleId={fontStyle} scale={hs} fullWidth />
-          {contentBlocks('left')}
-          {masterDock}
-        </div>
-      );
-      break;
-    }
-
-    case 'split': {
-      body = (
-        <div style={{ display: 'flex', gap: 12 * s, height: '100%' }}>
-          <div
-            style={{
-              width: 58 * s,
-              borderRadius: 22 * s,
-              flexShrink: 0,
-              background: `linear-gradient(180deg, ${t.accent}, ${t.accent2})`,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: `${16 * s}px 0`,
-              boxShadow: `0 16px 36px ${t.accent}44`,
-            }}
-          >
-            <span style={{ fontFamily: `"${t.font}", system-ui, sans-serif`, fontSize: 26 * s, fontWeight: 900, color: contrastTextOn(t.accent, t.accent2), transform: 'rotate(90deg)', whiteSpace: 'nowrap', letterSpacing: 2 }}>
-              {(brand.municipality || 'GACHETÁ').toUpperCase()}
-            </span>
-            <span style={{ fontFamily: `"${t.font}", system-ui, sans-serif`, fontSize: 18 * s, fontWeight: 900, color: contrastTextOn(t.accent, t.accent2) }}>01</span>
-          </div>
-          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 10 * s }}>
-            <Badge text={badge} t={t} s={s} align="left" />
-            {photoBlock()}
-            <Headline texts={texts} t={t} s={s} size={44} align="left" styleId={fontStyle} scale={hs} fullWidth />
-            {contentBlocks('left')}
-            {masterDock}
-          </div>
-        </div>
-      );
-      break;
-    }
-
-    case 'brutal': {
-      const hard: CSSProperties = {
-        border: `2.5px solid ${t.light ? '#111827' : '#ffffff'}`,
-        boxShadow: `6px 6px 0 ${t.light ? '#111827' : t.accent2}`,
-        borderRadius: 20 * s,
-      };
-      body = (
-        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 10 * s, height: '100%' }}>
-          <div style={{ ...hard, background: t.accent2, alignSelf: 'flex-start', padding: `${7 * s}px ${16 * s}px`, transform: 'rotate(-1.5deg)' }}>
-            <span style={{ fontFamily: `"${t.font}", system-ui, sans-serif`, fontSize: 12 * s, fontWeight: 900, textTransform: 'uppercase', letterSpacing: 1, color: contrastTextOn(t.accent2) }}>
-              {badge.trim() || 'SELECCIÓN HOY'}
-            </span>
-          </div>
-          <div style={{ ...hard, flex: 1, minHeight: 0, maxHeight: PHOTO_MAX, overflow: 'hidden', position: 'relative' }}>
-            <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
-            {priceOverlay && (
-              <div style={{ position: 'absolute', bottom: 10 * s, right: 10 * s }}>
-                <PricePill brand={brand} t={t} s={s} />
-              </div>
-            )}
-          </div>
-          <Headline texts={texts} t={t} s={s} size={46} align="left" styleId={fontStyle} scale={hs} fullWidth />
-          {contentBlocks('left')}
-          {masterDock}
-        </div>
-      );
-      break;
-    }
-
-    case 'vip': {
-      const orn = t.accent2;
-      body = (
-        <div style={{ height: '100%', border: `1.5px solid ${orn}88`, borderRadius: 24 * s, padding: 8 * s, boxSizing: 'border-box' }}>
-          <div style={{ height: '100%', border: `1px solid ${orn}44`, borderRadius: 18 * s, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 10 * s, padding: 12 * s, boxSizing: 'border-box' }}>
-            <Badge text={badge} t={t} s={s} />
-            {photoBlock({ borderRadius: 20 * s })}
-            <Headline texts={texts} t={t} s={s} size={46} align="center" styleId={fontStyle} scale={hs} />
-            {contentBlocks('center')}
-            {masterDock}
-          </div>
-        </div>
-      );
-      break;
-    }
-
-    case 'cyber': {
-      body = (
-        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 10 * s, height: '100%' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 10 * s, fontWeight: 800, letterSpacing: 2, color: t.accent }}>
-              {(brand.municipality || 'GACHETÁ').toUpperCase()} · EN VIVO
-            </span>
-            <Badge text={badge} t={t} s={s} />
-          </div>
-          {photoBlock({ border: `1px solid ${t.accent2}66` })}
-          <div style={{ ...g.card, borderRadius: 22 * s, borderLeft: `4px solid ${t.accent2}`, padding: `${11 * s}px ${15 * s}px` }}>
-            <Headline texts={texts} t={t} s={s} size={44} align="left" styleId={fontStyle} scale={hs} fullWidth />
-          </div>
-          {contentBlocks('left')}
-          {masterDock}
-        </div>
-      );
-      break;
-    }
-
-    case 'rustic': {
-      body = (
-        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 10 * s, height: '100%' }}>
-          <div style={{ display: 'flex', justifyContent: 'center' }}>
-            <span style={{ border: `1.5px dashed ${t.accent2}`, borderRadius: 999, padding: `${6 * s}px ${16 * s}px`, fontSize: 11 * s, fontWeight: 800, letterSpacing: 2, textTransform: 'uppercase', color: t.text }}>
-              {badge.trim() || 'TRADICIÓN Y CALIDAD LOCAL'}
-            </span>
-          </div>
-          {photoBlock({ border: `4px solid ${t.light ? 'rgba(255,255,255,0.65)' : 'rgba(255,255,255,0.14)'}` })}
-          <Headline texts={texts} t={t} s={s} size={46} align="center" styleId={fontStyle} scale={hs} />
-          {contentBlocks('center')}
-          {masterDock}
-        </div>
-      );
-      break;
-    }
-
-    case 'retail': {
-      body = (
-        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 10 * s, height: '100%', position: 'relative' }}>
-          <div style={{ position: 'absolute', top: 18 * s, right: -46 * s, width: 220 * s, transform: 'rotate(28deg)', background: t.accent2, color: contrastTextOn(t.accent2), textAlign: 'center', padding: `${7 * s}px 0`, fontSize: 11.5 * s, fontWeight: 900, letterSpacing: 2, textTransform: 'uppercase', boxShadow: '0 10px 24px rgba(0,0,0,0.4)', zIndex: 4 }}>
-            {badge.trim() || 'OFERTA HOY'}
-          </div>
-          {photoBlock()}
-          <Headline texts={texts} t={t} s={s} size={48} align="center" styleId={fontStyle} scale={hs} />
-          {contentBlocks('center')}
-          {masterDock}
-        </div>
-      );
-      break;
-    }
-
-    case 'eco': {
-      body = (
-        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 10 * s, height: '100%', position: 'relative' }}>
-          <div style={{ position: 'absolute', top: -40 * s, left: -50 * s, width: 220 * s, height: 220 * s, borderRadius: '50% 50% 46% 54% / 55% 48% 52% 45%', background: `${t.accent2}26` }} />
-          <Badge text={badge} t={t} s={s} />
-          {photoBlock({ borderRadius: '44% 44% 26px 26px / 18% 18% 26px 26px' })}
-          <Headline texts={texts} t={t} s={s} size={46} align="center" styleId={fontStyle} scale={hs} />
-          {contentBlocks('center')}
-          {masterDock}
-        </div>
-      );
-      break;
-    }
-
-    case 'cinema': {
-      body = (
-        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 10 * s, height: '100%' }}>
-          <Badge text={badge} t={t} s={s} />
-          <div style={{ flex: 1, minHeight: 0, maxHeight: PHOTO_MAX, position: 'relative', borderRadius: 22 * s, overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 48px rgba(0,0,0,0.55)' }}>
-            <div style={{ height: 26 * s, background: '#050507' }} />
-            <div style={{ flex: 1, minHeight: 0 }}>
-              <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
-            </div>
-            <div style={{ height: 26 * s, background: '#050507', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <span style={{ fontSize: 8.5 * s, fontWeight: 800, letterSpacing: 3, color: 'rgba(255,255,255,0.68)' }}>
-                {(brand.municipality || 'GACHETÁ').toUpperCase()} · ESTRENO HOY
-              </span>
-            </div>
-            {priceOverlay && (
-              <div style={{ position: 'absolute', bottom: 36 * s, right: 14 * s }}>
-                <PricePill brand={brand} t={t} s={s} />
-              </div>
-            )}
-          </div>
-          <Headline texts={texts} t={t} s={s} size={46} align="center" styleId={fontStyle} scale={hs} />
-          {contentBlocks('center')}
-          {masterDock}
-        </div>
-      );
-      break;
-    }
-
-    case 'float': {
-      // Escena inclinada 3D arriba + bloque tipográfico nítido debajo (cero choques sobre la foto)
-      body = (
-        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 10 * s, height: '100%', position: 'relative' }}>
-          <Badge text={badge} t={t} s={s} />
-          <div style={{ position: 'relative', height: (isSquare ? 158 : 285) * s, flexShrink: 0, overflow: 'visible', padding: `0 ${14 * s}px` }}>
-            <div style={{ position: 'absolute', top: 6 * s, left: '8%', right: '8%', bottom: 6 * s, borderRadius: 26 * s, background: `linear-gradient(135deg, ${t.accent}55, ${t.accent2}55)`, transform: 'rotate(-2.4deg)' }} />
-            <div style={{ position: 'relative', width: '100%', height: '100%', borderRadius: 24 * s, transform: 'rotate(1.6deg)', overflow: 'hidden', boxShadow: `0 24px 48px -10px rgba(0,0,0,0.6), 0 8px 24px ${t.accent}40` }}>
-              <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
-              {priceOverlay && (
-                <div style={{ position: 'absolute', bottom: 10 * s, right: 10 * s, transform: 'rotate(-1.6deg)' }}>
-                  <PricePill brand={brand} t={t} s={s} />
-                </div>
-              )}
-            </div>
-          </div>
-          <Headline texts={texts} t={t} s={s} size={44} align="center" styleId={fontStyle} scale={hs} fullWidth />
-          {contentBlocks('center')}
-          {masterDock}
-        </div>
-      );
-      break;
-    }
-
-    case 'hud': {
-      const corner = (pos: CSSProperties): ReactElement => (
-        <div style={{ position: 'absolute', width: 38 * s, height: 38 * s, borderColor: t.accent2, borderStyle: 'solid', borderWidth: 0, ...pos }} />
-      );
-      body = (
-        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 10 * s, height: '100%', position: 'relative' }}>
-          {corner({ top: 4 * s, left: 4 * s, borderTopWidth: 2.5 * s, borderLeftWidth: 2.5 * s, borderTopLeftRadius: 12 * s })}
-          {corner({ top: 4 * s, right: 4 * s, borderTopWidth: 2.5 * s, borderRightWidth: 2.5 * s, borderTopRightRadius: 12 * s })}
-          <Badge text={badge} t={t} s={s} />
-          {photoBlock({ margin: `0 ${10 * s}px` })}
-          <Headline texts={texts} t={t} s={s} size={46} align="center" styleId={fontStyle} scale={hs} />
-          {contentBlocks('center')}
-          {masterDock}
-        </div>
-      );
-      break;
-    }
-
-    case 'resort': {
-      body = (
-        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 10 * s, height: '100%' }}>
-          <Badge text={badge} t={t} s={s} />
-          {photoBlock({ borderRadius: 28 * s })}
-          <Headline texts={texts} t={t} s={s} size={48} align="center" styleId={fontStyle} scale={hs} />
-          {contentBlocks('center')}
-          {masterDock}
-        </div>
-      );
-      break;
-    }
-
-    case 'menu': {
-      const d = (isSquare ? 164 : 275) * s;
-      body = (
-        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 10 * s, height: '100%', alignItems: 'center', position: 'relative' }}>
-          <Badge text={badge} t={t} s={s} />
-          <div style={{ position: 'relative', width: d, height: d, flexShrink: 0, borderRadius: '50%', padding: 6 * s, background: `linear-gradient(155deg, ${t.accent}, ${t.accent2})`, boxShadow: `0 22px 48px rgba(0,0,0,0.52), 0 0 32px ${t.accent2}55` }}>
-            <div style={{ width: '100%', height: '100%', borderRadius: '50%', overflow: 'hidden' }}>
-              <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
-            </div>
-            {priceOverlay && (
-              <div style={{ position: 'absolute', bottom: 4 * s, right: -24 * s, transform: 'rotate(5deg)' }}>
-                <PricePill brand={brand} t={t} s={s} />
-              </div>
-            )}
-          </div>
-          <Headline texts={texts} t={t} s={s} size={46} align="center" styleId={fontStyle} scale={hs} />
-          {contentBlocks('center')}
-          <div style={{ width: '100%' }}>{masterDock}</div>
-        </div>
-      );
-      break;
-    }
-
-    case 'clinic': {
-      body = (
-        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 10 * s, height: '100%' }}>
-          <Badge text={badge} t={t} s={s} />
-          {photoBlock({ border: '2px solid rgba(255,255,255,0.6)' })}
-          <Headline texts={texts} t={t} s={s} size={46} align="center" styleId={fontStyle} scale={hs} />
-          {contentBlocks('center')}
-          {masterDock}
-        </div>
-      );
-      break;
-    }
-
-    case 'agro': {
-      body = (
-        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 10 * s, height: '100%' }}>
-          <div style={{ background: `repeating-linear-gradient(45deg, #facc15 0 ${16 * s}px, #0f172a ${16 * s}px ${32 * s}px)`, color: '#ffffff', borderRadius: 18 * s, padding: `${9 * s}px ${14 * s}px`, display: 'flex', alignItems: 'center', gap: 10 * s, boxShadow: '0 12px 26px rgba(0,0,0,0.45)' }}>
-            <span style={{ background: '#059669', borderRadius: 999, padding: `${4 * s}px ${10 * s}px`, fontSize: 11 * s, fontWeight: 900, whiteSpace: 'nowrap' }}>SELECCIÓN</span>
-            <span style={{ fontSize: 13 * s, fontWeight: 900, letterSpacing: 1, textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {badge || 'RENDIMIENTO GARANTIZADO'}
-            </span>
-          </div>
-          {photoBlock()}
-          <Headline texts={texts} t={t} s={s} size={48} align="center" styleId={fontStyle} scale={hs} />
-          {contentBlocks('center')}
-          {masterDock}
-        </div>
-      );
-      break;
-    }
-
-    case 'diamond': {
-      const sz = (isSquare ? 176 : 290) * s;
-      body = (
-        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 10 * s, height: '100%', alignItems: 'center' }}>
-          <Badge text={badge} t={t} s={s} />
-          <div style={{ position: 'relative', width: sz, height: sz, flexShrink: 0 }}>
-            <div style={{ width: '100%', height: '100%', clipPath: 'polygon(50% 0%, 100% 26%, 100% 74%, 50% 100%, 0% 74%, 0% 26%)', background: `linear-gradient(160deg, ${t.accent}, ${t.accent2})`, padding: 4 * s }}>
-              <div style={{ width: '100%', height: '100%', clipPath: 'polygon(50% 0%, 100% 26%, 100% 74%, 50% 100%, 0% 74%, 0% 26%)', overflow: 'hidden' }}>
-                <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
-              </div>
-            </div>
-            {priceOverlay && (
-              <div style={{ position: 'absolute', bottom: 4 * s, right: -16 * s }}>
-                <PricePill brand={brand} t={t} s={s} />
-              </div>
-            )}
-          </div>
-          <Headline texts={texts} t={t} s={s} size={44} align="center" styleId={fontStyle} scale={hs} />
-          {contentBlocks('center')}
-          <div style={{ width: '100%' }}>{masterDock}</div>
-        </div>
-      );
-      break;
-    }
-
-    case 'flash': {
-      body = (
-        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 10 * s, height: '100%' }}>
-          <div style={{ transform: 'rotate(-1.8deg)', background: `linear-gradient(90deg, ${t.accent}, ${t.accent2})`, color: contrastTextOn(t.accent, t.accent2), borderRadius: 16 * s, padding: `${9 * s}px ${18 * s}px`, alignSelf: 'center', fontSize: 16 * s, fontWeight: 900, letterSpacing: 1.4, textTransform: 'uppercase', boxShadow: `0 14px 32px ${t.accent}66`, whiteSpace: 'nowrap' }}>
-            {badge || 'OPORTUNIDAD RELÁMPAGO'}
-          </div>
-          {photoBlock()}
-          <Headline texts={texts} t={t} s={s} size={48} align="center" styleId={fontStyle} scale={hs} />
-          {contentBlocks('center')}
-          {masterDock}
-        </div>
-      );
-      break;
-    }
-
-    case 'bento3d': {
-      body = (
-        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 10 * s, height: '100%' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1.48fr 1fr', gap: 10 * s, height: (isSquare ? 185 : 320) * s, flexShrink: 0 }}>
-            <div style={{ position: 'relative', borderRadius: 24 * s, overflow: 'hidden', boxShadow: `0 22px 46px rgba(0,0,0,0.5), 0 0 0 1.5px ${t.accent2}66` }}>
-              <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
-              {priceOverlay && (
-                <div style={{ position: 'absolute', bottom: 10 * s, left: 10 * s }}>
-                  <PricePill brand={brand} t={t} s={s} />
-                </div>
-              )}
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 9 * s }}>
-              {[0, 1].map((idx) => (
-                <div key={idx} style={{ flex: 1, ...g.card, borderRadius: 20 * s, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6 * s, padding: 10 * s }}>
-                  <GlyphIcon kind={idx} size={22 * s} color={t.accent2} />
-                  <span style={{ fontSize: 12 * s, fontWeight: 800, color: t.text, textAlign: 'center', lineHeight: 1.2 }}>
-                    {splitBenefit(benefits[idx] ?? 'Calidad garantizada').body}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-          <Badge text={badge} t={t} s={s} />
-          <Headline texts={texts} t={t} s={s} size={46} align="center" styleId={fontStyle} scale={hs} />
-          <SubHead text={texts.sub} t={t} s={s} align="center" />
-          {masterDock}
-        </div>
-      );
-      break;
-    }
-
-    case 'diagx': {
-      // Split Diagonal Fraccionado: margen estricto tras el corte geométrico sin colisión sobre la foto
-      body = (
-        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 8 * s, height: '100%', position: 'relative' }}>
-          <div style={{ position: 'relative', height: (isSquare ? 166 : 310) * s, flexShrink: 0, overflow: 'visible' }}>
-            <div
-              style={{
-                position: 'absolute',
-                top: -pad,
-                left: -pad,
-                right: -pad,
-                bottom: 0,
-                clipPath: 'polygon(0 0, 100% 0, 100% 72%, 0 100%)',
-                overflow: 'hidden',
-              }}
-            >
-              <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
-              {priceOverlay && (
-                <div style={{ position: 'absolute', bottom: 24 * s, right: 18 * s }}>
-                  <PricePill brand={brand} t={t} s={s} />
-                </div>
-              )}
-            </div>
-          </div>
-          <div style={{ marginTop: 6 * s, position: 'relative', zIndex: 4, display: 'flex', flexDirection: 'column', gap: 8 * s }}>
-            <Badge text={badge} t={t} s={s} align="left" />
-            <Headline texts={texts} t={t} s={s} size={46} align="left" styleId={fontStyle} scale={hs} fullWidth />
-            {contentBlocks('left')}
-          </div>
-          {masterDock}
-        </div>
-      );
-      break;
-    }
-
-    case 'orbits': {
-      // Círculos Intersectados con escenario superior acotado (cero superposición sobre texto)
-      const bigC = (isSquare ? 156 : 290) * s;
-      const smallC = (isSquare ? 104 : 184) * s;
-      body = (
-        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 8 * s, height: '100%', position: 'relative' }}>
-          <div style={{ position: 'relative', height: (isSquare ? 162 : 302) * s, flexShrink: 0 }}>
-            <div style={{ position: 'absolute', top: 0, left: 0, zIndex: 4 }}>
-              <Badge text={badge} t={t} s={s} align="left" />
-            </div>
-            <div style={{ position: 'absolute', top: 4 * s, right: 4 * s, width: bigC, height: bigC, borderRadius: '50%', overflow: 'hidden', border: `${4 * s}px solid ${t.accent2}88`, boxShadow: `0 22px 48px rgba(0,0,0,0.55)` }}>
-              <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
-            </div>
-            <div style={{ position: 'absolute', bottom: 6 * s, left: 4 * s, width: smallC, height: smallC, borderRadius: '50%', background: `linear-gradient(155deg, ${t.accent}, ${t.accent2})`, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', boxShadow: `0 18px 40px ${t.accent}66`, zIndex: 3, padding: 8 * s, boxSizing: 'border-box', textAlign: 'center' }}>
-              <span style={{ fontFamily: `"${boardDisplayFont}", system-ui, sans-serif`, fontSize: (isSquare ? 26 : 42) * s, fontWeight: 900, color: contrastTextOn(t.accent, t.accent2), lineHeight: 1 }}>
-                {showPrice && brand.promoPrice != null ? money(brand.promoPrice) : 'HOY'}
-              </span>
-              {showPrice && brand.normalPrice != null && brand.promoPrice != null && (
-                <span style={{ fontSize: 11 * s, color: contrastTextOn(t.accent, t.accent2), opacity: 0.78, textDecoration: 'line-through', fontWeight: 800 }}>
-                  {money(brand.normalPrice)}
-                </span>
-              )}
-            </div>
-          </div>
-          <div style={{ position: 'relative', zIndex: 4, display: 'flex', flexDirection: 'column', gap: 8 * s }}>
-            <Headline texts={texts} t={t} s={s} size={44} align="left" styleId={fontStyle} scale={hs} fullWidth />
-            {contentBlocks('left')}
-          </div>
-          {masterDock}
-        </div>
-      );
-      break;
-    }
-
-    case 'bleed': {
-      // Tipografía Sangrada Monumental
-      body = (
-        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: '100%', gap: 10 * s }}>
-          <div style={{ flexShrink: 0, margin: `0 ${-24 * s}px`, marginTop: -4 * s }}>
-            <div style={{ width: '112%', marginLeft: '-6%' }}>
-              <Headline texts={texts} t={t} s={s} size={60} align="left" styleId={fontStyle} scale={hs} fullWidth />
-            </div>
-          </div>
-          <div style={{ display: 'flex', flex: 1, minHeight: 0, gap: 12 * s }}>
-            <div style={{ flex: 1.55, borderRadius: 24 * s, overflow: 'hidden', position: 'relative', boxShadow: '0 22px 46px rgba(0,0,0,0.5)' }}>
-              <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
-              {priceOverlay && (
-                <div style={{ position: 'absolute', bottom: 10 * s, left: 10 * s }}>
-                  <PricePill brand={brand} t={t} s={s} />
-                </div>
-              )}
-            </div>
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 * s, justifyContent: 'center' }}>
-              <Badge text={badge} t={t} s={s} align="left" />
-              {showBenefits && benefits.length > 0 && (
-                <BenefitsShowcase items={benefits} t={t} s={s} mode="editorial" align="left" />
-              )}
-            </div>
-          </div>
-          {masterDock}
-        </div>
-      );
-      break;
-    }
-
-    case 'zen': {
-      const line = t.light ? 'rgba(15,23,42,0.16)' : 'rgba(255,255,255,0.18)';
-      body = (
-        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 10 * s, height: '100%' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1.65fr 1fr', gridTemplateRows: '1fr 1fr', gap: 10 * s, height: (isSquare ? 195 : 350) * s, flexShrink: 0 }}>
-            <div style={{ gridRow: 'span 2', border: `1px solid ${line}`, borderRadius: 18 * s, overflow: 'hidden' }}>
-              <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
-            </div>
-            <div style={{ border: `1px solid ${line}`, borderRadius: 18 * s, padding: 12 * s, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-              <p style={{ margin: 0, fontSize: 9.5 * s, fontWeight: 800, letterSpacing: 2.5, textTransform: 'uppercase', color: t.accent2 }}>
-                {badge || 'HOY'}
-              </p>
-              {showPrice && brand.promoPrice != null ? (
-                <span style={{ fontFamily: `"${t.font}", system-ui, sans-serif`, fontSize: 24 * s, fontWeight: 900, color: t.text, lineHeight: 1 }}>
-                  {money(brand.promoPrice)}
-                </span>
-              ) : (
-                <p style={{ margin: 0, fontSize: 13 * s, fontWeight: 800, color: t.text, lineHeight: 1.25 }}>
-                  {splitBenefit(benefits[0] ?? 'Calidad garantizada').body}
-                </p>
-              )}
-            </div>
-            <div style={{ border: `1px solid ${line}`, borderRadius: 18 * s, padding: 12 * s, display: 'flex', flexDirection: 'column', gap: 6 * s, justifyContent: 'center' }}>
-              {benefits.slice(0, 2).map((b, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 7 * s }}>
-                  <GlyphIcon kind={i + 1} size={13 * s} color={t.accent2} />
-                  <span style={{ fontSize: 11 * s, fontWeight: 700, color: t.text, lineHeight: 1.2 }}>{splitBenefit(b).body}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-          <Headline texts={texts} t={t} s={s} size={46} align="left" styleId={fontStyle} scale={hs} fullWidth />
-          {masterDock}
-        </div>
-      );
-      break;
-    }
-
-    case 'immersive': {
-      // V28 · Tipografía Inmersiva Full-Bleed edge-to-edge con degradado negro profundo
-      const blendWord = (cleanPosterCopy(brand.product || brand.name || 'IMPULSO').split(/\s+/)[0] || 'OFERTA').toUpperCase();
       body = renderFullBleedHero({
-        benefitMode: 'callouts',
-        headlineSize: isSquare ? 38 : 50,
-        longShadow: true,
-        watermarkText: blendWord,
-        topRight: priceOverlay ? <PricePill brand={brand} t={darkPhotoTheme} s={s} /> : null,
+        mode: 'light',
+        align: layout === 'swiss' || layout === 'zen' ? 'left' : 'center',
+        benefitMode: layout === 'vip' || layout === 'arc' ? 'editorial' : 'callouts',
+        headlineSize: isSquare ? 36 : 46,
+        showMunicipalityTag: true,
       });
       break;
     }
 
-    case 'collage': {
-      // V22 · Collage Asimétrico: múltiples recuadros superpuestos + texto vertical lateral
-      const verticalTag = cleanPosterCopy(brand.municipality || brand.name || 'IMPULSO').toUpperCase();
-      body = (
-        <div style={{ display: 'flex', height: '100%', gap: 8 * s, position: 'relative' }}>
-          {/* Eje tipográfico vertical lateral */}
-          <div
-            style={{
-              width: 34 * s,
-              flexShrink: 0,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: `${6 * s}px 0`,
-            }}
-          >
-            <span style={{ width: 6 * s, height: 6 * s, borderRadius: '50%', background: t.accent2 }} />
-            <p
-              style={{
-                margin: 0,
-                writingMode: 'vertical-rl',
-                transform: 'rotate(180deg)',
-                fontFamily: `"${boardDisplayFont}", system-ui, sans-serif`,
-                fontSize: 30 * s,
-                fontWeight: 900,
-                letterSpacing: 3 * s,
-                color: t.text,
-                opacity: 0.34,
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {verticalTag}
-            </p>
-            <span style={{ width: 1.5 * s, height: 48 * s, background: `linear-gradient(180deg, ${t.accent2}, transparent)` }} />
-          </div>
-
-          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 9 * s }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Badge text={badge} t={t} s={s} align="left" />
-            </div>
-
-            {/* Escenario collage multi-foto asimétrico */}
-            <div style={{ position: 'relative', height: (isSquare ? 168 : 300) * s, flexShrink: 0, overflow: 'visible' }}>
-              {/* Foto principal */}
-              <div
-                style={{
-                  position: 'absolute',
-                  top: 6 * s,
-                  right: 4 * s,
-                  width: '72%',
-                  height: '86%',
-                  borderRadius: 20 * s,
-                  transform: 'rotate(1.8deg)',
-                  overflow: 'hidden',
-                  boxShadow: `0 22px 46px rgba(0,0,0,0.52), 0 0 0 1.5px ${t.accent2}66`,
-                }}
-              >
-                <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
-              </div>
-              {/* Foto secundaria arriba izquierda */}
-              <div
-                style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  width: '44%',
-                  height: '52%',
-                  borderRadius: 16 * s,
-                  transform: 'rotate(-4deg)',
-                  overflow: 'hidden',
-                  border: `2.5px solid ${t.accent2}`,
-                  boxShadow: '0 18px 34px rgba(0,0,0,0.55)',
-                  zIndex: 2,
-                }}
-              >
-                <Photo url={photo2} zoom={1.08} posY={0.45} />
-              </div>
-              {/* Foto detalle inferior izquierda */}
-              <div
-                style={{
-                  position: 'absolute',
-                  bottom: 0,
-                  left: '14%',
-                  width: '36%',
-                  height: '42%',
-                  borderRadius: 14 * s,
-                  transform: 'rotate(-2deg)',
-                  overflow: 'hidden',
-                  border: '2px solid rgba(255,255,255,0.6)',
-                  boxShadow: '0 16px 32px rgba(0,0,0,0.5)',
-                  zIndex: 3,
-                }}
-              >
-                <Photo url={photo3} zoom={1.12} posY={0.5} />
-              </div>
-              {priceOverlay && (
-                <div style={{ position: 'absolute', bottom: -6 * s, right: 6 * s, zIndex: 5 }}>
-                  <PricePill brand={brand} t={t} s={s} />
-                </div>
-              )}
-            </div>
-
-            <Headline texts={texts} t={t} s={s} size={44} align="left" styleId={fontStyle} scale={hs} fullWidth />
-            {showBenefits && benefits.length > 0 && (
-              <BenefitsShowcase
-                items={benefits}
-                t={t}
-                s={s}
-                mode={benefitStyle === 'auto' ? 'watermark' : resolvedBenefitMode}
-                align="left"
-              />
-            )}
-            {masterDock}
-          </div>
-        </div>
-      );
+    case 'split':
+    case 'diagonal':
+    case 'diagx':
+    case 'collage':
+    case 'cyber':
+    case 'bento3d':
+    case 'brutal':
+    case 'retail':
+    case 'diamond':
+    case 'flash':
+    case 'hud':
+    case 'menu':
+    case 'rustic': {
+      body = renderSplitScreenHero({
+        align: layout === 'retail' || layout === 'diamond' || layout === 'flash' || layout === 'menu' ? 'center' : 'left',
+        benefitMode: layout === 'diagonal' || layout === 'cyber' ? 'ribbons' : 'callouts',
+        headlineSize: isSquare ? 36 : 44,
+      });
       break;
     }
 
-    default: {
-      // 'bento' / Full-Bleed Inmersivo V28: imagen 100% sin marco blanco + degradado negro profundo y QR protagonista
+    case 'immersive':
+    case 'cinema':
+    case 'bleed': {
       body = renderFullBleedHero({
-        benefitMode: 'bento',
-        headlineSize: isSquare ? 38 : 50,
-        longShadow: true,
-        topRight: priceOverlay ? (
-          <PricePill brand={brand} t={darkPhotoTheme} s={s} />
-        ) : (
-          <span
-            style={{
-              fontSize: 10 * s,
-              fontWeight: 800,
-              letterSpacing: 1.8,
-              color: 'rgba(255,255,255,0.86)',
-              textTransform: 'uppercase',
-              textShadow: '0 2px 10px rgba(0,0,0,0.9)',
-            }}
-          >
-            {(brand.municipality || 'Gachetá').toUpperCase()}
-          </span>
-        ),
+        mode: t.light ? 'light' : 'dark',
+        align: 'left',
+        benefitMode: 'callouts',
+        headlineSize: isSquare ? 38 : 48,
+        watermarkText: layout === 'immersive' ? blendWord : undefined,
+      });
+      break;
+    }
+
+    case 'magazine':
+    default: {
+      body = renderFullBleedHero({
+        mode: t.light ? 'light' : 'dark',
+        align: layout === 'portal' || layout === 'orbits' ? 'center' : 'left',
+        benefitMode: layout === 'magazine' ? 'editorial' : 'bento',
+        headlineSize: isSquare ? 38 : 48,
+        showMunicipalityTag: layout === 'bento',
       });
       break;
     }
@@ -3383,8 +2717,7 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
         overflow: 'hidden',
       }}
     >
-      {!isEdgeToEdge && <ScenicBg url={photoUrl} t={t} />}
-      <div style={{ position: 'relative', width: '100%', height: '100%', padding: isEdgeToEdge ? 0 : pad, boxSizing: 'border-box' }}>
+      <div style={{ position: 'relative', width: '100%', height: '100%', boxSizing: 'border-box' }}>
         {body}
         {/* Logo en esquina estratégica del Póster Maestro (nunca inventa caja vacía si no hay logoUrl) */}
         {logoUrl && (
@@ -3392,13 +2725,13 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
             style={{
               position: 'absolute',
               top: pad,
-              ...(layout === 'retail' || layout === 'hud' ? { left: pad } : { right: pad }),
+              right: pad,
               zIndex: 12,
               padding: 4 * s,
               borderRadius: 12 * s,
-              background: isEdgeToEdge || !t.light ? 'rgba(8,12,24,0.62)' : 'rgba(255,255,255,0.72)',
+              background: 'rgba(8,12,24,0.62)',
               backdropFilter: 'blur(12px)',
-              border: `1px solid ${isEdgeToEdge || !t.light ? 'rgba(255,255,255,0.22)' : 'rgba(15,23,42,0.12)'}`,
+              border: '1px solid rgba(255,255,255,0.22)',
               boxShadow: '0 8px 20px rgba(0,0,0,0.35)',
               pointerEvents: 'none',
             }}

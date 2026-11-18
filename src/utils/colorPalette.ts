@@ -169,12 +169,14 @@ export async function extractPaletteFromImage(
     const buckets = new Map<string, Bucket>();
     const step = 24;
 
+    const allVisible: RgbColor[] = [];
     for (let i = 0; i < data.length; i += 4) {
       const a = data[i + 3];
       if (a < 120) continue;
       const r = data[i];
       const g = data[i + 1];
       const b = data[i + 2];
+      allVisible.push({ r, g, b });
       const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
       // Filtra blancos y negros extremos de relleno para capturar los colores reales de la marca
       if (lum > 0.95 || lum < 0.04) continue;
@@ -193,6 +195,23 @@ export async function extractPaletteFromImage(
       cur.weight += weight;
       cur.count += 1;
       buckets.set(key, cur);
+    }
+
+    if (buckets.size === 0 && allVisible.length > 0) {
+      const avg = allVisible.reduce(
+        (acc, px) => ({ r: acc.r + px.r, g: acc.g + px.g, b: acc.b + px.b }),
+        { r: 0, g: 0, b: 0 },
+      );
+      const primaryAvg = rgbToHex(avg.r / allVisible.length, avg.g / allVisible.length, avg.b / allVisible.length);
+      const accentAvg = mixHex(primaryAvg, relativeLuminance(primaryAvg) > 0.45 ? '#0f172a' : '#38bdf8', 0.38);
+      const secondaryAvg = mixHex(primaryAvg, accentAvg, 0.5);
+      return {
+        primary: primaryAvg,
+        accent: accentAvg,
+        secondary: secondaryAvg,
+        colors: [primaryAvg, accentAvg, secondaryAvg],
+        source,
+      };
     }
 
     if (buckets.size === 0) return null;

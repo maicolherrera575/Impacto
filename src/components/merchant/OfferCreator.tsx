@@ -4,7 +4,8 @@ import type { OfferForm, Profile } from '../../types';
 import { CATEGORIES, DURATION_OPTIONS, DELIVERY_TYPES } from '../../types';
 import { ModalShell } from '../ui/ModalShell';
 import { useToast } from '../ui/Toast';
-import { detectFraudSignals, FRAUD_MESSAGE, parsePromoFromText } from '../../services/gemini.service';
+import { parsePromoFromText } from '../../services/gemini.service';
+import { validateOfferSecurity } from '../../utils/securityFilter';
 import { publishOffer } from '../../services/offers.service';
 import { friendlyError } from '../../services/supabase';
 import { compressImageToMicroWebP, compressionSummary } from '../../services/imageCompressor';
@@ -145,7 +146,11 @@ export function OfferCreator({ open, onClose, profile, onPublished, initialForm 
 
     if (title.length < 3 || title.length > 90) { setErrorMsg('El título debe tener entre 3 y 90 caracteres'); return; }
     if (description.length < 5 || description.length > 280) { setErrorMsg('La descripción debe tener entre 5 y 280 caracteres'); return; }
-    if (detectFraudSignals(`${title} ${description}`)) { setErrorMsg(FRAUD_MESSAGE); return; }
+    const sec = validateOfferSecurity(`${title} ${description}`);
+    if (!sec.ok) {
+      setErrorMsg(sec.reason);
+      return;
+    }
     if (!Number.isFinite(promo) || promo < 0) { setErrorMsg('Escribe el precio de oferta'); return; }
     if (!Number.isInteger(quota) || quota < 1 || quota > 500) { setErrorMsg('El cupo debe estar entre 1 y 500'); return; }
     if (profile.credits < 1) { setErrorMsg('No tienes créditos. Recarga con el administrador 💚'); return; }
@@ -237,12 +242,19 @@ export function OfferCreator({ open, onClose, profile, onPublished, initialForm 
           </p>
         )}
 
-        <div className="mt-4 space-y-3">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void publish();
+          }}
+          className="mt-4 space-y-3"
+        >
           {/* Emoji */}
           <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
             {EMOJI_CHOICES.map((e) => (
               <button
                 key={e}
+                type="button"
                 onClick={() => patch({ emoji_icon: e })}
                 className={cx(
                   'pressable grid h-10 w-10 shrink-0 place-items-center rounded-xl border text-xl',
@@ -261,6 +273,7 @@ export function OfferCreator({ open, onClose, profile, onPublished, initialForm 
             {CATEGORIES.map((c) => (
               <button
                 key={c.id}
+                type="button"
                 onClick={() => patch({ category: c.id })}
                 className={cx(
                   'pressable shrink-0 rounded-full border px-3.5 py-2 text-xs font-bold',
@@ -317,6 +330,7 @@ export function OfferCreator({ open, onClose, profile, onPublished, initialForm 
             <div className="relative overflow-hidden rounded-2xl border border-white/10">
               <img src={form.image_thumb} alt="Foto del producto" className="h-36 w-full object-cover" />
               <button
+                type="button"
                 onClick={() => patch({ image_thumb: null })}
                 title="Quitar foto"
                 aria-label="Quitar foto"
@@ -386,7 +400,7 @@ export function OfferCreator({ open, onClose, profile, onPublished, initialForm 
           )}
 
           <button
-            onClick={publish}
+            type="submit"
             disabled={publishing}
             className="pressable flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-impulso-emerald to-teal-600 py-4 text-base font-extrabold text-white shadow-glow disabled:opacity-60"
           >
@@ -401,7 +415,7 @@ export function OfferCreator({ open, onClose, profile, onPublished, initialForm 
           <p className="text-center text-[11px] text-slate-500">
             Créditos disponibles: <span className="font-bold text-slate-300">{profile.credits}</span>
           </p>
-        </div>
+        </form>
       </div>
     </ModalShell>
   );
