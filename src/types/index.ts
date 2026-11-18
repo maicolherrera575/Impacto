@@ -15,6 +15,22 @@ export type Category =
 export type OfferStatus = 'active' | 'sold_out' | 'expired' | 'cancelled';
 export type ReservationStatus = 'pending' | 'completed' | 'released';
 export type UserRole = 'client' | 'merchant' | 'admin';
+export type TrustLevel = 'new' | 'verified' | 'super';
+
+/** Resuelve el nivel de confianza escalado del comercio (Nivel 1: new, Nivel 2: verified, Nivel 3: super). */
+export function resolveTrustLevel(
+  merchant?: {
+    trust_level?: TrustLevel | null;
+    is_verified?: boolean;
+    lifetime_orders_count?: number;
+  } | null,
+): TrustLevel {
+  if (!merchant) return 'new';
+  if (merchant.trust_level === 'super') return 'super';
+  if (merchant.is_verified && (merchant.lifetime_orders_count ?? 0) >= 20) return 'super';
+  if (merchant.trust_level === 'verified' || merchant.is_verified) return 'verified';
+  return 'new';
+}
 
 /** Modalidad de entrega segura elegida por el comerciante. */
 export type DeliveryType = 'local_fisico' | 'parque_principal' | 'domicilio';
@@ -73,6 +89,8 @@ export interface MerchantSummary {
   id: string;
   business_name: string;
   is_verified: boolean;
+  trust_level?: TrustLevel;
+  lifetime_orders_count?: number;
   is_active: boolean;
   is_suspended: boolean;
   category: Category;
@@ -95,6 +113,8 @@ export interface Profile {
   lng: number | null;
   credits: number;
   is_verified: boolean;
+  /** 🛡️ V35 · Nivel de confianza escalado (new | verified | super). */
+  trust_level?: TrustLevel;
   /** 🪪 V20 · Estado del blindaje KYB (none | pending | approved | rejected). */
   kyb_status?: string | null;
   is_active: boolean;

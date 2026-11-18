@@ -1,6 +1,6 @@
-import { MessageSquareShare, Share2, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { BadgeCheck, Crown, MessageSquareShare, Share2, ShieldAlert, ShieldCheck } from 'lucide-react';
 import type { Offer } from '../../types';
-import { categoryMeta } from '../../types';
+import { categoryMeta, resolveTrustLevel } from '../../types';
 import { countdownText, cx, formatCOP, ratingAvg } from '../../utils/format';
 import { distanceText } from '../../utils/geo';
 import { useTick } from '../../hooks/useTick';
@@ -34,12 +34,15 @@ export function OfferCard({ offer, distance, onOpen, onShare, onStatus, onReport
   const remaining = offer.available_quota;
   const pct = offer.total_quota > 0 ? Math.round((remaining / offer.total_quota) * 100) : 0;
   const cat = categoryMeta(offer.category);
+  const trustLevel = resolveTrustLevel(merchant);
 
   return (
     <article
       className={cx(
         'card-lift relative overflow-hidden rounded-3xl border border-white/[0.08] bg-impulso-card p-4 shadow-card transition-all duration-300 hover:border-impulso-emerald/25',
         countdown.urgent && 'border-impulso-rose/25',
+        trustLevel === 'super' &&
+          'border-impulso-gold/65 ring-1 ring-impulso-gold/30 shadow-[0_0_28px_-6px_rgba(245,158,11,0.32)]',
         isNew && 'border-impulso-emerald/70 ring-2 ring-impulso-emerald/45 shadow-glow animate-pulse-soft'
       )}
     >
@@ -116,20 +119,40 @@ export function OfferCard({ offer, distance, onOpen, onShare, onStatus, onReport
                 {merchant?.business_name ?? 'Comercio local'}
               </span>
             )}
-            {merchant?.is_verified ? (
-              <span className="flex items-center gap-0.5 font-semibold text-impulso-mint" title="Negocio verificado">
-                <ShieldCheck className="h-3.5 w-3.5" />
-                <span aria-hidden="true">✅</span>
+            {trustLevel === 'super' ? (
+              <span
+                className="inline-flex items-center gap-1 rounded-full border border-impulso-gold/45 bg-impulso-gold/15 px-2 py-0.5 text-[10px] font-extrabold text-impulso-gold"
+                title="Nivel 3 · Súper Comercio con trayectoria impecable"
+              >
+                <Crown className="h-3 w-3" />
+                Súper Comercio
+              </span>
+            ) : trustLevel === 'verified' ? (
+              <span
+                className="inline-flex items-center gap-1 rounded-full bg-sky-500/20 px-2 py-0.5 text-[10px] font-extrabold text-sky-300 ring-1 ring-sky-400/40"
+                title="Nivel 2 · Comercio Verificado con RUT/Cédula"
+              >
+                <BadgeCheck className="h-3.5 w-3.5 fill-sky-500 text-slate-950" />
+                Verificado
               </span>
             ) : (
-              <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-semibold text-slate-400" title="Comercio en proceso de verificación">
-                En verificación
+              <span
+                className="rounded-full border border-amber-400/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-300"
+                title="Nivel 1 · Comercio Nuevo"
+              >
+                Comercio Nuevo
               </span>
             )}
             <span className="flex items-center gap-0.5 font-bold text-impulso-gold">
               ⭐ {ratingAvg(merchant?.rating_sum ?? 5, merchant?.rating_count ?? 1)}
             </span>
           </div>
+
+          {trustLevel === 'new' && (
+            <p className="mt-2 rounded-xl border border-amber-400/25 bg-amber-500/10 px-2.5 py-1.5 text-[11px] font-semibold leading-snug text-amber-200/95">
+              ⚠️ Comercio Nuevo: Para tu seguridad, Impulso recomienda pagar únicamente al recibir el producto o servicio.
+            </p>
+          )}
 
           {/* Precios */}
           <div className="mt-1.5 flex items-baseline gap-2">

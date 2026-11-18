@@ -1,12 +1,12 @@
 import { supabase } from './supabase';
-import { getDeviceId } from './deviceFingerprint';
+import { computeDeviceFingerprintSha256, getDeviceId } from './deviceFingerprint';
 import { getEdgeClientIp } from './ip.service';
 import { pruneStorageUrls } from './storagePruning.service';
 import { validateOfferSecurity } from '../utils/securityFilter';
 import type { Category, Offer } from '../types';
 
 const MERCHANT_EMBED =
-  'merchant:merchant_id (id, business_name, is_verified, is_active, is_suspended, category, whatsapp, municipality, logo_thumb, rating_sum, rating_count)';
+  'merchant:merchant_id (id, business_name, is_verified, lifetime_orders_count, is_active, is_suspended, category, whatsapp, municipality, logo_thumb, rating_sum, rating_count)';
 
 /** Ofertas activas y vigentes (para el radar público). */
 export async function fetchActiveOffers(municipality?: string): Promise<Offer[]> {
@@ -97,7 +97,8 @@ export async function publishOffer(input: PublishOfferInput): Promise<Offer> {
   if (!sec.ok) {
     throw new Error(sec.reason);
   }
-  const { data, error } = await supabase.rpc('publish_offer_rpc', {
+  const deviceFp = await computeDeviceFingerprintSha256();
+  const baseParams = {
     p_category: input.category,
     p_title: input.title,
     p_description: input.description,
@@ -111,9 +112,15 @@ export async function publishOffer(input: PublishOfferInput): Promise<Offer> {
     p_lng: input.lng,
     p_image_thumb: input.imageThumb ?? null,
     p_delivery_type: input.deliveryType ?? 'local_fisico',
-  });
+  };
+  const { data, error } = await supabase.rpc('publish_offer_rpc', baseParams);
   if (error) throw error;
-  return data as unknown as Offer;
+  const created = data as unknown as Offer;
+  if (created?.id && deviceFp) {
+    // Registra silenciosamente la huella forense SHA-256 en la oferta creada
+    void supabase.from('offers').update({ device_id: deviceFp }).eq('id', created.id).then(() => undefined, () => undefined);
+  }
+  return created;
 }
 
 export interface ReportResult {
@@ -135,12 +142,12 @@ export async function reportOffer(
   reason: string,
   detail?: string | null
 ): Promise<ReportResult> {
-  const edgeIp = await getEdgeClientIp();
+  const [edgeIp, deviceFp] = await Promise.all([getEdgeClientIp(), computeDeviceFingerprintSha256()]);
   const baseParams = {
     p_offer_id: offerId,
     p_reason: reason,
     p_detail: detail ?? null,
-    p_device_id: getDeviceId(),
+    p_device_id: deviceFp || getDeviceId(),
   };
   let { data, error } = await supabase.rpc('report_offer_rpc', {
     ...baseParams,

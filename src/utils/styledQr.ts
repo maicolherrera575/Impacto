@@ -235,7 +235,12 @@ export async function generateStyledQrDataUrl(options: StyledQrOptions): Promise
   const clearRadiusCells = logoImg ? n * 0.145 : 0;
 
   // 1. Dibujar módulos de datos (saltando ojos y, solo si hay logo real, el centro reservado)
-  const moduleDarkInk = isLight ? palette.dark : '#f8fafc';
+  const brandSecondaryRaw = options.brandColors?.secondary || options.brandColors?.primary;
+  const brandSecondaryDark = brandSecondaryRaw ? mixHex(brandSecondaryRaw, '#060a14', 0.52) : palette.dark;
+  const brandLuminousModule = options.brandColors
+    ? mixHex('#f8fafc', options.brandColors.secondary || options.brandColors.accent, 0.22)
+    : '#f8fafc';
+  const moduleDarkInk = isLight ? brandSecondaryDark : brandLuminousModule;
   const moduleEyeInk = isLight
     ? palette.eye
     : relativeLuminance(palette.eye) < 0.62
@@ -249,10 +254,10 @@ export async function generateStyledQrDataUrl(options: StyledQrOptions): Promise
       grad.addColorStop(0.55, '#fde68a');
       grad.addColorStop(1, '#ffffff');
       ctx.fillStyle = grad;
-    } else if (style === 'cyber') {
+    } else if (style === 'cyber' || options.brandColors) {
       const grad = ctx.createLinearGradient(0, 0, size, size);
-      grad.addColorStop(0, '#ecfeff');
-      grad.addColorStop(1, mixHex('#ffffff', options.brandColors?.accent ?? '#22d3ee', 0.28));
+      grad.addColorStop(0, '#ffffff');
+      grad.addColorStop(1, mixHex('#ffffff', options.brandColors?.accent ?? '#22d3ee', 0.30));
       ctx.fillStyle = grad;
     } else {
       ctx.fillStyle = moduleDarkInk;
@@ -260,12 +265,12 @@ export async function generateStyledQrDataUrl(options: StyledQrOptions): Promise
   } else if (style === 'luxury') {
     const grad = ctx.createLinearGradient(0, 0, size, size);
     grad.addColorStop(0, options.brandColors ? palette.eye : '#9a6b06');
-    grad.addColorStop(0.55, '#1e1608');
+    grad.addColorStop(0.55, brandSecondaryDark);
     grad.addColorStop(1, '#0b0a0c');
     ctx.fillStyle = grad;
   } else if (style === 'cyber') {
     const grad = ctx.createLinearGradient(0, 0, size, size);
-    grad.addColorStop(0, options.brandColors ? palette.dark : '#062c43');
+    grad.addColorStop(0, brandSecondaryDark);
     grad.addColorStop(1, options.brandColors ? palette.eye : '#3b0764');
     ctx.fillStyle = grad;
   } else {

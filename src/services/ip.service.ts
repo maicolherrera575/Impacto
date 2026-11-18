@@ -5,6 +5,10 @@
  * la IP pública real del usuario (y no la del último nodo proxy).
  */
 
+import { computeDeviceFingerprintSha256, getDeviceId } from './deviceFingerprint';
+
+export { computeDeviceFingerprintSha256, getDeviceId };
+
 interface IpCache {
   ip: string;
   fetchedAt: number;

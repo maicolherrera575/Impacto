@@ -132,14 +132,18 @@ export function MerchantProfileModal({ merchant, offers, geoPos, onClose, onFocu
                 </div>
               )}
               <div className="min-w-0 flex-1">
-                {merchant.is_verified ? (
-                  <span className="flex items-center gap-1.5 rounded-full bg-impulso-emerald/15 px-2.5 py-1 text-[11px] font-extrabold text-impulso-mint">
-                    <ShieldCheck className="h-3.5 w-3.5" />
-                    Comercio Verificado en Impulso
+                {merchant.trust_level === 'super' || (merchant.is_verified && (merchant.lifetime_orders_count ?? 0) >= 20) ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-impulso-gold/45 bg-impulso-gold/15 px-2.5 py-1 text-[11px] font-extrabold text-impulso-gold">
+                    👑 Súper Comercio · Historial Impecable
+                  </span>
+                ) : merchant.is_verified || merchant.trust_level === 'verified' ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-sky-500/20 px-2.5 py-1 text-[11px] font-extrabold text-sky-300 ring-1 ring-sky-400/40">
+                    <ShieldCheck className="h-3.5 w-3.5 text-sky-400" />
+                    ✓ Comercio Verificado en Impulso
                   </span>
                 ) : (
-                  <span className="rounded-full bg-impulso-gold/10 px-2.5 py-1 text-[11px] font-bold text-amber-200/90">
-                    🛡️ En verificación local
+                  <span className="rounded-full border border-amber-400/30 bg-amber-500/10 px-2.5 py-1 text-[11px] font-bold text-amber-200/95">
+                    ⚠️ Comercio Nuevo · Paga al recibir
                   </span>
                 )}
                 <h2 className="mt-1.5 truncate text-xl font-extrabold leading-tight text-white">

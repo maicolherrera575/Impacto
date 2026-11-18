@@ -1471,13 +1471,13 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
           </div>
         )}
 
-        {/* ═══ Pestaña 4 · Bandeja del Conserje Inteligente (support_tickets) ═══ */}
+        {/* ═══ Pestaña 4 · Bandeja del Asistente Radar (support_tickets) ═══ */}
         {tab === 'soporte' && (
           <div className="space-y-3 p-4">
             <div className="rounded-3xl border border-impulso-emerald/25 bg-impulso-panel p-4">
-              <p className="text-sm font-extrabold text-impulso-mint">🛠️ Bandeja de Soporte Técnico (Conserje)</p>
+              <p className="text-sm font-extrabold text-impulso-mint">🛠️ Bandeja de Soporte y Seguridad (Radar)</p>
               <p className="mt-1 text-xs leading-relaxed text-slate-400">
-                Reportes técnicos y casos escalados automáticamente desde el Conserje de clientes y comercios.
+                Reportes técnicos y alertas de fraude escalados automáticamente desde Radar por clientes y comercios.
               </p>
             </div>
 

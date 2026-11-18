@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Copy, Loader2, Map } from 'lucide-react';
+import { Copy, Loader2, Map, ShieldBan } from 'lucide-react';
 import { ModalShell } from '../ui/ModalShell';
 import { useToast } from '../ui/Toast';
+import { adminBlockClient } from '../../services/admin.service';
+import { friendlyError } from '../../services/supabase';
 
 export interface ForensicData {
   customerName: string;
@@ -55,6 +57,31 @@ export function ForensicInspector({ data, onClose }: { data: ForensicData | null
   const toast = useToast();
   const [geo, setGeo] = useState<GeoResult | null>(null);
   const [loading, setLoading] = useState(false);
+  const [blockingFp, setBlockingFp] = useState(false);
+
+  const isCgnatLikely = Boolean(
+    geo &&
+      (/claro|comcel|movistar|telefonica|tigo|une|colombia\s+movil|wom|avantel|etb/i.test(geo.isp) ||
+        /bogot[aá]|soacha|medell[ií]n|cali/i.test(geo.city)),
+  );
+
+  async function blockByFingerprint() {
+    if (!data?.deviceId || blockingFp) return;
+    setBlockingFp(true);
+    try {
+      await adminBlockClient({
+        phone: data.phone || null,
+        deviceId: data.deviceId,
+        clientIp: null,
+        reason: `Bloqueo Forense por Device Fingerprint (${data.deviceId})`,
+      });
+      toast.success(`🔒 Dispositivo ${data.deviceId} bloqueado permanentemente (independiente de cambio de IP móvil)`);
+    } catch (err) {
+      toast.error(friendlyError(err));
+    } finally {
+      setBlockingFp(false);
+    }
+  }
 
   useEffect(() => {
     if (!data) return;
@@ -175,6 +202,12 @@ export function ForensicInspector({ data, onClose }: { data: ForensicData | null
             )}
             <Row label="📡 Operador / ISP" value={geo.isp} />
             <Row label="🏙️ Ubicación de red" value={`${geo.city}, ${geo.region}, ${geo.country}`} />
+            {isCgnatLikely && (
+              <p className="mt-2 rounded-xl border border-amber-400/30 bg-amber-500/10 p-2.5 text-[11px] font-semibold leading-relaxed text-amber-200">
+                ⚠️ Nodo CGNAT Móvil detectado ({geo.city}): en datos móviles varios usuarios comparten IP. Usa el bloqueo por
+                <strong> Huella Digital ({data.deviceId ?? 'fp_...'})</strong> abajo para impedir el acceso desde ese teléfono o navegador aunque cambie de red.
+              </p>
+            )}
           </div>
         ) : (
           <p className="mt-4 rounded-2xl border border-white/10 bg-slate-950/40 p-3 text-xs font-semibold text-slate-400">
@@ -199,6 +232,18 @@ export function ForensicInspector({ data, onClose }: { data: ForensicData | null
           <p className="mt-3 rounded-2xl border border-white/10 bg-slate-950/40 p-3 text-[11px] font-semibold text-slate-500">
             Este usuario no compartió GPS y su IP no tiene coordenadas públicas.
           </p>
+        )}
+
+        {data.deviceId && (
+          <button
+            type="button"
+            onClick={() => void blockByFingerprint()}
+            disabled={blockingFp}
+            className="pressable mt-3 flex w-full items-center justify-center gap-2 rounded-2xl border border-impulso-rose/45 bg-impulso-rose/15 py-3 text-sm font-extrabold text-impulso-rose disabled:opacity-50"
+          >
+            {blockingFp ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldBan className="h-4 w-4" />}
+            🔒 Bloquear por Huella Digital ({data.deviceId.slice(0, 14)}…)
+          </button>
         )}
 
         <button

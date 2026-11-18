@@ -1202,8 +1202,8 @@ function QrOrganicToken({
   const panelBorder = isLuxury
     ? '1px solid rgba(251, 191, 36, 0.45)'
     : isLight
-      ? '1px solid rgba(15, 23, 42, 0.12)'
-      : '1px solid rgba(255, 255, 255, 0.14)';
+      ? '1px solid rgba(15, 23, 42, 0.14)'
+      : '1px solid rgba(255, 255, 255, 0.20)';
 
   return (
     <div
@@ -1214,14 +1214,14 @@ function QrOrganicToken({
         maxHeight: '100%',
         flexShrink: 0,
         padding: framePad,
-        borderRadius: isCyber ? 8 * s : 16 * s,
+        borderRadius: isCyber ? 16 * s : 24 * s,
         clipPath: cyberClip,
         background: panelBg,
-        backdropFilter: 'blur(20px) saturate(140%)',
+        backdropFilter: 'blur(28px) saturate(155%)',
         border: panelBorder,
         boxShadow: isLight
           ? '0 10px 24px -8px rgba(15,23,42,0.12)'
-          : `0 12px 28px -8px rgba(0,0,0,0.45), 0 0 ${16 * s}px ${t.accent2}20`,
+          : `0 14px 32px -8px rgba(0,0,0,0.52), 0 0 ${18 * s}px var(--color-accent, ${t.accent2})28`,
         boxSizing: 'border-box',
         display: 'flex',
         alignItems: 'center',
@@ -1711,10 +1711,13 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
   const brandColors = brandPalette
     ? { primary: brandPalette.primary, accent: brandPalette.accent, secondary: brandPalette.secondary }
     : null;
+  const dominantDark = mixHex(brandPalette?.primary ?? t.accent, '#02040a', 0.72);
+  const fullBleedBrandGradient = `linear-gradient(to top, ${dominantDark}fa 0%, rgba(0,0,0,0.62) 52%, transparent 94%)`;
   const cssBrandVars = {
     '--color-primary': t.accent,
     '--color-accent': t.accent2,
-    '--color-secondary': brandPalette?.secondary ?? t.accent2,
+    '--color-secondary': brandPalette?.secondary ?? mixHex(t.accent, '#0f172a', 0.5),
+    '--color-dominant-dark': dominantDark,
   } as CSSProperties;
   const activeTypo = AFFICHE_TYPOS.find((x) => x.id === fontStyle) ?? AFFICHE_TYPOS[0];
   const boardBodyFont = `"${activeTypo.bodyFont}", system-ui, -apple-system, sans-serif`;
@@ -2361,8 +2364,7 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
     editorialAccentRule?: boolean;
   }): ReactElement => {
     const heroTheme = darkPhotoTheme;
-    const gradientOverlay =
-      'linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.50) 52%, transparent 94%)';
+    const gradientOverlay = fullBleedBrandGradient;
 
     const topRight = priceOverlay ? (
       <PricePill brand={brand} t={heroTheme} s={s} />
@@ -2539,14 +2541,13 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
           <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
         </div>
 
-        {/* Gradiente masivo único para contraste Full-Bleed real */}
+        {/* Gradiente masivo único teñido con el color dominante oscuro extraído de la marca/foto */}
         <div
           aria-hidden="true"
           style={{
             position: 'absolute',
             inset: 0,
-            background:
-              'linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.50) 52%, transparent 94%)',
+            background: fullBleedBrandGradient,
           }}
         />
         {diagonalCut && (
@@ -2666,8 +2667,7 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
           style={{
             position: 'absolute',
             inset: 0,
-            background:
-              'linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.50) 52%, transparent 94%)',
+            background: fullBleedBrandGradient,
           }}
         />
         <div

@@ -34,7 +34,7 @@ interface ConciergeMessage {
 }
 
 /**
- * 🤖 El Conserje de Impulso (V34):
+ * 🤖 Radar · Asistente Inteligente de Impulso (V35):
  * Chat conversacional real con memoria multi-turno en Gemini y registro silencioso de tickets.
  */
 export function SupportConcierge({
@@ -53,8 +53,8 @@ export function SupportConcierge({
       role: 'assistant',
       content:
         userRole === 'merchant'
-          ? '¡Hola! Soy el Conserje de Impulso. ¿En qué te puedo ayudar hoy con tus ofertas, recargas o reservas?'
-          : '¡Hola! Soy el Conserje de Impulso. ¿En qué te ayudo para explorar ofertas o apartar hoy?',
+          ? '¡Hola! Soy Radar, el asistente de élite de Impulso. ¿En qué te puedo ayudar hoy con tus ofertas, recargas o seguridad?'
+          : '¡Hola! Soy Radar, el asistente de élite de Impulso. ¿En qué te ayudo para explorar ofertas, apartar hoy o reportar una novedad?',
       at: new Date().toISOString(),
     },
   ]);
@@ -135,15 +135,15 @@ export function SupportConcierge({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        aria-label="Abrir Conserje de soporte Impulso"
-        title="Conserje de Soporte Impulso"
+        aria-label="Abrir Radar · Asistente de soporte Impulso"
+        title="Radar · Asistente de Élite Impulso"
         className={cx(
           'pressable fixed right-3.5 z-30 flex items-center gap-2 rounded-full border border-impulso-emerald/35 bg-slate-950/90 px-3.5 py-2.5 text-xs font-extrabold text-white shadow-[0_12px_32px_rgba(0,0,0,0.55),0_0_20px_rgba(16,185,129,0.22)] backdrop-blur-xl transition hover:border-impulso-emerald/60',
           bottomOffsetClass,
         )}
       >
         <Headphones className="h-4 w-4 text-impulso-mint" />
-        <span className="hidden sm:inline">Conserje</span>
+        <span className="hidden sm:inline">Radar</span>
       </button>
 
       <ModalShell open={open} onClose={() => setOpen(false)} escClose closeLabel="Cerrar soporte" panelClassName="max-w-md">
@@ -153,8 +153,8 @@ export function SupportConcierge({
               <Sparkles className="h-5 w-5 text-impulso-mint" />
             </div>
             <div>
-              <h3 className="text-base font-extrabold text-white">Conserje de Impulso</h3>
-              <p className="text-[11px] font-semibold text-slate-400">Soporte personalizado en vivo</p>
+              <h3 className="text-base font-extrabold text-white">Radar · Asistente Impulso</h3>
+              <p className="text-[11px] font-semibold text-slate-400">Asistente de élite con memoria en vivo</p>
             </div>
           </div>
 

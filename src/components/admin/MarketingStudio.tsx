@@ -37,7 +37,7 @@ import {
 } from '../../services/gemini.service';
 import type { ArtDirection, CampaignFocus, MarketingCampaign, PriceMode } from '../../services/gemini.service';
 import { loadBankPhoto, isPollinationsBlockImage, guessPhotoCategory, PHOTO_BANK, PHOTO_GALLERY_TABS } from '../../utils/commercialPhotoBank';
-import { extractPaletteFromImage } from '../../utils/colorPalette';
+import { buildPaletteFromHexTriplet, extractPaletteFromImage } from '../../utils/colorPalette';
 import type { ExtractedBrandPalette } from '../../utils/colorPalette';
 import { compressImageToMicroWebP } from '../../services/imageCompressor';
 import { generateStyledQrDataUrl, QR_STYLES } from '../../utils/styledQr';
@@ -900,23 +900,39 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
   const activeBrandPalette = useBrandPalette ? brandPalette : null;
   const activeThemeId = AFFICHE_THEMES[themeIdx]?.id ?? 'marble';
 
-  // 🎨 V29.0 · Extracción automática de color dominante (ColorThief/Canvas):
-  // Prioriza el logo del negocio; si no hay logo, extrae la paleta de la fotografía
-  // activa (subida, banco HD o IA) para armonizar iconos, CTA, titulares y Split Screen.
+  // 🎨 V35.0 · ColorThief Obligatorio (Paleta de Marca Mágica):
+  // Extrae Color Dominante y Secundario del logo (o de la fotografía si no hay logo)
+  // y los inyecta en CSS variables (--color-primary, --color-secondary, --color-accent).
   useEffect(() => {
     const src = effectiveLogoUrl || effectivePhoto;
     if (!src) return;
     const sourceKind: 'logo' | 'photo' = effectiveLogoUrl ? 'logo' : 'photo';
     let alive = true;
-    void extractPaletteFromImage(src, sourceKind).then((pal) => {
-      if (!alive || !pal) return;
-      setBrandPalette(pal);
-      setUseBrandPalette(true);
-    });
+    void extractPaletteFromImage(src, sourceKind)
+      .then((pal) => {
+        if (!alive) return;
+        const resolved =
+          pal ??
+          buildPaletteFromHexTriplet(
+            [
+              AFFICHE_THEMES[themeIdx]?.accent ?? '#10b981',
+              AFFICHE_THEMES[themeIdx]?.accent2 ?? '#34d399',
+              '#0f172a',
+            ],
+            sourceKind,
+          );
+        if (resolved) {
+          setBrandPalette(resolved);
+          setUseBrandPalette(true);
+        }
+      })
+      .catch(() => {
+        /* Ignora si la imagen aún no carga */
+      });
     return () => {
       alive = false;
     };
-  }, [effectiveLogoUrl, effectivePhoto]);
+  }, [effectiveLogoUrl, effectivePhoto, themeIdx]);
 
   /** Sincroniza el destino del QR y actualiza automáticamente un CTA coherente si no fue personalizado aparte. */
   function selectQrMode(nextMode: QrMode): void {
@@ -1420,8 +1436,13 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     const chosenGroup = availableGroups[Math.floor(Math.random() * availableGroups.length)] ?? groups[0];
     lastStyleGroupRef.current = chosenGroup.id;
 
+    const allValidLayouts = AFFICHE_LAYOUTS.map((l) => l.id);
     const layoutPool = chosenGroup.layouts.filter((id) => id !== lastLayoutIdxRef.current);
-    const nextLayout = layoutPool[Math.floor(Math.random() * layoutPool.length)] ?? chosenGroup.layouts[0];
+    let nextLayout = layoutPool[Math.floor(Math.random() * layoutPool.length)] ?? chosenGroup.layouts[0];
+    if (nextLayout === lastLayoutIdxRef.current) {
+      const globalAlt = allValidLayouts.filter((id) => id !== lastLayoutIdxRef.current);
+      nextLayout = globalAlt[Math.floor(Math.random() * globalAlt.length)] ?? 'immersive';
+    }
     setLayout(nextLayout);
     lastLayoutIdxRef.current = nextLayout;
 

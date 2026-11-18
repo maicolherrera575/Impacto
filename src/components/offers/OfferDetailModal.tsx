@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Loader2, MessageCircle, Minus, Navigation, PartyPopper, Plus, ShieldCheck, Star, Wallet } from 'lucide-react';
+import { BadgeCheck, Crown, Loader2, MessageCircle, Minus, Navigation, PartyPopper, Plus, ShieldCheck, Star, Wallet } from 'lucide-react';
 import type { Offer, Ticket } from '../../types';
-import { categoryMeta } from '../../types';
+import { categoryMeta, deliveryMeta, resolveTrustLevel } from '../../types';
 import { ModalShell } from '../ui/ModalShell';
 import { useToast } from '../ui/Toast';
 import { reserveOffer } from '../../services/reservations.service';
@@ -10,7 +10,6 @@ import { supabase, friendlyError } from '../../services/supabase';
 import { countdownText, cx, formatCOP, ratingAvg } from '../../utils/format';
 import { useTick } from '../../hooks/useTick';
 import { openWhatsApp } from '../../utils/whatsapp';
-import { deliveryMeta } from '../../types';
 
 type Step = 'detail' | 'form' | 'success';
 
@@ -197,11 +196,13 @@ export function OfferDetailModal({ offer, onClose, onReserved, onViewTickets, on
                 <div className="min-w-0 flex-1">
                   <p className="flex items-center gap-1.5 truncate text-sm font-bold text-white">
                     {merchant.business_name}
-                    {merchant.is_verified && (
-                      <span className="flex items-center text-impulso-mint" title="Negocio verificado">
-                        <ShieldCheck className="h-4 w-4" />
+                    {resolveTrustLevel(merchant) === 'super' ? (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-impulso-gold/45 bg-impulso-gold/15 px-2 py-0.5 text-[10px] font-extrabold text-impulso-gold">
+                        <Crown className="h-3 w-3" /> Súper
                       </span>
-                    )}
+                    ) : resolveTrustLevel(merchant) === 'verified' ? (
+                      <BadgeCheck className="h-4 w-4 shrink-0 fill-sky-500 text-slate-950" />
+                    ) : null}
                   </p>
                   <p className="flex items-center gap-1 text-xs font-semibold text-impulso-gold">
                     <Star className="h-3 w-3" fill="currentColor" />
@@ -229,6 +230,12 @@ export function OfferDetailModal({ offer, onClose, onReserved, onViewTickets, on
                     {ratingAvg(merchant?.rating_sum ?? 5, merchant?.rating_count ?? 1)} · {offer.municipality}
                   </p>
                 </div>
+              </div>
+            )}
+
+            {resolveTrustLevel(merchant) === 'new' && (
+              <div className="mt-3 rounded-2xl border border-amber-400/30 bg-amber-500/10 p-3 text-xs font-semibold leading-relaxed text-amber-200">
+                ⚠️ Comercio Nuevo: Para tu seguridad, Impulso recomienda pagar únicamente al recibir el producto o servicio.
               </div>
             )}
 

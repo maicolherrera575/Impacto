@@ -2029,11 +2029,11 @@ export interface SupportConciergeAssessment {
   aiAnalysis: string;
 }
 
-const SUPPORT_SYSTEM_PROMPT = `Eres el Conserje experto de la plataforma Impulso (portal colombiano de ofertas locales y publicidad en Cundinamarca). Respondes de forma breve, útil y altamente profesional. Si hay problemas técnicos, ofreces soluciones reales paso a paso. No repitas respuestas enlatadas.
+const SUPPORT_SYSTEM_PROMPT = `Eres Radar, el asistente de élite de la plataforma Impulso (fundada por Michael Herrera en Gachetá). Eres empático, astuto y resolutivo. Hablas de forma cálida y profesional. Nunca respondes como un robot enlatado. Tienes memoria de la conversación. Si el usuario reporta un fraude grave, genera una respuesta que inspire tranquilidad y asegúrale que Michael y el equipo de seguridad están al tanto.
 
 Conocimiento operativo real de Impulso:
 - Compradores NO necesitan crear cuenta ni pagar en la app: apartan con nombre y WhatsApp, reciben código único y pagan directo al comercio al recibir.
-- Impulso es un portal de contacto: no retiene dinero ni ejecuta transferencias entre usuarios.
+- Impulso es un portal de contacto: no retiene dinero ni ejecuta transferencias entre usuarios. Para comercios nuevos (Nivel 1), recomendamos siempre pagar contra-entrega al recibir el producto o servicio.
 - Comercios publican ofertas usando créditos (3 gratis al registrarse). Para recargar créditos van a Mi Panel → Recargar créditos (Nequi / Daviplata / Llave / QR oficial del administrador) y suben su comprobante para validación.
 - Acceso biométrico (huella/FaceID): primero se vincula en Mi Panel tras iniciar sesión con contraseña; en un dispositivo nuevo se inicia primero con contraseña.
 - GPS: solo se activa cuando el usuario toca Activar GPS; si está apagado o en modo aproximado, el radar opera igual sobre el municipio elegido.
@@ -2049,7 +2049,7 @@ Lee TODO el historial de conversación de forma natural y responde en contexto c
 }
 Reglas estrictas:
 - NUNCA devuelvas la misma frase genérica ni ignores preguntas de seguimiento: contesta directamente lo último que escribió el usuario considerando los mensajes previos.
-- Si reporta fallo técnico grave, cobro no reflejado o fraude, pon "is_technical_issue": true, asigna severidad "high" o "critical", ofrécele una solución o verificación concreta en "reply" y aclárale amablemente que además registraste un ticket prioritario para el administrador.
+- Si reporta fallo técnico grave, cobro no reflejado o fraude/estafa, pon "is_technical_issue": true, asigna severidad "high" o "critical", ofrécele una solución o verificación concreta en "reply" y asegúrale con calidez que Michael Herrera y el equipo de seguridad de Impulso ya fueron alertados con prioridad máxima.
 - Jamás menciones detalles internos como SHA-256, claves API o nombres de modelos.`;
 
 function synthesizeLocalSupportFallback(
@@ -2065,16 +2065,19 @@ function synthesizeLocalSupportFallback(
     );
 
   if (looksTechnical) {
-    const isBillingOrCritical = /cobr|pago|cr[eé]dito|nequi|daviplata|bloque|estafa/i.test(m);
+    const isFraud = /estafa|fraude|enga[ñn]|robo|falso/i.test(m);
+    const isBillingOrCritical = isFraud || /cobr|pago|cr[eé]dito|nequi|daviplata|bloque/i.test(m);
     return {
       isTechnicalIssue: true,
-      severity: isBillingOrCritical ? 'high' : 'medium',
-      category: /estafa|fraude/i.test(m) ? 'abuse' : isBillingOrCritical ? 'billing' : 'technical',
+      severity: isFraud ? 'critical' : isBillingOrCritical ? 'high' : 'medium',
+      category: isFraud ? 'abuse' : isBillingOrCritical ? 'billing' : 'technical',
       summary: message.trim().slice(0, 120) || 'Reporte técnico del usuario',
-      aiAnalysis: `Incidencia reportada por ${userRole === 'merchant' ? 'comercio' : 'cliente'}: "${message.trim().slice(0, 220)}".`,
-      reply: isBillingOrCritical
-        ? 'Lamento mucho este inconveniente con tu pago o seguridad. Ya creé un ticket prioritario para el administrador. Mientras lo verifican, revisa si el comprobante corresponde exactamente al número Nequi oficial o comparte el número de referencia para agilizarlo.'
-        : 'Gracias por reportarlo. Ya registré un ticket prioritario para revisar el fallo; mientras tanto prueba recargar la página o cerrar y volver a abrir el módulo donde ocurrió.',
+      aiAnalysis: `Incidencia reportada a Radar por ${userRole === 'merchant' ? 'comercio' : 'cliente'}: "${message.trim().slice(0, 220)}".`,
+      reply: isFraud
+        ? 'Tranquilo, estás respaldado. Soy Radar y acabo de escalar este reporte con prioridad crítica: Michael Herrera y el equipo de seguridad de Impulso ya están al tanto para auditar y bloquear el dispositivo infractor. Recuerda no realizar giros anticipados y cuéntame si tienes el nombre de la oferta para actuar de inmediato.'
+        : isBillingOrCritical
+          ? 'Te entiendo perfectamente. Ya registré un ticket prioritario para que Michael y el equipo de soporte revisen tu pago o cuenta. Mientras lo validan, verifica que el comprobante sea al Nequi oficial o déjame el número de referencia aquí mismo.'
+          : 'Gracias por avisarme. Ya dejé un ticket prioritario con el equipo técnico de Impulso; mientras lo revisamos, intenta recargar la página o volver a abrir el módulo donde ocurrió.',
     };
   }
 
@@ -2083,12 +2086,12 @@ function synthesizeLocalSupportFallback(
     severity: 'low',
     category: 'usage',
     summary: message.trim().slice(0, 120) || 'Consulta en plataforma',
-    aiAnalysis: 'Consulta atendida por Conserje.',
+    aiAnalysis: 'Consulta atendida por Radar.',
     reply: isFollowUp
-      ? `Sobre "${message.trim().slice(0, 60)}": en este momento la red de asistencia está ocupada, así que cuéntame exactamente en qué pantalla te encuentras (Radar, Apartados o Mi Panel) para guiarte paso a paso.`
+      ? `Sobre "${message.trim().slice(0, 60)}": cuéntame exactamente en qué pantalla te encuentras (Radar, Apartados o Mi Panel) para guiarte paso a paso ahora mismo.`
       : userRole === 'merchant'
-        ? `Respecto a "${message.trim().slice(0, 60)}": desde Mi Panel puedes gestionar publicaciones, recargas por Nequi y pedidos. ¿En qué paso específico te detuviste?`
-        : `Sobre "${message.trim().slice(0, 60)}": puedes explorar ofertas por municipio, apartar con tu WhatsApp y revisar tus códigos en Apartados. ¿Qué detalle necesitas resolver?`,
+        ? `¡Claro! Soy Radar. Respecto a "${message.trim().slice(0, 60)}": desde Mi Panel puedes gestionar publicaciones, recargas por Nequi y pedidos. ¿En qué paso específico te ayudo?`
+        : `¡Con gusto! Soy Radar. Sobre "${message.trim().slice(0, 60)}": puedes explorar ofertas por municipio, apartar con tu WhatsApp y pagar al recibir. ¿Qué detalle quieres resolver?`,
   };
 }
 

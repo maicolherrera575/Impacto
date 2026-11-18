@@ -3715,6 +3715,52 @@ grant execute on function public.submit_admin_ticket_rpc(text, text, text, text,
 grant execute on function public.admin_tickets_list_rpc()                                              to authenticated;
 grant execute on function public.admin_update_ticket_status_rpc(uuid, text)                            to authenticated;
 
+-- ============================================================================
+-- 14. V35.0 · SISTEMA DE INSIGNIAS ESCALADAS (trust_level) Y FINGERPRINT FORENSE
+-- ============================================================================
+alter table public.profiles
+  add column if not exists trust_level text not null default 'new'
+  check (trust_level in ('new', 'verified', 'super'));
+
+alter table public.offers
+  add column if not exists device_id text;
+
+update public.profiles
+   set trust_level = case
+     when is_verified = true and coalesce(lifetime_orders_count, 0) >= 20 then 'super'
+     when is_verified = true then 'verified'
+     else 'new'
+   end
+ where trust_level = 'new' and is_verified = true;
+
+create or replace function public.sync_profile_trust_level_fn()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if new.trust_level = 'super' then
+    return new;
+  end if;
+  if coalesce(new.is_verified, false) = true and coalesce(new.lifetime_orders_count, 0) >= 20 then
+    new.trust_level := 'super';
+  elsif coalesce(new.is_verified, false) = true then
+    new.trust_level := 'verified';
+  else
+    new.trust_level := 'new';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_sync_profile_trust_level on public.profiles;
+create trigger trg_sync_profile_trust_level
+  before insert or update of is_verified, lifetime_orders_count
+  on public.profiles
+  for each row
+  execute function public.sync_profile_trust_level_fn();
+
 -- 🔄 V19 · Refresca el caché de PostgREST automáticamente al correr el script:
 -- sin esto, funciones nuevas (como admin_reports_list_rpc) pueden seguir
 -- "no encontradas" hasta 1-2 minutos por caché del esquema.
