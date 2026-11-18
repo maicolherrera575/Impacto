@@ -512,10 +512,10 @@ function Headline({
   const readableAccent2 = ensureReadableAccent(t.accent2, isLight);
   const baseInk = color ?? (isLight ? t.text : '#ffffff');
   const shadowColor = longShadow
-    ? `0 4px 10px rgba(0,0,0,0.85), 0 ${12 * s}px ${28 * s}px rgba(0,0,0,0.75), 0 0 ${24 * s}px ${readableAccent2}44`
+    ? `0 6px 18px rgba(0,0,0,0.95), 0 ${14 * s}px ${36 * s}px rgba(0,0,0,0.88), 0 0 ${26 * s}px ${readableAccent2}4d`
     : isLight && !color
       ? '0 2px 10px rgba(255,255,255,0.45)'
-      : '0 4px 10px rgba(0,0,0,0.85), 0 12px 28px rgba(0,0,0,0.72)';
+      : '0 6px 18px rgba(0,0,0,0.95), 0 14px 34px rgba(0,0,0,0.85)';
 
   const base: CSSProperties = {
     margin: 0,
@@ -523,7 +523,7 @@ function Headline({
     zIndex: 10,
     fontFamily: `"${typo.font || t.font}", system-ui, sans-serif`,
     fontSize: Number(computedSize.toFixed(1)),
-    lineHeight: eff === 'caja' ? 1.06 : 0.94,
+    lineHeight: eff === 'caja' ? 1.0 : 0.94,
     fontWeight: 900,
     textTransform: 'uppercase',
     letterSpacing: -1.1 * s,
@@ -534,24 +534,19 @@ function Headline({
   const highlight = (): ReactElement => {
     const hl = cleanPosterCopy(texts.highlight);
     if (!hl) return <></>;
-    const markerBg = ensureReadableAccent(t.accent2, false);
-    const cajaInk = contrastTextOn(markerBg);
 
     switch (eff) {
       case 'caja':
+        // V28.0: cero cajas sólidas sobre el texto; solo color protagonista puro + sombra monumental de contraste
         return (
           <span
             style={{
-              backgroundColor: markerBg,
-              color: cajaInk,
-              padding: `${2 * s}px ${10 * s}px`,
-              borderRadius: 7 * s,
+              color: readableAccent2,
               display: 'inline-block',
-              lineHeight: 1.04,
-              marginTop: 3 * s,
               fontWeight: 900,
-              textShadow: 'none',
-              boxShadow: `0 10px 24px -4px ${markerBg}66`,
+              textShadow: isLight
+                ? '0 3px 12px rgba(15,23,42,0.22)'
+                : `0 6px 18px rgba(0,0,0,0.95), 0 14px 34px rgba(0,0,0,0.88), 0 0 ${24 * s}px ${readableAccent2}4d`,
             }}
           >
             {hl}
@@ -565,6 +560,9 @@ function Headline({
               borderBottom: `${4.5 * s}px solid ${readableAccent2}`,
               paddingBottom: 2 * s,
               display: 'inline-block',
+              textShadow: isLight
+                ? '0 3px 12px rgba(15,23,42,0.2)'
+                : '0 6px 18px rgba(0,0,0,0.95), 0 14px 32px rgba(0,0,0,0.85)',
             }}
           >
             {hl}
@@ -578,6 +576,9 @@ function Headline({
               borderLeft: `${6 * s}px solid ${readableAccent2}`,
               paddingLeft: `${11 * s}px`,
               color: readableAccent2,
+              textShadow: isLight
+                ? '0 3px 12px rgba(15,23,42,0.2)'
+                : '0 6px 18px rgba(0,0,0,0.95), 0 14px 32px rgba(0,0,0,0.85)',
             }}
           >
             {hl}
@@ -590,8 +591,8 @@ function Headline({
             style={{
               color: readableAccent2,
               textShadow: isLight
-                ? '0 2px 10px rgba(15,23,42,0.22)'
-                : `0 4px 10px rgba(0,0,0,0.86), 0 0 ${22 * s}px ${readableAccent2}4d`,
+                ? '0 3px 12px rgba(15,23,42,0.22)'
+                : `0 6px 18px rgba(0,0,0,0.95), 0 14px 34px rgba(0,0,0,0.88), 0 0 ${24 * s}px ${readableAccent2}4d`,
             }}
           >
             {hl}
@@ -1197,9 +1198,9 @@ function QrOrganicToken({
   const outerRadius = isCyber ? 0 : (qrStyle === 'sharp' ? 10 : isLuxury ? 20 : 18) * s;
   const innerRadius = isCyber ? 0 : (qrStyle === 'sharp' ? 6 : isLuxury ? 14 : 12) * s;
   const bezelPad = 2 * s;
-  // Quiet zone sólido blanco mínimo equivalente a ~4 módulos: styledQr ya dibuja 4 módulos
-  // blancos dentro del PNG; el padding CSS refuerza un borde blanco puro inalterable.
-  const matrixPad = qrUrl ? Math.max(4, Math.round(size * 0.025)) : Math.max(10, Math.round(size * 0.075));
+  // Quiet zone limpio de ~3 módulos: styledQr ya dibuja 3 módulos blancos dentro del PNG,
+  // evitando marcos blancos gruesos mientras preserva legibilidad perfecta al escanear.
+  const matrixPad = qrUrl ? Math.max(2, Math.round(2 * s)) : Math.max(8, Math.round(size * 0.055));
   const svgSize = Math.max(48, Math.round(size - (bezelPad + matrixPad) * 2));
   const isLight = Boolean(t.light);
   const cut = Math.round(12 * s);
@@ -1275,7 +1276,7 @@ function QrOrganicToken({
             value={value}
             size={svgSize}
             level="M"
-            marginSize={4}
+            marginSize={3}
             bgColor="#ffffff"
             fgColor={palette.dark}
           />
@@ -1735,8 +1736,9 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
   const priceLabel = texts.cta.trim();
   const isService = brand.promoPrice == null;
 
-  const PHOTO_MAX = (isSquare ? 158 : 315) * s;
-  const dockQrSize = isSquare ? 202 : 210;
+  const PHOTO_MAX = (isSquare ? 136 : 315) * s;
+  // QR protagonista >= 40% del ancho de su tarjeta/lienzo (224px de 540px = 41.5% -> 448x448 reales en @2x)
+  const dockQrSize = Math.round(W * 0.415);
   const resolvedBenefitMode: ResolvedBenefitMode =
     benefitStyle === 'auto' ? (LAYOUT_BENEFIT_MAP[layout] ?? 'bento') : benefitStyle;
   const resolvedDockVariant: Exclude<DockVariant, 'auto'> =
@@ -2401,73 +2403,148 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
     );
   }
 
-  // ═══ PIEZA 1 · AFICHE MAESTRO (28 ARQUITECTURAS SIN MOLDES REPETITIVOS) ═══
+  // ═══ PIEZA 1 · AFICHE MAESTRO (ARQUITECTURAS INMERSIVAS + FULL-BLEED DE ÉLITE) ═══
+  const isEdgeToEdge = layout === 'magazine' || layout === 'immersive' || layout === 'bento';
+  const darkPhotoTheme: AfficheTheme = {
+    ...t,
+    light: false,
+    text: '#ffffff',
+    sub: 'rgba(255,255,255,0.84)',
+  };
+
+  const renderFullBleedHero = ({
+    benefitMode,
+    headlineSize,
+    longShadow = true,
+    topRight,
+    watermarkText,
+  }: {
+    benefitMode: ResolvedBenefitMode;
+    headlineSize: number;
+    longShadow?: boolean;
+    topRight?: ReactElement | null;
+    watermarkText?: string;
+  }): ReactElement => (
+    <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: '#020617' }}>
+      <div style={{ position: 'absolute', inset: 0 }}>
+        <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
+      </div>
+      {/* Viñeta superior sutil + degradado negro puro inferior para contraste editorial absoluto */}
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          background:
+            'linear-gradient(to bottom, rgba(0,0,0,0.45) 0%, transparent 24%), linear-gradient(to top, #000000 0%, rgba(0,0,0,0.84) 40%, rgba(0,0,0,0.28) 68%, transparent 100%)',
+        }}
+      />
+      {watermarkText && (
+        <p
+          aria-hidden="true"
+          style={{
+            position: 'absolute',
+            top: '18%',
+            left: '-6%',
+            right: '-6%',
+            margin: 0,
+            textAlign: 'center',
+            fontFamily: `"${boardDisplayFont}", system-ui, sans-serif`,
+            fontSize: 112 * s,
+            fontWeight: 900,
+            letterSpacing: -3 * s,
+            lineHeight: 0.85,
+            color: 'rgba(255,255,255,0.08)',
+            transform: 'rotate(-4deg)',
+            whiteSpace: 'nowrap',
+            pointerEvents: 'none',
+          }}
+        >
+          {watermarkText}
+        </p>
+      )}
+      <div
+        style={{
+          position: 'relative',
+          zIndex: 5,
+          width: '100%',
+          height: '100%',
+          padding: pad,
+          boxSizing: 'border-box',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'space-between',
+          gap: 8 * s,
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexShrink: 0,
+            paddingRight: logoUrl ? 52 * s : 0,
+          }}
+        >
+          <Badge text={badge} t={darkPhotoTheme} s={s} align="left" />
+          {topRight}
+        </div>
+        <div style={{ flex: 1, minHeight: isSquare ? 8 * s : 110 * s }} />
+        <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 7 * s }}>
+          <Headline
+            texts={texts}
+            t={darkPhotoTheme}
+            s={s}
+            size={headlineSize}
+            align="left"
+            styleId={fontStyle}
+            scale={hs}
+            fullWidth
+            longShadow={longShadow}
+          />
+          <SubHead text={texts.sub} t={darkPhotoTheme} s={s} align="left" color="rgba(255,255,255,0.9)" />
+          {showBenefits && benefits.length > 0 && (
+            <BenefitsShowcase
+              items={benefits}
+              t={darkPhotoTheme}
+              s={s}
+              mode={benefitStyle === 'auto' ? benefitMode : resolvedBenefitMode}
+              align="left"
+            />
+          )}
+          {isService && priceLabel && (
+            <CtaButton label={priceLabel} s={s} bg={t.accent} accent2={t.accent2} color={contrastTextOn(t.accent, t.accent2)} />
+          )}
+          {showQr && (
+            <Dock
+              brand={brand}
+              t={darkPhotoTheme}
+              s={s}
+              qrUrl={qrUrl}
+              qrValue={qrValue}
+              qrStyle={qrStyle}
+              size={dockQrSize}
+              qrLabel={qrLabel}
+              displayFont={boardDisplayFont}
+              bodyFont={activeTypo.bodyFont}
+              variant={resolvedDockVariant}
+              brandColors={brandColors}
+              logoUrl={logoUrl}
+            />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
   let body: ReactElement;
   switch (layout) {
     case 'magazine': {
-      // Editorial Full-Bleed V27: foto inmersiva al 100% con degradado profundo teñido del tema seleccionado (slate-950 + t.accent)
-      const deepBottom = mixHex(t.accent, '#020617', 0.9);
-      const deepMid = mixHex(t.accent2, '#0f172a', 0.84);
-      body = (
-        <div style={{ position: 'relative', width: '100%', height: '100%', borderRadius: 24 * s, overflow: 'hidden' }}>
-          <div style={{ position: 'absolute', inset: 0 }}>
-            <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
-          </div>
-          <div
-            style={{
-              position: 'absolute',
-              inset: 0,
-              background:
-                `linear-gradient(to top, ${deepBottom} 0%, ${deepMid}e0 34%, rgba(15,23,42,0.62) 56%, rgba(15,23,42,0.12) 78%, transparent 100%)`,
-            }}
-          />
-          <div
-            style={{
-              position: 'relative',
-              zIndex: 5,
-              width: '100%',
-              height: '100%',
-              padding: pad,
-              boxSizing: 'border-box',
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'space-between',
-              gap: 8 * s,
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
-              <Badge text={badge} t={t} s={s} align="left" />
-              {priceOverlay && <PricePill brand={brand} t={t} s={s} />}
-            </div>
-            <div style={{ flex: 1, minHeight: isSquare ? 8 * s : 110 * s }} />
-            <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 7 * s }}>
-              <Headline texts={texts} t={{ ...t, light: false, text: '#ffffff' }} s={s} size={isSquare ? 38 : 48} align="left" styleId={fontStyle} scale={hs} fullWidth />
-              <SubHead text={texts.sub} t={t} s={s} align="left" color="rgba(255,255,255,0.9)" />
-              {showBenefits && benefits.length > 0 && (
-                <BenefitsShowcase items={benefits} t={{ ...t, light: false, text: '#ffffff' }} s={s} mode={benefitStyle === 'auto' ? 'editorial' : resolvedBenefitMode} align="left" />
-              )}
-              {isService && priceLabel && <CtaButton label={priceLabel} s={s} bg={t.accent} accent2={t.accent2} color={contrastTextOn(t.accent, t.accent2)} />}
-              {showQr && (
-                <Dock
-                  brand={brand}
-                  t={{ ...t, light: false, text: '#ffffff', sub: 'rgba(255,255,255,0.78)' }}
-                  s={s}
-                  qrUrl={qrUrl}
-                  qrValue={qrValue}
-                  qrStyle={qrStyle}
-                  size={dockQrSize}
-                  qrLabel={qrLabel}
-                  displayFont={boardDisplayFont}
-                  bodyFont={activeTypo.bodyFont}
-                  variant={resolvedDockVariant}
-                  brandColors={brandColors}
-                  logoUrl={logoUrl}
-                />
-              )}
-            </div>
-          </div>
-        </div>
-      );
+      body = renderFullBleedHero({
+        benefitMode: 'editorial',
+        headlineSize: isSquare ? 38 : 48,
+        longShadow: true,
+        topRight: priceOverlay ? <PricePill brand={brand} t={darkPhotoTheme} s={s} /> : null,
+      });
       break;
     }
 
@@ -3131,99 +3208,15 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
     }
 
     case 'immersive': {
-      // V25 · Tipografía Inmersiva sin mixBlendMode: degradado orgánico inferior Slate-900 a transparente
+      // V28 · Tipografía Inmersiva Full-Bleed edge-to-edge con degradado negro profundo
       const blendWord = (cleanPosterCopy(brand.product || brand.name || 'IMPULSO').split(/\s+/)[0] || 'OFERTA').toUpperCase();
-      const deepBottom = mixHex(t.accent, '#020617', 0.9);
-      const deepMid = mixHex(t.accent2, '#0f172a', 0.84);
-      body = (
-        <div style={{ position: 'relative', width: '100%', height: '100%', borderRadius: 24 * s, overflow: 'hidden' }}>
-          <div style={{ position: 'absolute', inset: 0 }}>
-            <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} />
-          </div>
-          <div
-            style={{
-              position: 'absolute',
-              inset: 0,
-              background:
-                `linear-gradient(to top, ${deepBottom} 0%, ${deepMid}e0 34%, rgba(15,23,42,0.62) 56%, rgba(15,23,42,0.14) 78%, transparent 100%)`,
-            }}
-          />
-          {/* Eco tipográfico translúcido seguro en exportación sin mixBlendMode */}
-          <p
-            aria-hidden="true"
-            style={{
-              position: 'absolute',
-              top: '18%',
-              left: '-6%',
-              right: '-6%',
-              margin: 0,
-              textAlign: 'center',
-              fontFamily: `"${boardDisplayFont}", system-ui, sans-serif`,
-              fontSize: 112 * s,
-              fontWeight: 900,
-              letterSpacing: -3 * s,
-              lineHeight: 0.85,
-              color: 'rgba(255,255,255,0.08)',
-              transform: 'rotate(-4deg)',
-              whiteSpace: 'nowrap',
-              pointerEvents: 'none',
-            }}
-          >
-            {blendWord}
-          </p>
-          <div
-            style={{
-              position: 'relative',
-              zIndex: 5,
-              width: '100%',
-              height: '100%',
-              padding: pad,
-              boxSizing: 'border-box',
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'space-between',
-              gap: 8 * s,
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
-              <Badge text={badge} t={t} s={s} align="left" />
-              {priceOverlay && <PricePill brand={brand} t={t} s={s} />}
-            </div>
-            <div style={{ flex: 1, minHeight: isSquare ? 8 * s : 110 * s }} />
-            <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 7 * s }}>
-              <Headline texts={texts} t={{ ...t, light: false, text: '#ffffff' }} s={s} size={isSquare ? 38 : 50} align="left" styleId={fontStyle} scale={hs} fullWidth longShadow />
-              <SubHead text={texts.sub} t={t} s={s} align="left" color="rgba(255,255,255,0.9)" />
-              {showBenefits && benefits.length > 0 && (
-                <BenefitsShowcase
-                  items={benefits}
-                  t={{ ...t, light: false, text: '#ffffff' }}
-                  s={s}
-                  mode={benefitStyle === 'auto' ? 'callouts' : resolvedBenefitMode}
-                  align="left"
-                />
-              )}
-              {isService && priceLabel && <CtaButton label={priceLabel} s={s} bg={t.accent} accent2={t.accent2} color={contrastTextOn(t.accent, t.accent2)} />}
-              {showQr && (
-                <Dock
-                  brand={brand}
-                  t={{ ...t, light: false, text: '#ffffff', sub: 'rgba(255,255,255,0.78)' }}
-                  s={s}
-                  qrUrl={qrUrl}
-                  qrValue={qrValue}
-                  qrStyle={qrStyle}
-                  size={dockQrSize}
-                  qrLabel={qrLabel}
-                  displayFont={boardDisplayFont}
-                  bodyFont={activeTypo.bodyFont}
-                  variant={resolvedDockVariant}
-                  brandColors={brandColors}
-                  logoUrl={logoUrl}
-                />
-              )}
-            </div>
-          </div>
-        </div>
-      );
+      body = renderFullBleedHero({
+        benefitMode: 'callouts',
+        headlineSize: isSquare ? 38 : 50,
+        longShadow: true,
+        watermarkText: blendWord,
+        topRight: priceOverlay ? <PricePill brand={brand} t={darkPhotoTheme} s={s} /> : null,
+      });
       break;
     }
 
@@ -3348,21 +3341,28 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
     }
 
     default: {
-      // 'bento' (Agencia Pro): composición asimétrica limpia con sombra tintada y dock glassmorphic
-      body = (
-        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 10 * s, height: '100%' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Badge text={badge} t={t} s={s} align="left" />
-            <span style={{ fontSize: 10 * s, fontWeight: 800, letterSpacing: 1.8, color: t.sub, textTransform: 'uppercase' }}>
-              {(brand.municipality || 'Gachetá').toUpperCase()}
-            </span>
-          </div>
-          {photoBlock()}
-          <Headline texts={texts} t={t} s={s} size={48} align="left" styleId={fontStyle} scale={hs} />
-          {contentBlocks('left')}
-          {masterDock}
-        </div>
-      );
+      // 'bento' / Full-Bleed Inmersivo V28: imagen 100% sin marco blanco + degradado negro profundo y QR protagonista
+      body = renderFullBleedHero({
+        benefitMode: 'bento',
+        headlineSize: isSquare ? 38 : 50,
+        longShadow: true,
+        topRight: priceOverlay ? (
+          <PricePill brand={brand} t={darkPhotoTheme} s={s} />
+        ) : (
+          <span
+            style={{
+              fontSize: 10 * s,
+              fontWeight: 800,
+              letterSpacing: 1.8,
+              color: 'rgba(255,255,255,0.86)',
+              textTransform: 'uppercase',
+              textShadow: '0 2px 10px rgba(0,0,0,0.9)',
+            }}
+          >
+            {(brand.municipality || 'Gachetá').toUpperCase()}
+          </span>
+        ),
+      });
       break;
     }
   }
@@ -3383,24 +3383,22 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
         overflow: 'hidden',
       }}
     >
-      <ScenicBg url={photoUrl} t={t} />
-      <div style={{ position: 'relative', width: '100%', height: '100%', padding: pad, boxSizing: 'border-box' }}>
+      {!isEdgeToEdge && <ScenicBg url={photoUrl} t={t} />}
+      <div style={{ position: 'relative', width: '100%', height: '100%', padding: isEdgeToEdge ? 0 : pad, boxSizing: 'border-box' }}>
         {body}
-        {/* Logo en esquina estratégica del Póster Maestro (respetando cintas o sellos según layout) */}
+        {/* Logo en esquina estratégica del Póster Maestro (nunca inventa caja vacía si no hay logoUrl) */}
         {logoUrl && (
           <div
             style={{
               position: 'absolute',
               top: pad,
-              ...(layout === 'retail' || layout === 'magazine' || layout === 'immersive' || layout === 'hud'
-                ? { left: layout === 'magazine' || layout === 'immersive' ? undefined : pad, right: layout === 'magazine' || layout === 'immersive' ? pad : undefined }
-                : { right: pad }),
+              ...(layout === 'retail' || layout === 'hud' ? { left: pad } : { right: pad }),
               zIndex: 12,
               padding: 4 * s,
               borderRadius: 12 * s,
-              background: t.light ? 'rgba(255,255,255,0.72)' : 'rgba(8,12,24,0.52)',
+              background: isEdgeToEdge || !t.light ? 'rgba(8,12,24,0.62)' : 'rgba(255,255,255,0.72)',
               backdropFilter: 'blur(12px)',
-              border: `1px solid ${t.light ? 'rgba(15,23,42,0.12)' : 'rgba(255,255,255,0.2)'}`,
+              border: `1px solid ${isEdgeToEdge || !t.light ? 'rgba(255,255,255,0.22)' : 'rgba(15,23,42,0.12)'}`,
               boxShadow: '0 8px 20px rgba(0,0,0,0.35)',
               pointerEvents: 'none',
             }}

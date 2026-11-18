@@ -4,7 +4,7 @@ import type { OfferForm, Profile } from '../../types';
 import { CATEGORIES, DURATION_OPTIONS, DELIVERY_TYPES } from '../../types';
 import { ModalShell } from '../ui/ModalShell';
 import { useToast } from '../ui/Toast';
-import { parsePromoFromText } from '../../services/gemini.service';
+import { detectFraudSignals, FRAUD_MESSAGE, parsePromoFromText } from '../../services/gemini.service';
 import { publishOffer } from '../../services/offers.service';
 import { friendlyError } from '../../services/supabase';
 import { compressImageToMicroWebP, compressionSummary } from '../../services/imageCompressor';
@@ -145,6 +145,7 @@ export function OfferCreator({ open, onClose, profile, onPublished, initialForm 
 
     if (title.length < 3 || title.length > 90) { setErrorMsg('El título debe tener entre 3 y 90 caracteres'); return; }
     if (description.length < 5 || description.length > 280) { setErrorMsg('La descripción debe tener entre 5 y 280 caracteres'); return; }
+    if (detectFraudSignals(`${title} ${description}`)) { setErrorMsg(FRAUD_MESSAGE); return; }
     if (!Number.isFinite(promo) || promo < 0) { setErrorMsg('Escribe el precio de oferta'); return; }
     if (!Number.isInteger(quota) || quota < 1 || quota > 500) { setErrorMsg('El cupo debe estar entre 1 y 500'); return; }
     if (profile.credits < 1) { setErrorMsg('No tienes créditos. Recarga con el administrador 💚'); return; }

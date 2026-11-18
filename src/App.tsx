@@ -291,7 +291,9 @@ export default function App() {
             setTickets(patchTicket(t.reservationId, { status: row.status, isRated: row.is_rated || t.isRated }));
             if (t.status === 'pending' && row.status !== 'pending') {
               toast.push(
-                row.status === 'completed' ? '✅ ¡Tu pedido fue entregado!' : '🔄 El comercio liberó tu apartado',
+                row.status === 'completed'
+                  ? '✅ ¡Tu pedido fue marcado como Vendido / Entregado!'
+                  : '✕ Pedido cancelado / vuelto a stock por el comercio',
                 'info'
               );
               void refetchOffers();

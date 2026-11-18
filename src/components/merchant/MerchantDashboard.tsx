@@ -86,7 +86,10 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
   const [updating, setUpdating] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [logoBusy, setLogoBusy] = useState(false);
-  const [confirmRelease, setConfirmRelease] = useState<MerchantReservation | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{
+    reservation: MerchantReservation;
+    type: 'completed' | 'released';
+  } | null>(null);
   const [creditsOpen, setCreditsOpen] = useState(false);
   const [nitInput, setNitInput] = useState(profile.nit_or_cedula ?? '');
   const [socialInput, setSocialInput] = useState(profile.social_or_maps_link ?? '');
@@ -324,16 +327,43 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'reservations', filter: `merchant_id=eq.${profile.id}` },
-        () => {
+        (payload) => {
           beepAlert();
           toast.push('🔔 ¡Nueva reserva! Alguien apartó tu producto', 'success');
+          const inserted = payload.new as Partial<MerchantReservation> | null;
+          const insertedId = inserted?.id;
+          if (insertedId && inserted) {
+            setReservations((prev) => {
+              if (prev.some((r) => r.id === insertedId)) return prev;
+              const optimistic: MerchantReservation = {
+                id: insertedId,
+                offer_id: inserted.offer_id ?? '',
+                merchant_id: inserted.merchant_id ?? profile.id,
+                customer_name: inserted.customer_name ?? 'Cliente cercano',
+                customer_phone: inserted.customer_phone ?? '',
+                quantity: Number(inserted.quantity ?? 1),
+                customer_note: inserted.customer_note ?? '',
+                reservation_code: inserted.reservation_code ?? '----',
+                status: inserted.status ?? 'pending',
+                is_rated: Boolean(inserted.is_rated),
+                client_ip: inserted.client_ip ?? null,
+                device_id: inserted.device_id ?? null,
+                created_at: inserted.created_at ?? new Date().toISOString(),
+              };
+              return [optimistic, ...prev];
+            });
+          }
           void refreshReservations();
+          void refreshOffers();
         }
       )
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'reservations', filter: `merchant_id=eq.${profile.id}` },
-        () => void refreshReservations()
+        () => {
+          void refreshReservations();
+          void refreshOffers();
+        }
       )
       .on(
         'postgres_changes',
@@ -388,7 +418,9 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
           );
         }
       }
-      toast.success(action === 'completed' ? '✅ Pedido entregado' : '↩️ Stock devuelto al radar');
+      toast.success(
+        action === 'completed' ? '✅ Vendido / Entregado' : '✕ Cancelado / Vuelto a Stock'
+      );
       // Refresco silencioso en segundo plano con los valores reales del servidor
       void refreshReservations();
       void refreshOffers();
@@ -399,12 +431,12 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
     }
   }
 
-  /** Confirma la liberación en 2 pasos (evita toques accidentales en el celular). */
-  async function confirmReleaseAction() {
-    if (!confirmRelease) return;
-    const target = confirmRelease;
-    setConfirmRelease(null);
-    await handleReservation(target.id, 'released');
+  /** Confirma en 2 pasos (evita toques accidentales al entregar o cancelar una reserva). */
+  async function executeConfirmedAction() {
+    if (!confirmAction) return;
+    const { reservation, type } = confirmAction;
+    setConfirmAction(null);
+    await handleReservation(reservation.id, type);
   }
 
   /** 🚫 Bloquea a un cliente que hizo reservas falsas en tus ofertas. */
@@ -719,18 +751,18 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
                       <MessageCircle className="h-4 w-4" /> Contactar
                     </button>
                     <button
-                      onClick={() => void handleReservation(r.id, 'completed')}
+                      onClick={() => setConfirmAction({ reservation: r, type: 'completed' })}
                       disabled={updating === r.id}
                       className="pressable flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-impulso-emerald py-2.5 text-xs font-extrabold text-white disabled:opacity-50"
                     >
-                      <CheckCircle2 className="h-4 w-4" /> Entregado
+                      <CheckCircle2 className="h-4 w-4" /> Marcar como Entregado
                     </button>
                     <button
-                      onClick={() => setConfirmRelease(r)}
+                      onClick={() => setConfirmAction({ reservation: r, type: 'released' })}
                       disabled={updating === r.id}
-                      className="pressable flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-white/10 bg-slate-950/40 py-2.5 text-xs font-bold text-slate-300 disabled:opacity-50"
+                      className="pressable flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-impulso-rose/30 bg-impulso-rose/10 py-2.5 text-xs font-bold text-impulso-rose disabled:opacity-50"
                     >
-                      <Undo2 className="h-4 w-4" /> Liberar
+                      <Undo2 className="h-4 w-4" /> Cancelar Reserva
                     </button>
                     <button
                       onClick={() => void blockClientOf(r)}
@@ -746,11 +778,11 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
           )}
         </section>
 
-        {/* Historial de entregados/liberados hoy (se actualiza en vivo) */}
+        {/* Historial de ventas y cancelaciones (se actualiza en vivo) */}
         {history.length > 0 && (
           <section>
             <h2 className="mb-2 flex items-center gap-2 text-sm font-extrabold uppercase tracking-wider text-slate-400">
-              <History className="h-4 w-4 text-impulso-mint" /> Historial de entregados / liberados
+              <History className="h-4 w-4 text-impulso-mint" /> Historial de ventas y cancelaciones
               <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-bold text-slate-400">
                 {history.length}
               </span>
@@ -759,7 +791,7 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
               {history.slice(0, 10).map((r) => (
                 <article
                   key={r.id}
-                  className="flex items-center gap-3 rounded-2xl border border-white/10 bg-impulso-card p-3 opacity-80"
+                  className="flex items-center gap-3 rounded-2xl border border-white/10 bg-impulso-card p-3 opacity-85"
                 >
                   <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-slate-950/50 text-base">
                     {r.offer?.emoji_icon ?? '🛒'}
@@ -772,8 +804,14 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
                       {r.reservation_code}
                     </p>
                   </div>
-                  <span className="shrink-0 rounded-full bg-white/5 px-2 py-1 text-[10px] font-bold text-slate-300">
-                    {r.status === 'completed' ? '✅ Entregado' : '↩️ Liberado'}
+                  <span
+                    className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-extrabold ${
+                      r.status === 'completed'
+                        ? 'border-emerald-500/30 bg-emerald-500/15 text-emerald-300'
+                        : 'border-rose-500/25 bg-rose-500/10 text-rose-300'
+                    }`}
+                  >
+                    {r.status === 'completed' ? '✅ Vendido / Entregado' : '✕ Cancelado / Vuelto a Stock'}
                   </span>
                 </article>
               ))}
@@ -1323,33 +1361,43 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
         onCreditsApproved={(newCredits) => onProfileChange({ ...profile, credits: newCredits })}
       />
 
-      {/* Confirmación en 2 pasos de "Liberar" (evita toques accidentales) */}
-      <ModalShell open={confirmRelease !== null} onClose={() => !updating && setConfirmRelease(null)}>
-        {confirmRelease && (
+      {/* Confirmación en 2 pasos para "Marcar como Entregado" y "Cancelar Reserva" */}
+      <ModalShell open={confirmAction !== null} onClose={() => !updating && setConfirmAction(null)}>
+        {confirmAction && (
           <div className="p-5 pt-14 text-center">
-            <p className="text-4xl">⚠️</p>
+            <p className="text-4xl">{confirmAction.type === 'completed' ? '✅' : '⚠️'}</p>
             <h3 className="mt-2 text-lg font-extrabold text-white">
-              ¿Confirmas que {confirmRelease.customer_name} (código {confirmRelease.reservation_code}) no recogió el
-              pedido?
+              {confirmAction.type === 'completed'
+                ? '¿Estás seguro de marcar este pedido como entregado?'
+                : `¿Cancelar la reserva de ${confirmAction.reservation.customer_name} (código ${confirmAction.reservation.reservation_code})?`}
             </h3>
             <p className="mt-1 text-sm leading-relaxed text-slate-400">
-              Al confirmar, este apartado se cerrará y las {confirmRelease.quantity} unidades volverán a estar
-              disponibles en tu oferta activa.
+              {confirmAction.type === 'completed'
+                ? `Se registrará la venta de ×${confirmAction.reservation.quantity} para ${confirmAction.reservation.customer_name} como "Vendido / Entregado".`
+                : `Al confirmar, el pedido quedará marcado como "Cancelado / Vuelto a Stock" y las ${confirmAction.reservation.quantity} unidades regresarán a tu oferta activa.`}
             </p>
             <div className="mt-4 grid grid-cols-2 gap-2">
               <button
-                onClick={() => setConfirmRelease(null)}
+                onClick={() => setConfirmAction(null)}
                 disabled={updating !== null}
                 className="pressable rounded-2xl border border-white/10 bg-slate-950/40 py-3.5 text-sm font-bold text-slate-200 disabled:opacity-50"
               >
                 Volver
               </button>
               <button
-                onClick={() => void confirmReleaseAction()}
+                onClick={() => void executeConfirmedAction()}
                 disabled={updating !== null}
-                className="pressable flex items-center justify-center gap-2 rounded-2xl bg-impulso-rose py-3.5 text-sm font-extrabold text-white disabled:opacity-60"
+                className={`pressable flex items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-extrabold text-white disabled:opacity-60 ${
+                  confirmAction.type === 'completed' ? 'bg-impulso-emerald' : 'bg-impulso-rose'
+                }`}
               >
-                {updating !== null ? <Loader2 className="h-5 w-5 animate-spin" /> : 'Sí, liberar y recuperar stock'}
+                {updating !== null ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : confirmAction.type === 'completed' ? (
+                  'Sí, marcar como entregado'
+                ) : (
+                  'Sí, cancelar y volver a stock'
+                )}
               </button>
             </div>
           </div>

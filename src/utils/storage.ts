@@ -53,8 +53,8 @@ export function ticketStatusLabel(status: ReservationStatus): string {
     case 'pending':
       return '🟡 Pendiente';
     case 'completed':
-      return '✅ Entregado';
+      return '✅ Vendido / Entregado';
     case 'released':
-      return '⚪ Liberado';
+      return '✕ Cancelado / Vuelto a Stock';
   }
 }

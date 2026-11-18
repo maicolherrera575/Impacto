@@ -1354,12 +1354,12 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       },
       {
         id: 1,
-        styleLabel: 'Estilo 2 · Suizo & Mármol Serif',
-        layouts: ['swiss', 'zen', 'vip', 'arc', 'clinic'],
-        themeIds: ['marble', 'clinic', 'slate', 'arena'],
+        styleLabel: 'Estilo 2 · Editorial Inmersivo Luxury',
+        layouts: ['magazine', 'bento', 'immersive'],
+        themeIds: ['obsidian', 'vino', 'emerald', 'carbon'],
         fontIndices: [1, 6],
         dockVariant: 'centered',
-        benefits: ['callouts', 'editorial', 'bento'],
+        benefits: ['callouts', 'editorial'],
         qrStyles: ['luxury', 'dots'],
       },
       {

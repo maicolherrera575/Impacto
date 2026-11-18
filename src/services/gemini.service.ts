@@ -302,16 +302,15 @@ export const FRAUD_MESSAGE =
   '🛡️ Impulso protege a la comunidad: no se permiten giros de dinero por adelantado, préstamos gota a gota, dinero fácil ni encuentros en sitios despoblados. Publica productos y servicios reales de tu negocio.';
 
 const FRAUD_PATTERNS: RegExp[] = [
-  /gota\s*a\s*gota/i,
-  /pr[eé]stamo/i,
-  /financiaci[oó]n\s*inmediata/i,
-  /giro[s]?\s*(por\s*)?(adelantad|anticipad)/i,
-  /transferencia\s*(por\s*)?(adelantad|anticipad)/i,
-  /abono|anticipo\s*obligatorio|pago\s*anticipado\s*obligatorio/i,
-  /dinero\s*f[aá]cil|ganancia\s*f[aá]cil|inversi[oó]n\s*(f[aá]cil|segura)\s*duplic/i,
-  /d[oó]lares\s*bitcoin|cripto|forex/i,
-  /servicios?\s*(sexuale?s?|er[oó]ticos?)/i,
-  /cita[s]?\s*(a\s*)?solas|encuentro\s*intimate?o|sitios?\s*despoblados?/i,
+  /\bgota\s*a\s*gota\b/i,
+  /\bpr[eé]stamo[s]?\s+(f[aá]cil(es)?|r[aá]pido[s]?|inmediato[s]?|express|sin\s*(requisitos|papeleo|fiador))/i,
+  /\bfinanciaci[oó]n\s+inmediata\b/i,
+  /\b(giro[s]?|transferencia[s]?|consignaci[oó]n|dinero|pago)\s+(por\s+adelantado|anticipado\s+obligatorio)\b/i,
+  /\b(abono|anticipo)\s+(por\s+adelantado|anticipado|obligatorio)\b/i,
+  /\b(dinero|ganancia)\s+f[aá]cil\b|duplica\s+tu\s+dinero|inversi[oó]n\s+(f[aá]cil|segura)\s+duplic/i,
+  /\b(pir[aá]mide\s+financiera|d[oó]lares\s+bitcoin|trading\s+garantizado)\b/i,
+  /\bservicios?\s+(sexuale?s?|er[oó]ticos?)\b/i,
+  /\b(cita[s]?\s+a\s+solas|encuentro\s+[ií]ntimo|sitios?\s+despoblados?)\b/i,
 ];
 
 export function detectFraudSignals(text: string): boolean {
