@@ -44,7 +44,13 @@ interface RadarTabProps {
   freshOfferIds?: Set<string>;
   /** V13 · Abre el Perfil Público del comercio desde la tarjeta. */
   onOpenMerchant: (merchantId: string) => void;
+  /** V36.0 · Abre Radar 2.0 directamente con una búsqueda que no encontró resultados exactos. */
+  onAskRadar?: (query: string) => void;
+  /** V36.0 · Lleva al comprador a la pestaña de Pedidos ("¿Quién tiene...?"). */
+  onGoToRequests?: () => void;
 }
+
+type QuickFilter = 'none' | 'flash' | 'under20k' | 'verified';
 
 /** Pestaña 1: Radar de ofertas en vivo (mapa + filtros + tarjetas). */
 export function RadarTab({
@@ -68,9 +74,12 @@ export function RadarTab({
   reportedIds,
   freshOfferIds,
   onOpenMerchant,
+  onAskRadar,
+  onGoToRequests,
 }: RadarTabProps) {
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState<Category | 'all'>('all');
+  const [quickFilter, setQuickFilter] = useState<QuickFilter>('none');
   const [gpsDeniedLocal, setGpsDeniedLocal] = useState(false);
 
   /** Activa el GPS exacto directamente dentro del gesto de clic del usuario. */
@@ -87,8 +96,17 @@ export function RadarTab({
 
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
+    const now = Date.now();
     const filtered = offers.filter((o) => {
       if (category !== 'all' && o.category !== category) return false;
+      if (quickFilter === 'flash') {
+        const hrsLeft = (new Date(o.expires_at).getTime() - now) / 3_600_000;
+        if (hrsLeft > 4) return false;
+      } else if (quickFilter === 'under20k') {
+        if (Number(o.promo_price) > 20_000) return false;
+      } else if (quickFilter === 'verified') {
+        if (!o.merchant?.is_verified) return false;
+      }
       if (!q) return true;
       const haystack = `${o.title} ${o.description} ${o.merchant?.business_name ?? ''}`.toLowerCase();
       return haystack.includes(q);
@@ -100,7 +118,13 @@ export function RadarTab({
       );
     }
     return filtered;
-  }, [offers, search, category, geoPos]);
+  }, [offers, search, category, quickFilter, geoPos]);
+
+  const pulseMetrics = useMemo(() => {
+    const totalQuotas = offers.reduce((acc, o) => acc + Math.max(0, o.available_quota), 0);
+    const verifiedDeals = offers.filter((o) => o.merchant?.is_verified).length;
+    return { totalDeals: offers.length, totalQuotas, verifiedDeals };
+  }, [offers]);
 
   const warningText = geoStatus === 'inexact' ? EXACT_GPS_WARNING : geoError;
 
@@ -284,15 +308,87 @@ export function RadarTab({
         </div>
       </div>
 
-      {/* Columna derecha: listado de ofertas */}
+      {/* Columna derecha: pulso en vivo + filtros de conversión + listado de ofertas */}
       <div className="mt-3 min-w-0 flex-1 space-y-3 pb-2 lg:mt-0">
+        {offers.length > 0 && (
+          <div className="rounded-2xl border border-white/[0.08] bg-impulso-panel/80 px-3.5 py-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+              <p className="flex items-center gap-1.5 font-extrabold text-white">
+                <span className="h-2 w-2 animate-pulse rounded-full bg-impulso-emerald" />
+                {pulseMetrics.totalDeals} oferta{pulseMetrics.totalDeals === 1 ? '' : 's'} en vivo
+                <span className="font-semibold text-slate-400">· {pulseMetrics.totalQuotas} cupos hoy</span>
+              </p>
+              {pulseMetrics.verifiedDeals > 0 && (
+                <span className="rounded-full bg-sky-500/15 px-2 py-0.5 text-[10px] font-extrabold text-sky-300">
+                  ✓ {pulseMetrics.verifiedDeals} verificadas
+                </span>
+              )}
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {(
+                [
+                  { id: 'flash', label: '⚡ Relámpago (<4h)' },
+                  { id: 'under20k', label: '💰 Hasta $20.000' },
+                  { id: 'verified', label: '✅ Solo Verificados' },
+                ] as const
+              ).map((chip) => {
+                const active = quickFilter === chip.id;
+                return (
+                  <button
+                    key={chip.id}
+                    type="button"
+                    onClick={() => setQuickFilter((prev) => (prev === chip.id ? 'none' : chip.id))}
+                    className={cx(
+                      'pressable rounded-full border px-2.5 py-1 text-[10px] font-extrabold transition',
+                      active
+                        ? 'border-impulso-gold/60 bg-impulso-gold/15 text-impulso-gold'
+                        : 'border-white/10 bg-slate-950/50 text-slate-400 hover:text-white',
+                    )}
+                  >
+                    {chip.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {visible.length === 0 ? (
           <div className="rounded-3xl border border-dashed border-white/10 bg-impulso-panel/60 p-8 text-center">
             <p className="text-3xl">🛰️</p>
-            <p className="mt-2 font-bold text-white">Sin ofertas en este radar</p>
+            <p className="mt-2 font-bold text-white">Sin ofertas exactas con ese filtro</p>
             <p className="mt-1 text-sm text-slate-400">
-              Prueba otro municipio o categoría. Los comercios están publicando ofertas relámpago todo el día.
+              Prueba quitar un filtro, pregúntale a Radar o publica lo que buscas para que los comercios te respondan.
             </p>
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+              {quickFilter !== 'none' && (
+                <button
+                  type="button"
+                  onClick={() => setQuickFilter('none')}
+                  className="pressable rounded-xl border border-white/15 bg-slate-950/60 px-3.5 py-2 text-xs font-bold text-slate-200"
+                >
+                  Ver todas las ofertas
+                </button>
+              )}
+              {onAskRadar && (
+                <button
+                  type="button"
+                  onClick={() => onAskRadar(search.trim() || '¿Qué ofertas activas me recomiendas hoy?')}
+                  className="pressable rounded-xl bg-impulso-emerald px-3.5 py-2 text-xs font-extrabold text-slate-950 shadow-glow"
+                >
+                  🛰️ Pregúntale a Radar {search.trim() ? `"${search.trim().slice(0, 22)}"` : ''}
+                </button>
+              )}
+              {onGoToRequests && (
+                <button
+                  type="button"
+                  onClick={onGoToRequests}
+                  className="pressable rounded-xl border border-impulso-gold/40 bg-impulso-gold/10 px-3.5 py-2 text-xs font-extrabold text-impulso-gold"
+                >
+                  📣 Pedir a la comunidad
+                </button>
+              )}
+            </div>
           </div>
         ) : (
           visible.map((offer) => (

@@ -29,18 +29,20 @@ export const SUPABASE_ANON_KEY = requireValue(import.meta.env.VITE_SUPABASE_ANON
  */
 export const GEMINI_API_KEY = (import.meta.env.VITE_GEMINI_API_KEY ?? '').trim();
 
-/** Pool deduplicado de llaves Gemini para rotación automática ante cuota agotada (HTTP 429). */
+/** Pool deduplicado de 4+ llaves Gemini para rotación automática ante cuota agotada (HTTP 429). */
 export const GEMINI_API_KEYS: string[] = Array.from(
   new Set(
     [
       typeof __APP_GEMINI_KEY_1__ === 'string' ? __APP_GEMINI_KEY_1__ : '',
       typeof __APP_GEMINI_KEY_2__ === 'string' ? __APP_GEMINI_KEY_2__ : '',
       typeof __APP_GEMINI_KEY_3__ === 'string' ? __APP_GEMINI_KEY_3__ : '',
+      typeof __APP_GEMINI_KEY_4__ === 'string' ? __APP_GEMINI_KEY_4__ : '',
       typeof __APP_GEMINI_KEY__ === 'string' ? __APP_GEMINI_KEY__ : '',
       GEMINI_API_KEY,
       import.meta.env.VITE_GEMINI_API_KEY_1 ?? '',
       import.meta.env.VITE_GEMINI_API_KEY_2 ?? '',
       import.meta.env.VITE_GEMINI_API_KEY_3 ?? '',
+      import.meta.env.VITE_GEMINI_API_KEY_4 ?? '',
     ]
       .map((k) => k.trim())
       .filter((k) => k.length > 0),

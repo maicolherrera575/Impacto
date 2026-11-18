@@ -1,5 +1,5 @@
 import * as QRCode from 'qrcode';
-import { contrastTextOn, mixHex, relativeLuminance } from './colorPalette';
+import { contrastTextOn, ensureContrastColor, mixHex, relativeLuminance } from './colorPalette';
 
 /**
  * 🎨 V22.0 · Generador Dinámico de Códigos QR de Alta Joyería.
@@ -52,15 +52,21 @@ export function themeQrPalette(
   brandColors?: { primary: string; accent: string; secondary?: string } | null,
 ): QrThemeColors {
   if (brandColors?.primary && brandColors?.accent) {
-    // Asegura contraste >= 7:1 sobre fondo blanco manteniendo el matiz real de marca
-    const dark =
-      relativeLuminance(brandColors.primary) > 0.16
-        ? mixHex(brandColors.primary, '#070b14', 0.72)
-        : brandColors.primary;
-    const eye =
-      relativeLuminance(brandColors.accent) > 0.38
-        ? mixHex(brandColors.accent, '#0f172a', 0.48)
-        : brandColors.accent;
+    // Asegura contraste WCAG >= 8.5:1 sobre blanco manteniendo el matiz real de marca
+    const dark = ensureContrastColor(
+      relativeLuminance(brandColors.primary) > 0.14
+        ? mixHex(brandColors.primary, '#070b14', 0.74)
+        : brandColors.primary,
+      '#ffffff',
+      8.5,
+    );
+    const eye = ensureContrastColor(
+      relativeLuminance(brandColors.accent) > 0.35
+        ? mixHex(brandColors.accent, '#0f172a', 0.45)
+        : brandColors.accent,
+      '#ffffff',
+      5.5,
+    );
     return {
       dark,
       eye,

@@ -50,6 +50,16 @@ function localApiDevPlugin(env: Record<string, string>): Plugin {
           next();
         }
       });
+      server.middlewares.use('/api/public-offers', async (req, res, next) => {
+        try {
+          const mod = (await server.ssrLoadModule('/api/public-offers.ts')) as {
+            default: (r: unknown, s: unknown) => void | Promise<void>;
+          };
+          await mod.default(req, res);
+        } catch {
+          next();
+        }
+      });
     },
   };
 }
@@ -103,6 +113,13 @@ export default defineConfig(({ mode }) => {
           env.VITE_GEMINI_API_KEY_3 ||
           process.env.GEMINI_API_KEY_3 ||
           process.env.VITE_GEMINI_API_KEY_3 ||
+          '',
+      ),
+      '__APP_GEMINI_KEY_4__': JSON.stringify(
+        env.GEMINI_API_KEY_4 ||
+          env.VITE_GEMINI_API_KEY_4 ||
+          process.env.GEMINI_API_KEY_4 ||
+          process.env.VITE_GEMINI_API_KEY_4 ||
           '',
       ),
       'import.meta.env.VITE_ADMIN_WHATSAPP': JSON.stringify(env.ADMIN_WHATSAPP ?? env.VITE_ADMIN_WHATSAPP ?? ''),

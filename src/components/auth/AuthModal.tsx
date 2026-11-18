@@ -10,11 +10,12 @@ import { ensureSignedInAfterSignUp, signIn, signOut, signUpMerchant, validateInv
 import {
   authenticateWithPasskey,
   isWebAuthnSupported,
+  syncPasskeyVaultsOnPasswordLogin,
 } from '../../services/WebAuthnService';
 import { cx } from '../../utils/format';
 
 const PASSWORD_FALLBACK_INFO_MSG =
-  'Para mayor seguridad, inicia sesión con tu contraseña en este equipo nuevo. Luego podrás vincular tu huella desde el panel.';
+  'Inicia sesión una vez con tu contraseña en este equipo y tu huella quedará sincronizada automáticamente.';
 
 interface AuthModalProps {
   open: boolean;
@@ -54,21 +55,21 @@ export function AuthModal({ open, onClose, onAuthed, onOpenLegal }: AuthModalPro
   async function passkeyLogin() {
     setErrorMsg('');
     setInfoMsg('');
-    if (!emailOk) {
-      setErrorMsg('Escribe tu correo para validar tu huella / FaceID');
-      return;
-    }
     setLoading(true);
     try {
-      await authenticateWithPasskey(email.trim());
+      // V36.0 · Soporta correo opcional (si escribió correo usa allowCredentials; si no, Passkey discoverable)
+      await authenticateWithPasskey(emailOk ? email.trim() : undefined);
       toast.success('🔐 ¡Identidad biométrica verificada! Bienvenido 👋');
       onAuthed();
       onClose();
-    } catch {
-      // V27 Anti-frustración: ante cualquier fallo o falta de llave local/roaming,
-      // mostramos toast informativo azul y devolvemos el foco al ingreso con contraseña.
-      toast.info(PASSWORD_FALLBACK_INFO_MSG);
-      setInfoMsg(PASSWORD_FALLBACK_INFO_MSG);
+    } catch (err) {
+      const raw = err instanceof Error ? err.message : friendlyError(err);
+      const cleanMsg =
+        raw && !/JSON|fetch|rpc|status\s+\d{3}/i.test(raw)
+          ? raw
+          : PASSWORD_FALLBACK_INFO_MSG;
+      toast.info(cleanMsg);
+      setInfoMsg(cleanMsg);
       window.setTimeout(() => passwordInputRef.current?.focus(), 40);
     } finally {
       setLoading(false);
@@ -91,6 +92,8 @@ export function AuthModal({ open, onClose, onAuthed, onOpenLegal }: AuthModalPro
     try {
       if (mode === 'login') {
         await signIn(email.trim(), password);
+        // V36.0 · Auto-sanación silenciosa de bóvedas biométricas registradas (sin pedir borrar huella)
+        void syncPasskeyVaultsOnPasswordLogin(email.trim(), password);
         toast.success('¡Bienvenido de vuelta! 👋');
         onAuthed();
         onClose();

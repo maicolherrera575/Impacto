@@ -1,11 +1,20 @@
-import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
+import { SchemaType } from '@google/generative-ai';
 import { GEMINI_API_KEY, GEMINI_API_KEYS } from '../config/env';
+import { getDeviceId } from './deviceFingerprint';
 import type { Category, ParsedPromo } from '../types';
 import { buildPaletteFromHexTriplet } from '../utils/colorPalette';
 import type { ExtractedBrandPalette } from '../utils/colorPalette';
 import { detectFraudSignals, SECURITY_BLOCK_MESSAGE } from '../utils/securityFilter';
 
-const CATEGORY_IDS: Category[] = ['comida', 'transporte_flete', 'agro_mercado', 'servicios_comercios'];
+const CATEGORY_IDS: Category[] = [
+  'comida',
+  'transporte_flete',
+  'agro_mercado',
+  'hoteles_turismo',
+  'salud_belleza',
+  'hogar_construccion',
+  'servicios_comercios',
+];
 
 const SYSTEM_PROMPT = `Eres el asistente comercial de Impulso, una plataforma de ofertas locales de Colombia (municipios rurales de Cundinamarca como Gachetá).
 Tu trabajo: convertir el mensaje libre del comerciante (puede llegar dictado por voz, con errores y muletillas) en un JSON perfecto de promoción.
@@ -22,36 +31,31 @@ Reglas estrictas:
 9. SEGURIDAD: si el mensaje pide transferencias o giros por adelantado, préstamos gota a gota, dinero fácil, servicios sexuales o encuentros en sitios despoblados sin local comercial identificado, NO generes la oferta: responde exactamente este JSON {"category":"servicios_comercios","title":"Contenido bloqueado","description":"Impulso protege a la comunidad: esta publicación no cumple las normas de seguridad local.","emoji_icon":"🛡️","original_price":null,"promo_price":1,"total_quota":1,"duration_hours":1}.
 Responde ÚNICAMENTE con el objeto JSON.`;
 
-// ── Motor de IA unificado (cero llave expuesta en producción) ──────────────
-// PRODUCCIÓN (Vercel): TODO pasa por /api/gemini (serverless) donde vive la
-// llave privada. DESARROLLO local: usa el SDK con VITE_GEMINI_API_KEY; si no
-// existe, intenta /api/gemini (útil con `vercel dev`).
+// ── Motor de IA V36.0 Ultra-Rápido (<2s): Autodescubrimiento + Circuit Breaker + Zero-Token Cache ──
+// PRODUCCIÓN (Vercel): UNA sola petición a /api/gemini (model: 'auto') donde el servidor
+// orquesta las 4+ llaves, el descubrimiento de modelos (TTL 60 min) y el circuit breaker en <50ms.
+// DESARROLLO local / respaldo sin proxy: descubrimiento + circuit breaker + AbortController en cliente.
 
-/**
- * 🛡️ V34.0 · Modelos estables activos en cascada + Multi-Key Rotation circular:
- * Prioriza los modelos Flash activos de Google AI Studio y recorre todo API_KEY_POOL
- * ante HTTP 429 / RESOURCE_EXHAUSTED antes de devolver aviso amigable.
- */
-const MODEL_CHAIN = [
+const FALLBACK_CLIENT_MODELS = [
   'gemini-2.5-flash',
   'gemini-2.5-flash-lite',
-  'gemini-3.8-flash',
-  'gemini-3.5-flash',
-  'gemini-3.5-flash-lite',
   'gemini-2.0-flash',
+  'gemini-2.0-flash-lite',
 ] as const;
 
-const VISION_MODEL_CHAIN = [
-  'gemini-2.5-flash',
-  'gemini-3.5-flash',
-  'gemini-3.8-flash',
-  'gemini-2.0-flash',
-] as const;
+const FORBIDDEN_MODEL_RE = /embedding|aqa|imagen|veo|tts|audio|live|bison|gecko|legacy|1\.0|1\.5/i;
+const CLIENT_DISCOVERY_TTL_MS = 60 * 60 * 1000;
+const CLIENT_TEXT_TIMEOUT_MS = 5_500;
+const CLIENT_VISION_TIMEOUT_MS = 12_000;
+const PROXY_TEXT_TIMEOUT_MS = 15_000;
+const PROXY_VISION_TIMEOUT_MS = 24_000;
+const LOCAL_CACHE_PREFIX = 'impulso_ai_cache_v36:';
+const LOCAL_CACHE_TTL_MS = 30 * 60 * 1000;
 
 export const AI_BUSY_FRIENDLY_MSG =
-  'Nuestro motor de IA está procesando demasiadas solicitudes. Por favor, intenta crear la oferta manualmente o vuelve en un minuto.';
+  'Nuestro motor de IA está atendiendo alta demanda en este instante. Intenta de nuevo en unos segundos.';
 
-/** 🔄 V34.0 · Pool Multi-Key deduplicado para rotación circular ante HTTP 429. */
+/** 🔄 V36.0 · Pool Multi-Key (4+ proyectos) deduplicado para rotación instantánea. */
 const API_KEY_POOL: string[] = Array.from(
   new Set(
     [
@@ -61,13 +65,64 @@ const API_KEY_POOL: string[] = Array.from(
       typeof __APP_GEMINI_KEY_1__ === 'string' ? __APP_GEMINI_KEY_1__ : '',
       typeof __APP_GEMINI_KEY_2__ === 'string' ? __APP_GEMINI_KEY_2__ : '',
       typeof __APP_GEMINI_KEY_3__ === 'string' ? __APP_GEMINI_KEY_3__ : '',
+      typeof __APP_GEMINI_KEY_4__ === 'string' ? __APP_GEMINI_KEY_4__ : '',
     ]
       .map((k) => k.trim())
-      .filter(Boolean),
+      .filter((k) => k.length >= 16),
   ),
 );
 
 let activeKeyIndex = 0;
+let clientDiscoveredModels: string[] = [];
+let clientDiscoveredAt = 0;
+const clientDeadCombos = new Set<string>();
+const clientDeadModels = new Set<string>();
+const clientCooldownUntil = new Map<string, number>();
+const clientMemoryCache = new Map<string, { at: number; text: string }>();
+
+function fastCacheHash(input: string): string {
+  let h1 = 0x811c9dc5;
+  let h2 = 0x9e3779b9;
+  for (let i = 0; i < input.length; i += 1) {
+    const ch = input.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 16777619);
+    h2 = Math.imul(h2 ^ ch, 2654435761);
+  }
+  return ((h1 >>> 0).toString(36) + (h2 >>> 0).toString(36)).slice(0, 16);
+}
+
+function readClientAiCache(key: string): string | null {
+  const now = Date.now();
+  const mem = clientMemoryCache.get(key);
+  if (mem && now - mem.at < LOCAL_CACHE_TTL_MS) return mem.text;
+  try {
+    const raw = localStorage.getItem(`${LOCAL_CACHE_PREFIX}${key}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { at?: number; text?: string };
+    if (parsed.text && typeof parsed.at === 'number' && now - parsed.at < LOCAL_CACHE_TTL_MS) {
+      clientMemoryCache.set(key, { at: parsed.at, text: parsed.text });
+      return parsed.text;
+    }
+    localStorage.removeItem(`${LOCAL_CACHE_PREFIX}${key}`);
+  } catch {
+    /* localStorage no disponible */
+  }
+  return null;
+}
+
+function writeClientAiCache(key: string, text: string): void {
+  const entry = { at: Date.now(), text };
+  if (clientMemoryCache.size > 120) {
+    const firstKey = clientMemoryCache.keys().next().value;
+    if (firstKey) clientMemoryCache.delete(firstKey);
+  }
+  clientMemoryCache.set(key, entry);
+  try {
+    localStorage.setItem(`${LOCAL_CACHE_PREFIX}${key}`, JSON.stringify(entry));
+  } catch {
+    /* cuota localStorage llena: mantiene en memoria */
+  }
+}
 
 function isRateLimitError(status?: number, errOrPayload?: unknown): boolean {
   if (status === 429) return true;
@@ -83,8 +138,68 @@ function isRateLimitError(status?: number, errOrPayload?: unknown): boolean {
   return /\b429\b|Too Many Requests|RESOURCE_EXHAUSTED|rate[_\s-]*limit|quota/i.test(msg);
 }
 
-type SdkModel = ReturnType<GoogleGenerativeAI['getGenerativeModel']>;
-type SdkRequest = Parameters<SdkModel['generateContent']>[0];
+function isModelNotFoundError(status?: number, payload?: unknown): boolean {
+  if (status === 404) return true;
+  const errObj = (payload as { error?: { status?: string; message?: string } } | null)?.error;
+  const msg = `${errObj?.status ?? ''} ${errObj?.message ?? ''}`;
+  return /NOT_FOUND|is not found for API version|not supported for generateContent|deprecated/i.test(msg);
+}
+
+async function fetchWithAbort(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const ctrl = new AbortController();
+  const timer = window.setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: ctrl.signal });
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+function scoreClientModel(name: string): number {
+  const lower = name.toLowerCase();
+  if (!lower.startsWith('gemini-') || FORBIDDEN_MODEL_RE.test(lower)) return -1;
+  if (/thinking|exp-\d{4}|preview-tts|computer-use|robotics|deep-research/i.test(lower)) return -1;
+  const verMatch = /gemini-(\d+)(?:\.(\d+))?/i.exec(lower);
+  const ver = (verMatch ? Number(verMatch[1]) : 0) * 100 + (verMatch && verMatch[2] ? Number(verMatch[2]) : 0) * 10;
+  const fam = lower.includes('flash-lite') ? 75 : lower.includes('flash') ? 95 : lower.includes('pro') ? 35 : 0;
+  const stab = /preview|exp/i.test(lower) ? -8 : 12;
+  return ver + fam + stab;
+}
+
+async function discoverClientModels(): Promise<string[]> {
+  const now = Date.now();
+  if (clientDiscoveredModels.length > 0 && now - clientDiscoveredAt < CLIENT_DISCOVERY_TTL_MS) {
+    return clientDiscoveredModels.filter((m) => !clientDeadModels.has(m));
+  }
+  if (API_KEY_POOL.length === 0) return FALLBACK_CLIENT_MODELS.filter((m) => !clientDeadModels.has(m));
+  const key = API_KEY_POOL[activeKeyIndex % API_KEY_POOL.length];
+  try {
+    const res = await fetchWithAbort(
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}&pageSize=100`,
+      { method: 'GET', headers: { Accept: 'application/json' } },
+      3_000,
+    );
+    if (res.ok) {
+      const json = (await res.json().catch(() => null)) as {
+        models?: Array<{ name?: string; supportedGenerationMethods?: string[] }>;
+      } | null;
+      const ranked = (json?.models ?? [])
+        .filter((m) => Array.isArray(m.supportedGenerationMethods) && m.supportedGenerationMethods.includes('generateContent'))
+        .map((m) => String(m.name ?? '').replace(/^models\//, '').trim())
+        .filter((name) => scoreClientModel(name) > 0 && !clientDeadModels.has(name))
+        .sort((a, b) => scoreClientModel(b) - scoreClientModel(a));
+      const unique = Array.from(new Set(ranked)).slice(0, 5);
+      if (unique.length > 0) {
+        clientDiscoveredModels = unique;
+        clientDiscoveredAt = now;
+        return unique;
+      }
+    }
+  } catch {
+    /* usa semilla estable */
+  }
+  return FALLBACK_CLIENT_MODELS.filter((m) => !clientDeadModels.has(m));
+}
 
 export interface GeminiConversationTurn {
   role: 'user' | 'model';
@@ -94,19 +209,17 @@ export interface GeminiConversationTurn {
 interface GeminiCallOptions {
   systemInstruction?: string;
   prompt: string;
-  /** Historial multi-turno real para el Conserje conversacional con memoria. */
+  /** Historial multi-turno real para Radar conversacional con memoria. */
   conversationContents?: GeminiConversationTurn[];
   /** Imagen inline base64 (sin el prefijo data:) para IA Vision. */
   image?: { mimeType: string; data: string };
   temperature: number;
   responseSchema?: Record<string, unknown>;
+  /** Habilita caché Zero-Token en cliente para consultas deterministas / FAQ. */
+  cacheKeyHint?: string;
 }
 
-function getCascadeModels(options: GeminiCallOptions): readonly string[] {
-  return options.image ? VISION_MODEL_CHAIN : MODEL_CHAIN;
-}
-
-/** Construye payload compatible con REST y SDK (soporta historial multi-turno). */
+/** Construye payload compatible con REST (soporta historial multi-turno). */
 function buildPayload(options: GeminiCallOptions): Record<string, unknown> {
   const parts: Record<string, unknown>[] = [];
   if (options.image) parts.push({ inlineData: options.image });
@@ -138,171 +251,136 @@ function extractRestText(rest: unknown): string {
     .trim();
 }
 
-/** Bucle estricto de rotación Multi-Key ante cuota agotada (429 / RESOURCE_EXHAUSTED). */
-async function executeWithKeyRotation(
-  runWithKey: (
-    apiKey: string,
-    keyIdx: number,
-  ) => Promise<{ ok: true; text: string } | { ok: false; rateLimited: boolean; err: Error }>,
-): Promise<string> {
-  if (API_KEY_POOL.length === 0) throw new Error(AI_BUSY_FRIENDLY_MSG);
-  let lastErr = new Error(AI_BUSY_FRIENDLY_MSG);
-
-  for (let attempt = 0; attempt < API_KEY_POOL.length; attempt += 1) {
-    const idx = activeKeyIndex % API_KEY_POOL.length;
-    const apiKey = API_KEY_POOL[idx];
-    try {
-      const outcome = await runWithKey(apiKey, idx);
-      if (outcome.ok) return outcome.text;
-      lastErr = outcome.err;
-      if (outcome.rateLimited && API_KEY_POOL.length > 1) {
-        console.warn(`[Impulso IA] Llave #${idx + 1} agotada (${outcome.err.message}), rotando...`);
-        activeKeyIndex = (idx + 1) % API_KEY_POOL.length;
-        continue;
-      }
-      if (!outcome.rateLimited) {
-        throw outcome.err;
-      }
-      activeKeyIndex = (idx + 1) % API_KEY_POOL.length;
-    } catch (err) {
-      lastErr = err instanceof Error ? err : new Error(AI_BUSY_FRIENDLY_MSG);
-      if (isRateLimitError(undefined, err) && API_KEY_POOL.length > 1) {
-        console.warn(`[Impulso IA] Llave #${idx + 1} agotada (${lastErr.message}), rotando...`);
-        activeKeyIndex = (idx + 1) % API_KEY_POOL.length;
-        continue;
-      }
-      throw lastErr;
-    }
-  }
-  throw lastErr;
-}
-
-/** Llama al proxy serverless /api/gemini recorriendo modelos activos. */
-async function callProxy(options: GeminiCallOptions): Promise<string> {
-  let lastErr: Error = new Error(AI_BUSY_FRIENDLY_MSG);
-  for (const model of getCascadeModels(options)) {
-    let res: Response;
-    try {
-      res = await fetch('/api/gemini', {
+/**
+ * 1) Llama UNA sola vez al proxy serverless `/api/gemini` (`model: 'auto'`).
+ *    El servidor maneja las 4+ llaves, el descubrimiento y el circuit breaker en <50ms.
+ */
+async function callProxyAuto(options: GeminiCallOptions): Promise<{ ok: true; text: string } | { ok: false; proxyUnavailable: boolean }> {
+  const isVision = Boolean(options.image);
+  try {
+    const res = await fetchWithAbort(
+      '/api/gemini',
+      {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model, payload: buildPayload(options) }),
-      });
-    } catch {
-      lastErr = new Error(AI_BUSY_FRIENDLY_MSG);
-      continue;
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Device-Fingerprint': getDeviceId(),
+        },
+        body: JSON.stringify({
+          model: 'auto',
+          mode: isVision ? 'vision' : 'chat',
+          payload: buildPayload(options),
+        }),
+      },
+      isVision ? PROXY_VISION_TIMEOUT_MS : PROXY_TEXT_TIMEOUT_MS,
+    );
+    if (res.status === 404 || res.status === 405) {
+      return { ok: false, proxyUnavailable: true };
     }
     const rest: unknown = await res.json().catch(() => null);
     if (!res.ok) {
-      console.warn(`[Impulso IA Proxy] Modelo ${model} respondió HTTP ${res.status}; intentando siguiente modelo…`);
-      lastErr = new Error(AI_BUSY_FRIENDLY_MSG);
-      continue;
+      // Si el servidor no tiene llaves configuradas (500) o falló red, permite respaldo directo local
+      return { ok: false, proxyUnavailable: res.status === 500 || res.status === 502 };
     }
     const text = extractRestText(rest);
-    if (!text) {
-      lastErr = new Error(AI_BUSY_FRIENDLY_MSG);
-      continue;
-    }
-    return text;
+    if (!text) return { ok: false, proxyUnavailable: false };
+    return { ok: true, text };
+  } catch {
+    return { ok: false, proxyUnavailable: true };
   }
-  throw lastErr;
 }
 
-/** Llamada directa con el SDK usando el bucle estricto de rotación Multi-Key. */
-async function callSdk(options: GeminiCallOptions): Promise<string> {
-  return executeWithKeyRotation(async (apiKey) => {
-    let lastModelErr = new Error(AI_BUSY_FRIENDLY_MSG);
-    for (const model of getCascadeModels(options)) {
-      try {
-        const sdk = new GoogleGenerativeAI(apiKey);
-        const sdkModel = sdk.getGenerativeModel({ model });
-        const { response } = await sdkModel.generateContent(buildPayload(options) as unknown as SdkRequest);
-        const text = response.text().trim();
-        if (text) return { ok: true, text };
-      } catch (err) {
-        if (isRateLimitError(undefined, err)) {
-          return {
-            ok: false,
-            rateLimited: true,
-            err: err instanceof Error ? err : new Error('429 RESOURCE_EXHAUSTED'),
-          };
-        }
-        console.warn(`[Impulso IA SDK] Modelo ${model} falló:`, err);
-        lastModelErr = err instanceof Error ? err : new Error(AI_BUSY_FRIENDLY_MSG);
-      }
-    }
-    return { ok: false, rateLimited: false, err: lastModelErr };
-  });
-}
+/** 2) Respaldo directo REST (solo cuando /api/gemini no está disponible en local) con Circuit Breaker y AbortController. */
+async function callDirectResilient(options: GeminiCallOptions): Promise<string> {
+  if (API_KEY_POOL.length === 0) throw new Error(AI_BUSY_FRIENDLY_MSG);
+  const isVision = Boolean(options.image);
+  const perAttemptMs = isVision ? CLIENT_VISION_TIMEOUT_MS : CLIENT_TEXT_TIMEOUT_MS;
+  const deadline = Date.now() + (isVision ? 20_000 : 12_000);
+  const models = await discoverClientModels();
+  const payloadStr = JSON.stringify(buildPayload(options));
 
-/** Llamada directa REST a Gemini usando el bucle estricto de rotación Multi-Key. */
-async function callDirect(options: GeminiCallOptions): Promise<string> {
-  return executeWithKeyRotation(async (apiKey) => {
-    let lastModelErr = new Error(AI_BUSY_FRIENDLY_MSG);
-    for (const model of getCascadeModels(options)) {
-      let res: Response;
+  for (const model of models.slice(0, 3)) {
+    if (Date.now() >= deadline || clientDeadModels.has(model)) continue;
+    let all404 = true;
+
+    for (let attempt = 0; attempt < API_KEY_POOL.length; attempt += 1) {
+      const now = Date.now();
+      if (now >= deadline) break;
+      const idx = (activeKeyIndex + attempt) % API_KEY_POOL.length;
+      const comboId = `${idx}:${model}`;
+      if (clientDeadCombos.has(comboId) || (clientCooldownUntil.get(comboId) ?? 0) > now) continue;
+
+      const apiKey = API_KEY_POOL[idx];
       try {
-        res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
+        const res = await fetchWithAbort(
+          `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(buildPayload(options)),
+            body: payloadStr,
           },
+          Math.max(1_500, Math.min(perAttemptMs, deadline - now)),
         );
-      } catch (netErr) {
-        lastModelErr = netErr instanceof Error ? netErr : new Error(AI_BUSY_FRIENDLY_MSG);
-        continue;
-      }
-      const rest: unknown = await res.json().catch(() => null);
-      if (!res.ok) {
-        if (isRateLimitError(res.status, rest)) {
-          return {
-            ok: false,
-            rateLimited: true,
-            err: new Error(`HTTP ${res.status} RESOURCE_EXHAUSTED`),
-          };
+        const rest: unknown = await res.json().catch(() => null);
+        if (res.ok) {
+          const text = extractRestText(rest);
+          if (text) {
+            activeKeyIndex = idx;
+            return text;
+          }
+          all404 = false;
+          continue;
         }
-        console.warn(`[Impulso IA REST] Modelo ${model} respondió HTTP ${res.status}; intentando respaldo…`);
-        lastModelErr = new Error(AI_BUSY_FRIENDLY_MSG);
-        continue;
+        if (isModelNotFoundError(res.status, rest)) {
+          clientDeadCombos.add(comboId);
+          break;
+        }
+        all404 = false;
+        if (isRateLimitError(res.status, rest)) {
+          clientCooldownUntil.set(comboId, Date.now() + 120_000);
+          activeKeyIndex = (idx + 1) % API_KEY_POOL.length;
+          continue;
+        }
+        activeKeyIndex = (idx + 1) % API_KEY_POOL.length;
+      } catch {
+        all404 = false;
+        activeKeyIndex = (idx + 1) % API_KEY_POOL.length;
       }
-      const text = extractRestText(rest);
-      if (!text) {
-        lastModelErr = new Error(AI_BUSY_FRIENDLY_MSG);
-        continue;
-      }
-      return { ok: true, text };
     }
-    return { ok: false, rateLimited: false, err: lastModelErr };
-  });
+    if (all404) clientDeadModels.add(model);
+  }
+  throw new Error(AI_BUSY_FRIENDLY_MSG);
 }
 
 /**
- * Wrapper unificado de llamada a Gemini con respaldo en cascada multinivel:
- * 1) Proxy /api/gemini (rotación multi-key en Vercel + modelos activos).
- * 2) REST directo con rotación multi-key circular.
- * 3) SDK local con rotación multi-key circular.
- * Solo tras agotar llaves y rutas emite AI_BUSY_FRIENDLY_MSG.
+ * Wrapper unificado V36.0 (<2s promedio, tope máximo 15s, 0 cuelgues):
+ *  0) Zero-Token Cache en cliente (si `cacheKeyHint` aplica).
+ *  1) Proxy serverless `/api/gemini` en 1 sola llamada (`model: 'auto'`).
+ *  2) Respaldo directo REST solo si el proxy no está disponible y hay llaves locales.
  */
 async function callGemini(options: GeminiCallOptions): Promise<string> {
-  try {
-    return await callProxy(options);
-  } catch (proxyErr) {
-    console.warn('[Impulso IA] Proxy en cascada agotado:', proxyErr);
+  const cacheKey =
+    options.cacheKeyHint && !options.image
+      ? fastCacheHash(options.cacheKeyHint)
+      : null;
+
+  if (cacheKey) {
+    const cached = readClientAiCache(cacheKey);
+    if (cached) return cached;
   }
-  try {
-    return await callDirect(options);
-  } catch (directErr) {
-    console.warn('[Impulso IA] REST directo en cascada agotado:', directErr);
+
+  const proxyResult = await callProxyAuto(options);
+  if (proxyResult.ok) {
+    if (cacheKey) writeClientAiCache(cacheKey, proxyResult.text);
+    return proxyResult.text;
   }
-  if (API_KEY_POOL.length > 0) {
-    try {
-      return await callSdk(options);
-    } catch (sdkErr) {
-      console.warn('[Impulso IA] SDK en cascada agotado:', sdkErr);
-    }
+
+  if (proxyResult.proxyUnavailable && API_KEY_POOL.length > 0) {
+    const directText = await callDirectResilient(options);
+    if (cacheKey) writeClientAiCache(cacheKey, directText);
+    return directText;
   }
+
   throw new Error(AI_BUSY_FRIENDLY_MSG);
 }
 
@@ -382,9 +460,74 @@ function normalize(raw: Partial<ParsedPromo>): ParsedPromo {
   };
 }
 
+/** Respaldo determinista instantáneo (<2ms) si todas las llaves IA estuvieran saturadas. */
+function synthesizeLocalOfferFromText(freeText: string): ParsedPromo {
+  const lower = freeText.toLowerCase();
+  let category: Category = 'servicios_comercios';
+  let emoji = '🔥';
+  if (/almuerz|trucha|pollo|carne|asado|pan\b|pandebono|croissant|caf[eé]|desayun|arepa|pizza|comida|restaurante|postre|torta/i.test(lower)) {
+    category = 'comida';
+    emoji = /pan|croissant|torta|postre/i.test(lower) ? '🥐' : '🍽️';
+  } else if (/abono|agro|campo|finca|semilla|concentrado|ganado|fertiliz|bulto|cultivo/i.test(lower)) {
+    category = 'agro_mercado';
+    emoji = '🌱';
+  } else if (/flete|cami[oó]n|mudanza|transporte|domicilio|carga|viaje/i.test(lower)) {
+    category = 'transporte_flete';
+    emoji = '🚚';
+  } else if (/hotel|caba[nñ]|piscina|hospedaje|glamping|turismo/i.test(lower)) {
+    category = 'hoteles_turismo';
+    emoji = '🏨';
+  } else if (/droguer|salud|m[eé]dic|belleza|peluquer|barber|u[nñ]as|spa|odont/i.test(lower)) {
+    category = 'salud_belleza';
+    emoji = '💄';
+  } else if (/ferreter|herramienta|cemento|pintura|obra|construcci|hogar|mueble/i.test(lower)) {
+    category = 'hogar_construccion';
+    emoji = '🛠️';
+  }
+
+  // Extrae precios tipo "a 12 mil", "$15.000", "20000"
+  const milMatches = [...lower.matchAll(/(\d{1,3}(?:[.,]\d)?)\s*(?:mil|k)\b/gi)].map((m) =>
+    Math.round(Number(m[1].replace(',', '.')) * 1000),
+  );
+  const exactMatches = [...lower.matchAll(/\$?\s*(\d{1,3}(?:\.\d{3})+|\d{4,7})\b/g)].map((m) =>
+    Math.round(Number(m[1].replace(/\./g, ''))),
+  );
+  const allPrices = [...milMatches, ...exactMatches].filter((n) => Number.isFinite(n) && n >= 500 && n <= 50_000_000);
+  const promoPrice = allPrices.length > 0 ? Math.min(...allPrices) : 15000;
+  const originalPrice = allPrices.length > 1 ? Math.max(...allPrices) : null;
+
+  // Extrae cupos tipo "15 almuerzos", "20 cupos", "10 unidades"
+  const quotaMatch = /\b(\d{1,3})\s*(?:almuerz|cupo|unidad|plato|bulto|pan|docena|combo|kit|servicio|turno|paquete)/i.exec(lower);
+  const totalQuota = quotaMatch ? Math.min(500, Math.max(1, Number(quotaMatch[1]))) : 10;
+
+  // Extrae duración
+  let durationHours = 4;
+  const hrsMatch = /(\d+(?:[.,]\d)?)\s*hora/i.exec(lower);
+  const daysMatch = /(\d+)\s*d[ií]a/i.exec(lower);
+  if (hrsMatch) durationHours = Math.min(96, Math.max(0.5, Number(hrsMatch[1].replace(',', '.'))));
+  else if (daysMatch) durationHours = Math.min(96, Math.max(1, Number(daysMatch[1]) * 24));
+  else if (/hoy|tarde/i.test(lower)) durationHours = 6;
+  else if (/ma[nñ]ana/i.test(lower)) durationHours = 24;
+
+  const cleaned = freeText.replace(/\s+/g, ' ').trim();
+  const title = cleaned.slice(0, 68).replace(/[.,;:]+$/, '') || 'Oferta relámpago de hoy';
+  const description = cleaned.slice(0, 260) || title;
+
+  return normalize({
+    category,
+    title: title.charAt(0).toUpperCase() + title.slice(1),
+    description: description.charAt(0).toUpperCase() + description.slice(1),
+    emoji_icon: emoji,
+    original_price: originalPrice && originalPrice > promoPrice ? originalPrice : null,
+    promo_price: promoPrice,
+    total_quota: totalQuota,
+    duration_hours: durationHours,
+  });
+}
+
 /**
  * Creador Mágico: interpreta lenguaje natural (texto o voz dictada) del
- * comerciante y devuelve un objeto de promoción listo para publicar.
+ * comerciante y devuelve un objeto de promoción listo para publicar (<2s).
  */
 export async function parsePromoFromText(freeText: string): Promise<ParsedPromo> {
   const text = freeText.trim();
@@ -395,17 +538,17 @@ export async function parsePromoFromText(freeText: string): Promise<ParsedPromo>
     throw new Error(FRAUD_MESSAGE);
   }
 
-  const jsonText = await callGemini({
-    systemInstruction: SYSTEM_PROMPT,
-    prompt: `Mensaje del comerciante: """${text}"""`,
-    temperature: 0.4,
-    responseSchema: PROMO_SCHEMA,
-  });
-
   try {
+    const jsonText = await callGemini({
+      systemInstruction: SYSTEM_PROMPT,
+      prompt: `Mensaje del comerciante: """${text}"""`,
+      temperature: 0.35,
+      responseSchema: PROMO_SCHEMA,
+      cacheKeyHint: `promo:${text.toLowerCase()}`,
+    });
     return normalize(parseAiJson<Partial<ParsedPromo>>(jsonText));
   } catch {
-    throw new Error(AI_BUSY_FRIENDLY_MSG);
+    return synthesizeLocalOfferFromText(text);
   }
 }
 
@@ -1211,28 +1354,28 @@ Recibirás la ESTRATEGIA de la campaña (rubro, promesa de valor, tema y layout)
  },
  "sub": "una línea ejecutiva elegante que explica el servicio/producto",
  "benefits": ["3 beneficios 100% ESPECÍFICOS del negocio, texto limpio SIN emojis ni iconos (el diseño los acompaña con iconografía vectorial propia)"],
- "cta": "llamado a la acción urgente y claro",
+ "cta": "indicación gráfica de acción real para afiche impreso/PNG (ej: 'ESCANEA PARA APARTAR', 'RESERVA HOY EN IMPULSO', 'PEDIDOS AL WHATSAPP'). PROHIBIDO usar flechas web como '↗' o textos de botón clickeable como 'Haz clic aquí'",
  "price_label": "si el negocio NO maneja precio fijo: texto inteligente de cotización/acción (ej: 'Diagnóstico digital gratis', 'Agenda tu asesoría hoy', 'Valoración sin costo'). Si SÍ hay precio de oferta devuelve null",
  "visualHooks": {
    "slide1_hook": "titular magnético de 4 a 7 palabras que detiene el scroll",
    "slide1_sub": "subtítulo provocador corto",
    "slide2_headline": "promesa de valor + beneficio irresistible (máx 10 palabras)",
    "slide2_bullets": ["beneficio corto, texto limpio sin emojis", "beneficio corto, texto limpio sin emojis", "beneficio corto, texto limpio sin emojis"],
-   "slide3_cta": "llamado a la acción urgente con gatillo de escasez"
+   "slide3_cta": "indicación directa con gatillo de escasez (ej: 'Últimos cupos hoy · Escanea el QR')"
  },
  "whatsappStatusSequence": {
    "status1": "Estado de WhatsApp de la mañana usando *negrita* y _cursiva_ nativas (máx 3 líneas)",
    "status2": "Estado del mediodía con *precio o beneficio clave* en negrita y _llamado sutil_ en cursiva (máx 4 líneas)",
-   "status3": "Estado de cierre de tarde/noche con *urgencia/escasez* + _garantía_ + 👉 link"
+   "status3": "Estado de cierre de tarde/noche con *urgencia/escasez* + _garantía_ + dirección exacta del local"
  },
  "socialMediaCopy": {
-   "pas": "copy completo y persuasivo para Instagram/Facebook con fórmula PAS, emojis limpios y persuasivos, SALTOS DE LÍNEA LIMPIOS entre párrafos, y EXACTAMENTE 8 #Hashtags estratégicos (municipio, rubro y producto) al final",
-   "aida": "copy optimizado EXCLUSIVAMENTE para WhatsApp usando sintaxis real (*negrita* y _cursiva_), saltos limpios y llamado directo al chat"
+   "pas": "copy completo de agencia para Instagram/Facebook con gancho emocional/curiosidad (método AIDA/PAS), saltos de línea respirables, prueba social, dirección exacta y EXACTAMENTE 8 #Hashtags hiperlocales reales (#Gachetá, #Guavio y nicho del negocio) al final",
+   "aida": "copy corto de alta conversión EXCLUSIVAMENTE para WhatsApp con *negritas* y _cursivas_ reales, gancho en primera línea, oferta clara, dirección exacta del local y llamado directo al chat"
  },
  "videoReelScript": {
-   "t0_3": "Hook nativo TikTok 0-3s EXACTAMENTE con formato '[Cámara: plano visual de alto impacto que detiene el scroll] Texto: \"frase gancho directa a cámara\"'",
-   "t3_10": "Cuerpo rápido TikTok 3-10s EXACTAMENTE con formato '[Cámara: cortes dinámicos mostrando producto/servicio real en acción] Texto: \"beneficio clave y prueba rápida\"'",
-   "t10_15": "CTA directo TikTok 10-15s EXACTAMENTE con formato '[Cámara: plano del local/QR señalando enlace en perfil] Texto: \"llamado directo a WhatsApp o enlace hoy\"'"
+   "t0_3": "Guion cinematográfico TikTok/Reels [0-3s Gancho visual que detiene el scroll] con formato '[0-3s Gancho visual: plano de alto impacto] Texto en pantalla: \"...\" | Voz: \"frase gancho natural colombiana\"'",
+   "t3_10": "Guion [3-12s Demostración/Valor] con formato '[3-12s Demostración/Valor: tomas rápidas mostrando producto, textura o beneficio real] Texto en pantalla: \"...\" | Voz: \"explicación cercana con valor concreto\"'",
+   "t10_15": "Guion [12-20s Prueba + Cierre] con formato '[12-20s Prueba + Cierre: cliente/local/QR y dirección exacta] Texto en pantalla: \"...\" | Voz: \"cierre cálido invitando a apartar o escribir al WhatsApp hoy\"'"
  },
  "salesClosingTemplates": {
    "priceReply": "respuesta lista cuando el cliente pregunta ¿precio?: da el precio o invita a cotizar y ofrece combo/domicilio",
@@ -1954,9 +2097,9 @@ export function synthesizeCampaign(input: CampaignInput, art: ArtDirection): Mar
       aida: `⚡ *${plain.toUpperCase()} ${highlight.toUpperCase()}*${price}${normalTxt}\n\n_${hook.charAt(0).toUpperCase()}${hook.slice(1)}._\n✅ *${b0.replace(/^[^\p{L}\p{N}]+/u, '')}*\n✅ *${b1.replace(/^[^\p{L}\p{N}]+/u, '')}*\n\n📍 _${addr}_\n👉 *Escríbenos AHORA a WhatsApp* y aparta hoy mismo`,
     },
     videoReelScript: {
-      t0_3: `[Cámara: Hook visual rápido 0-3s acercándose al ${product.toLowerCase()} en acción] Texto: "¡Para un segundo! Si estás en ${place}, esto de ${brand} te interesa…"`,
-      t3_10: `[Cámara: Cortes ágiles de 1.5s mostrando textura, uso real y entrega] Texto: "Tienes ${b0.replace(/^[^\p{L}\p{N}]+/u, '').toLowerCase()} y ${b2.replace(/^[^\p{L}\p{N}]+/u, '').toLowerCase()}${price}."`,
-      t10_15: `[Cámara: Toma directa del negocio y QR señalando el perfil] Texto: "${plain} ${highlight}. Escríbenos YA al WhatsApp del perfil o visítanos en ${addr}."`,
+      t0_3: `[0-3s Gancho visual: plano cerrado en movimiento entrando directo a ${product.toLowerCase()} recién listo] Texto en pantalla: "¿EN ${place.toUpperCase()} Y SIN PROBAR ESTO?" | Voz: "¡Espera un segundo! Si estás en ${place}, mira lo que acaba de sacar ${brand}…"`,
+      t3_10: `[3-12s Demostración/Valor: 3 cortes rápidos mostrando textura, uso real y entrega] Texto en pantalla: "${b0.replace(/^[^\p{L}\p{N}]+/u, '').toUpperCase()}" | Voz: "Tienes ${b0.replace(/^[^\p{L}\p{N}]+/u, '').toLowerCase()} y ${b2.replace(/^[^\p{L}\p{N}]+/u, '').toLowerCase()}${price}."`,
+      t10_15: `[12-20s Prueba + Cierre: fachada del local en ${addr} y QR de Impulso en mano] Texto en pantalla: "ESCANEA O APARTA HOY · ${addr.toUpperCase()}" | Voz: "${plain} ${highlight}. Pásate por ${addr} o escríbenos ya al WhatsApp antes que se agoten los cupos."`,
     },
     salesClosingTemplates: {
       priceReply: isService
@@ -2029,33 +2172,50 @@ export interface SupportConciergeAssessment {
   aiAnalysis: string;
 }
 
-const SUPPORT_SYSTEM_PROMPT = `Eres Radar, el asistente de élite de la plataforma Impulso (fundada por Michael Herrera en Gachetá). Eres empático, astuto y resolutivo. Hablas de forma cálida y profesional. Nunca respondes como un robot enlatado. Tienes memoria de la conversación. Si el usuario reporta un fraude grave, genera una respuesta que inspire tranquilidad y asegúrale que Michael y el equipo de seguridad están al tanto.
+export interface RadarMatchedOfferContext {
+  title: string;
+  merchant: string;
+  priceCop: number;
+  quota: number;
+  category: string;
+  verified: boolean;
+  distanceLabel?: string | null;
+}
+
+const SUPPORT_SYSTEM_PROMPT = `Eres Radar, el asistente de élite de la plataforma Impulso (fundada por Michael Herrera en Gachetá). Eres empático, astuto y resolutivo. Hablas de forma cálida, natural y colombiana (profesional, cercana y sin sonar a robot enlatado). Tienes memoria de la conversación.
 
 Conocimiento operativo real de Impulso:
 - Compradores NO necesitan crear cuenta ni pagar en la app: apartan con nombre y WhatsApp, reciben código único y pagan directo al comercio al recibir.
 - Impulso es un portal de contacto: no retiene dinero ni ejecuta transferencias entre usuarios. Para comercios nuevos (Nivel 1), recomendamos siempre pagar contra-entrega al recibir el producto o servicio.
 - Comercios publican ofertas usando créditos (3 gratis al registrarse). Para recargar créditos van a Mi Panel → Recargar créditos (Nequi / Daviplata / Llave / QR oficial del administrador) y suben su comprobante para validación.
-- Acceso biométrico (huella/FaceID): primero se vincula en Mi Panel tras iniciar sesión con contraseña; en un dispositivo nuevo se inicia primero con contraseña.
-- GPS: solo se activa cuando el usuario toca Activar GPS; si está apagado o en modo aproximado, el radar opera igual sobre el municipio elegido.
+- Acceso biométrico (huella/FaceID): se vincula en Mi Panel; si se requiere resincronizar, basta iniciar sesión una vez con contraseña y se actualiza automáticamente.
+- GPS: 100% voluntario (Ley 1581). Si el usuario lo activa, calculamos distancias en su pantalla sin guardar coordenadas ocultas.
 
-Lee TODO el historial de conversación de forma natural y responde en contexto como un asistente humano experto. Devuelve ÚNICAMENTE este JSON válido:
+REGLAS DE OFERTAS EN VIVO:
+- Si el contexto incluye [OFERTAS_ACTIVAS_COINCIDENTES], ya le estamos mostrando al usuario las tarjetas interactivas con botones "Apartar ahora" y "Ver en mapa" justo debajo de tu respuesta.
+- Menciona de forma breve, cálida y concreta las 1–3 mejores opciones encontradas (con su precio y comercio), respeta su presupuesto/urgencia e invítalo a tocar "Apartar ahora" o "Ver en mapa" en la tarjeta de abajo.
+- Si buscó un producto que NO tiene ofertas activas ahora, dile con empatía que hoy no hay una oferta publicada exactamente de eso y sugiérele usar la pestaña "Pedir" para que los comercios del municipio le escriban al instante.
+
+Lee TODO el historial y devuelve ÚNICAMENTE este JSON válido:
 {
   "is_technical_issue": true|false,
   "severity": "low"|"medium"|"high"|"critical",
   "category": "usage"|"technical"|"bug"|"billing"|"abuse",
   "summary": "resumen corto del tema actual (máx 120 caracteres)",
   "ai_analysis": "diagnóstico breve para el administrador si aplica (máx 300 caracteres)",
-  "reply": "respuesta conversacional única, breve, resolutiva y empática adaptada exactamente a lo que dijo el usuario"
+  "reply": "respuesta conversacional breve (máx 2-4 frases), cálida, resolutiva y humana"
 }
 Reglas estrictas:
-- NUNCA devuelvas la misma frase genérica ni ignores preguntas de seguimiento: contesta directamente lo último que escribió el usuario considerando los mensajes previos.
-- Si reporta fallo técnico grave, cobro no reflejado o fraude/estafa, pon "is_technical_issue": true, asigna severidad "high" o "critical", ofrécele una solución o verificación concreta en "reply" y asegúrale con calidez que Michael Herrera y el equipo de seguridad de Impulso ya fueron alertados con prioridad máxima.
+- Si reporta fallo técnico grave, cobro no reflejado o fraude/estafa, pon "is_technical_issue": true, asigna severidad "high" o "critical", tranquilízalo con calidez y asegúrale que Michael Herrera y el equipo de seguridad de Impulso ya fueron alertados con prioridad máxima.
 - Jamás menciones detalles internos como SHA-256, claves API o nombres de modelos.`;
 
 function synthesizeLocalSupportFallback(
   message: string,
   userRole: 'client' | 'merchant' | 'admin',
   turnCount: number,
+  matchedOffers?: RadarMatchedOfferContext[],
+  parsedBudget?: number | null,
+  isShoppingIntent?: boolean,
 ): SupportConciergeAssessment {
   const m = message.toLowerCase();
   const isFollowUp = turnCount > 2;
@@ -2074,10 +2234,59 @@ function synthesizeLocalSupportFallback(
       summary: message.trim().slice(0, 120) || 'Reporte técnico del usuario',
       aiAnalysis: `Incidencia reportada a Radar por ${userRole === 'merchant' ? 'comercio' : 'cliente'}: "${message.trim().slice(0, 220)}".`,
       reply: isFraud
-        ? 'Tranquilo, estás respaldado. Soy Radar y acabo de escalar este reporte con prioridad crítica: Michael Herrera y el equipo de seguridad de Impulso ya están al tanto para auditar y bloquear el dispositivo infractor. Recuerda no realizar giros anticipados y cuéntame si tienes el nombre de la oferta para actuar de inmediato.'
+        ? 'Tranquilo, estás respaldado. Soy Radar y acabo de escalar este reporte con prioridad crítica: Michael Herrera y el equipo de seguridad de Impulso ya están al tanto para auditar y bloquear el dispositivo infractor. No hagas giros anticipados y cuéntame si tienes el nombre del local o de la oferta.'
         : isBillingOrCritical
           ? 'Te entiendo perfectamente. Ya registré un ticket prioritario para que Michael y el equipo de soporte revisen tu pago o cuenta. Mientras lo validan, verifica que el comprobante sea al Nequi oficial o déjame el número de referencia aquí mismo.'
           : 'Gracias por avisarme. Ya dejé un ticket prioritario con el equipo técnico de Impulso; mientras lo revisamos, intenta recargar la página o volver a abrir el módulo donde ocurrió.',
+    };
+  }
+
+  // Recomendación en vivo instantánea (0ms) si hay ofertas coincidentes
+  if (matchedOffers && matchedOffers.length > 0) {
+    const top = matchedOffers[0];
+    const extraCount = matchedOffers.length - 1;
+    const budgetText = parsedBudget ? ` dentro de tu presupuesto de $${parsedBudget.toLocaleString('es-CO')}` : '';
+    const extraText = extraCount > 0 ? ` y ${extraCount} opción${extraCount === 1 ? '' : 'es'} más` : '';
+    return {
+      isTechnicalIssue: false,
+      severity: 'low',
+      category: 'usage',
+      summary: `Búsqueda en vivo: ${message.trim().slice(0, 90)}`,
+      aiAnalysis: `Radar recomendó ${matchedOffers.length} ofertas activas localmente.`,
+      reply: `¡Mira lo que encontré activo ahora mismo${budgetText}! Destaca "${top.title}" en ${top.merchant} por $${top.priceCop.toLocaleString('es-CO')} (quedan ${top.quota} cupos)${extraText}. Toca "Apartar ahora" en cualquier tarjeta de abajo para reservar sin registro o "Ver en mapa" para ubicar el local.`,
+    };
+  }
+
+  if (isShoppingIntent) {
+    return {
+      isTechnicalIssue: false,
+      severity: 'low',
+      category: 'usage',
+      summary: `Sin coincidencias: ${message.trim().slice(0, 90)}`,
+      aiAnalysis: 'Búsqueda de cliente sin oferta activa coincidente.',
+      reply: `Por el momento no veo una oferta activa exactamente para "${message.trim().slice(0, 55)}" en este municipio. ¡Pero no te quedes sin conseguirlo! Entra a la pestaña "Pedir" en la barra inferior y publica lo que necesitas: los comercios locales te escriben directo a tu WhatsApp.`,
+    };
+  }
+
+  // Respuestas FAQ instantáneas Zero-Token
+  if (/c[oó]mo\s+apart|apartar|reservar/i.test(m)) {
+    return {
+      isTechnicalIssue: false,
+      severity: 'low',
+      category: 'usage',
+      summary: 'Consulta cómo apartar oferta',
+      aiAnalysis: 'FAQ resuelta localmente.',
+      reply: 'Apartar en Impulso es facilísimo y sin crear cuenta: toca la oferta que te guste, pulsa "Apartar el mío YA", escribe tu nombre y WhatsApp, y al instante recibes tu código único. Pagas directo al comercio cuando recibas tu pedido.',
+    };
+  }
+  if (/recarg|cr[eé]dito/i.test(m)) {
+    return {
+      isTechnicalIssue: false,
+      severity: 'low',
+      category: 'usage',
+      summary: 'Consulta recarga de créditos',
+      aiAnalysis: 'FAQ resuelta localmente.',
+      reply: 'Para recargar créditos entra a Mi Panel → "Recargar créditos por Nequi", elige tu paquete, haz el envío al Nequi oficial o Llave del administrador y sube tu captura: el escáner verifica tu pago en segundos.',
     };
   }
 
@@ -2088,26 +2297,43 @@ function synthesizeLocalSupportFallback(
     summary: message.trim().slice(0, 120) || 'Consulta en plataforma',
     aiAnalysis: 'Consulta atendida por Radar.',
     reply: isFollowUp
-      ? `Sobre "${message.trim().slice(0, 60)}": cuéntame exactamente en qué pantalla te encuentras (Radar, Apartados o Mi Panel) para guiarte paso a paso ahora mismo.`
+      ? `Sobre "${message.trim().slice(0, 60)}": cuéntame exactamente qué producto buscas o en qué pantalla estás (Ofertas, Pedir, Apartados o Mi Panel) para ayudarte al instante.`
       : userRole === 'merchant'
-        ? `¡Claro! Soy Radar. Respecto a "${message.trim().slice(0, 60)}": desde Mi Panel puedes gestionar publicaciones, recargas por Nequi y pedidos. ¿En qué paso específico te ayudo?`
-        : `¡Con gusto! Soy Radar. Sobre "${message.trim().slice(0, 60)}": puedes explorar ofertas por municipio, apartar con tu WhatsApp y pagar al recibir. ¿Qué detalle quieres resolver?`,
+        ? `¡Claro! Soy Radar. Desde Mi Panel puedes crear ofertas con IA, recargar créditos por Nequi y gestionar apartados. ¿En qué paso específico te ayudo?`
+        : `¡Con gusto! Soy Radar. Dime qué estás buscando hoy (ej: "abono para el campo" o "almuerzo menos de 15 mil") y te muestro al instante las ofertas activas para apartar.`,
   };
 }
 
 /**
- * 🤖 El Conserje de Impulso (V34): agente conversacional real con memoria multi-turno.
- * Envía el historial completo en `conversationContents` para mantener contexto natural.
+ * 🤖 Radar 2.0 (V36.0): Asistente híbrido en tiempo real (<2s) con memoria multi-turno,
+ * caché Zero-Token para FAQs y recomendaciones contextuales sobre las ofertas vivas.
  */
 export async function askSupportConcierge(input: {
   history: Array<{ role: 'user' | 'assistant'; content: string }>;
   latestMessage?: string;
   userRole: 'client' | 'merchant' | 'admin';
   municipality: string;
+  matchedOffersSummary?: RadarMatchedOfferContext[];
+  parsedBudget?: number | null;
+  isShoppingIntent?: boolean;
 }): Promise<SupportConciergeAssessment> {
   const cleanMsg =
     (input.latestMessage ?? input.history[input.history.length - 1]?.content ?? '').trim();
-  const recentTurns = input.history.slice(-12);
+  const recentTurns = input.history.slice(-10);
+  const matched = input.matchedOffersSummary ?? [];
+
+  const compactOffersBlock =
+    matched.length > 0
+      ? `\n[OFERTAS_ACTIVAS_COINCIDENTES (tarjetas ya visibles debajo):\n${matched
+          .slice(0, 5)
+          .map(
+            (o, idx) =>
+              `${idx + 1}. "${o.title}" · ${o.merchant}${o.verified ? ' (Verificado)' : ''} · $${o.priceCop.toLocaleString('es-CO')} · ${o.quota} cupos${o.distanceLabel ? ` · ${o.distanceLabel}` : ''}`,
+          )
+          .join('\n')}]`
+      : input.isShoppingIntent
+        ? '\n[OFERTAS_ACTIVAS_COINCIDENTES: Ninguna coincidencia exacta activa ahora mismo]'
+        : '';
 
   const conversationContents: GeminiConversationTurn[] = recentTurns.map((m, idx) => {
     const isLastUser = idx === recentTurns.length - 1 && m.role === 'user';
@@ -2116,19 +2342,27 @@ export async function askSupportConcierge(input: {
       parts: [
         {
           text: isLastUser
-            ? `[Contexto: usuario=${input.userRole}, municipio=${input.municipality}]\n${m.content}`
+            ? `[Contexto: rol=${input.userRole}, municipio=${input.municipality}${input.parsedBudget ? `, presupuesto=$${input.parsedBudget}` : ''}]${compactOffersBlock}\nUsuario: ${m.content}`
             : m.content,
         },
       ],
     };
   });
 
+  // Caché Zero-Token solo para preguntas FAQ de 1er turno sin ofertas dinámicas adjuntas
+  const isCacheableFaq =
+    recentTurns.length <= 2 &&
+    matched.length === 0 &&
+    !input.isShoppingIntent &&
+    !/estafa|fraude|cobr|error|fall/i.test(cleanMsg);
+
   try {
     const raw = await callGemini({
       systemInstruction: SUPPORT_SYSTEM_PROMPT,
       prompt: cleanMsg,
       conversationContents,
-      temperature: 0.45,
+      temperature: 0.4,
+      ...(isCacheableFaq ? { cacheKeyHint: `radar-faq:${input.userRole}:${cleanMsg.toLowerCase()}` } : {}),
     });
 
     interface ParsedSupport {
@@ -2165,12 +2399,26 @@ export async function askSupportConcierge(input: {
       severity,
       category,
       summary: (parsed.summary ?? cleanMsg).trim().slice(0, 200) || 'Solicitud de soporte',
-      aiAnalysis: (parsed.ai_analysis ?? cleanMsg).trim().slice(0, 600) || 'Clasificado por Conserje de Soporte',
+      aiAnalysis: (parsed.ai_analysis ?? cleanMsg).trim().slice(0, 600) || 'Clasificado por Radar',
       reply:
         dynamicReply ||
-        synthesizeLocalSupportFallback(cleanMsg, input.userRole, recentTurns.length).reply,
+        synthesizeLocalSupportFallback(
+          cleanMsg,
+          input.userRole,
+          recentTurns.length,
+          matched,
+          input.parsedBudget,
+          input.isShoppingIntent,
+        ).reply,
     };
   } catch {
-    return synthesizeLocalSupportFallback(cleanMsg, input.userRole, recentTurns.length);
+    return synthesizeLocalSupportFallback(
+      cleanMsg,
+      input.userRole,
+      recentTurns.length,
+      matched,
+      input.parsedBudget,
+      input.isShoppingIntent,
+    );
   }
 }

@@ -65,6 +65,8 @@ export default function App() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [selectedOffer, setSelectedOffer] = useState<Offer | null>(null);
+  const [offerModalInitialStep, setOfferModalInitialStep] = useState<'detail' | 'form'>('detail');
+  const [radarExternalPrompt, setRadarExternalPrompt] = useState<{ text: string; seq: number } | null>(null);
   /** V13 · Perfil Público del comercio (?comercio=UUID) + su catálogo vivo. */
   const [selectedMerchant, setSelectedMerchant] = useState<Profile | null>(null);
   const [merchantOffers, setMerchantOffers] = useState<Offer[]>([]);
@@ -159,20 +161,19 @@ export default function App() {
     return () => sub.subscription.unsubscribe();
   }, [loadProfile]);
 
-  // ── Radar de ofertas (fetch + Realtime) ──────────────────────────────────
-  const refetchOffers = useCallback(async () => {
+  // ── Radar de ofertas (fetch Edge-cacheado + Realtime debounced 1.5s) ─────
+  const refetchOffers = useCallback(async (forceFresh = false) => {
     try {
-      setOffers(await fetchActiveOffers(municipality));
+      setOffers(await fetchActiveOffers(municipality, { forceFresh }));
     } catch (err) {
       console.warn('[Impulso] ofertas:', friendlyError(err));
     }
   }, [municipality]);
 
   useEffect(() => {
-    void refetchOffers();
-    // Debounce de 400 ms: los eventos Realtime son ráfagas (incluido el
-    // views_count); reagruparlos evita refetch en cascada. Si llega INSERT
-    // nuevo, destacamos visualmente la oferta entrante en vivo.
+    void refetchOffers(false);
+    // Debounce de 1.5s (V36 Free Tier Resilience): agrupa ráfagas de Realtime
+    // (vistas, apartados simultáneos) para no saturar consultas ni provocar re-renders.
     let timer: number | null = null;
     const clearTimers: number[] = [];
     const scheduleRefetch = (payload?: { eventType?: string; new?: Record<string, unknown> }) => {
@@ -195,7 +196,7 @@ export default function App() {
         }
       }
       if (timer != null) window.clearTimeout(timer);
-      timer = window.setTimeout(() => void refetchOffers(), 400);
+      timer = window.setTimeout(() => void refetchOffers(true), 1500);
     };
     const channel = supabase
       .channel('impulso:offers')
@@ -507,6 +508,28 @@ export default function App() {
     setRecenterToken((t) => t + 1);
   }, [selectedMerchant]);
 
+  const handleFocusOfferOnMap = useCallback((offer: Offer) => {
+    setView('radar');
+    setTab('ofertas');
+    if (offer.lat != null && offer.lng != null) {
+      setMapFocus({ lat: offer.lat, lng: offer.lng });
+    }
+    if (offer.municipality && MUNICIPIOS.some((x) => x.name === offer.municipality)) {
+      setMunicipality(offer.municipality);
+    }
+    setRecenterToken((t) => t + 1);
+    toast.info(`📍 Mapa centrado en ${offer.merchant?.business_name ?? offer.title}`);
+  }, [toast]);
+
+  const handleOpenOfferQuickReserve = useCallback((offer: Offer) => {
+    setOfferModalInitialStep('form');
+    setSelectedOffer(offer);
+  }, []);
+
+  const handleAskRadarFromSearch = useCallback((query: string) => {
+    setRadarExternalPrompt((prev) => ({ text: query, seq: (prev?.seq ?? 0) + 1 }));
+  }, []);
+
   // ── Punto de referencia del mapa (GPS con fallback al casco urbano).
   // V13: si el usuario pidió "Ver en el Mapa", manda el foco del comercio. ──
   const mapCenter = useMemo<LatLng>(
@@ -562,13 +585,18 @@ export default function App() {
                 onGeoRevoke={geo.revoke}
                 onOpenGpsGuide={() => setGpsGuideOpen(true)}
                 recenterToken={recenterToken}
-                onSelectOffer={setSelectedOffer}
+                onSelectOffer={(o) => {
+                  setOfferModalInitialStep('detail');
+                  setSelectedOffer(o);
+                }}
                 onShareOffer={(o) => void shareOffer(o)}
                 onStatusOffer={(o) => void handleStatusShare(o)}
                 onReportOffer={setReporting}
                 reportedIds={reportedIds}
                 freshOfferIds={freshOfferIds}
                 onOpenMerchant={(id) => void openMerchantProfile(id)}
+                onAskRadar={handleAskRadarFromSearch}
+                onGoToRequests={() => setTab('pedir')}
               />
             )}
             {tab === 'pedir' && (
@@ -605,9 +633,15 @@ export default function App() {
 
           <BottomNav active={tab} onChange={setTab} pendingTickets={pendingTickets} />
           <SupportConcierge
-            userRole={profile?.role === 'merchant' ? 'merchant' : 'client'}
+            userRole={profile?.role === 'admin' ? 'admin' : profile?.role === 'merchant' ? 'merchant' : 'client'}
             userName={profile?.business_name ?? 'Cliente'}
             municipality={municipality}
+            offers={offers}
+            geoPos={geo.status === 'active' && geo.pos ? geo.pos : null}
+            onReserveOffer={handleOpenOfferQuickReserve}
+            onFocusOfferOnMap={handleFocusOfferOnMap}
+            externalPrompt={radarExternalPrompt}
+            bottomOffsetClass="bottom-20 right-4 sm:bottom-24 sm:right-6"
           />
         </>
       ) : profile && profile.role !== 'client' ? (
@@ -656,7 +690,11 @@ export default function App() {
       {/* Modales globales */}
       <OfferDetailModal
         offer={selectedOffer}
-        onClose={() => setSelectedOffer(null)}
+        initialStep={offerModalInitialStep}
+        onClose={() => {
+          setSelectedOffer(null);
+          setOfferModalInitialStep('detail');
+        }}
         onReserved={handleReserved}
         onViewTickets={() => {
           setView('radar');

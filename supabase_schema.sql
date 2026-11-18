@@ -3761,9 +3761,647 @@ create trigger trg_sync_profile_trust_level
   for each row
   execute function public.sync_profile_trust_level_fn();
 
--- 🔄 V19 · Refresca el caché de PostgREST automáticamente al correr el script:
--- sin esto, funciones nuevas (como admin_reports_list_rpc) pueden seguir
--- "no encontradas" hasta 1-2 minutos por caché del esquema.
+-- ============================================================================
+-- 15. V36.0 · REPARACIÓN RAÍZ WEBAUTHN (BÓVEDA EN SERVIDOR + DISCOVERABLE),
+--     BLINDAJE ANTI-TAMPERING ENTERPRISE, RATE LIMITING RPC Y LEY 1581 (GPS 7D)
+-- ============================================================================
+
+-- 15.1 Bóveda cifrada AES-256-GCM en tabla de passkeys (jamás expuesta al cliente)
+do $$
+begin
+  if to_regclass('auth.user_passkeys') is not null then
+    execute 'alter table auth.user_passkeys add column if not exists sealed_vault text';
+  end if;
+  if to_regclass('public.user_passkeys') is not null then
+    execute 'alter table public.user_passkeys add column if not exists sealed_vault text';
+  end if;
+exception when insufficient_privilege then
+  if to_regclass('public.user_passkeys') is not null then
+    execute 'alter table public.user_passkeys add column if not exists sealed_vault text';
+  end if;
+end $$;
+
+-- Permite retos de login discoverable (sin correo previo: user_id NULL)
+alter table public.webauthn_challenges alter column user_id drop not null;
+
+-- Normalizador Base64URL estricto (sin padding =)
+create or replace function public.webauthn_norm_b64url(p_val text)
+returns text
+language sql
+immutable
+as $$
+  select rtrim(translate(btrim(coalesce(p_val, '')), '+/', '-_'), '=');
+$$;
+
+-- 15.2 Completar registro WebAuthn con soporte opcional de bóveda cifrada
+do $$
+declare r record;
+begin
+  for r in
+    select p.oid::regprocedure as sig
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public' and p.proname = 'webauthn_complete_register_rpc'
+  loop
+    execute 'drop function if exists ' || r.sig;
+  end loop;
+end $$;
+
+create or replace function public.webauthn_complete_register_rpc(
+  p_challenge_id    uuid,
+  p_credential_id   text,
+  p_public_key_spki text,
+  p_algorithm       integer default -7,
+  p_transports      text[] default array[]::text[],
+  p_device_label    text default 'Dispositivo biométrico',
+  p_sealed_vault    text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_uid      uuid := auth.uid();
+  v_profile  public.profiles;
+  v_chal     public.webauthn_challenges;
+  v_tbl      text := public.passkeys_table_name();
+  v_new_id   uuid;
+  v_cred_id  text := public.webauthn_norm_b64url(p_credential_id);
+  v_label    text := left(coalesce(nullif(btrim(p_device_label), ''), 'Dispositivo biométrico'), 80);
+begin
+  if v_uid is null then
+    raise exception 'Debes iniciar sesión';
+  end if;
+  select * into v_profile from public.profiles where id = v_uid;
+  if not found or (not coalesce(v_profile.is_verified, false) and v_profile.role <> 'admin') then
+    raise exception 'SOLO_VERIFICADOS: solo comercios verificados pueden registrar Passkeys';
+  end if;
+  if v_cred_id = '' or coalesce(btrim(p_public_key_spki), '') = '' then
+    raise exception 'Credencial o clave pública WebAuthn inválida';
+  end if;
+  if p_algorithm not in (-7, -257) then
+    raise exception 'Algoritmo criptográfico no soportado (requiere ES256 o RS256)';
+  end if;
+
+  update public.webauthn_challenges
+     set consumed_at = now()
+   where id = p_challenge_id
+     and user_id = v_uid
+     and kind = 'register'
+     and consumed_at is null
+     and expires_at > now()
+  returning * into v_chal;
+
+  if not found then
+    raise exception 'El reto de registro biométrico expiró o ya fue utilizado. Intenta de nuevo.';
+  end if;
+
+  execute format(
+    'insert into %s (user_id, credential_id, public_key_spki, algorithm, sign_count, transports, device_label, sealed_vault)
+     values ($1, $2, $3, $4, 0, $5, $6, $7)
+     on conflict (credential_id) do update
+       set sealed_vault = coalesce(excluded.sealed_vault, %s.sealed_vault),
+           device_label = excluded.device_label
+       where %s.user_id = $1
+     returning id',
+    v_tbl, v_tbl, v_tbl
+  ) into v_new_id using v_uid, v_cred_id, btrim(p_public_key_spki), p_algorithm, coalesce(p_transports, array[]::text[]), v_label, nullif(btrim(coalesce(p_sealed_vault, '')), '');
+
+  if v_new_id is null then
+    raise exception 'Este dispositivo ya está registrado en otra cuenta';
+  end if;
+
+  return jsonb_build_object(
+    'ok', true,
+    'id', v_new_id,
+    'credentialId', v_cred_id,
+    'deviceLabel', v_label
+  );
+end;
+$$;
+
+-- 15.3 Sincronización / auto-sanación transparente de bóveda sellada al iniciar sesión con contraseña
+create or replace function public.webauthn_sync_vault_rpc(
+  p_credential_id text,
+  p_sealed_vault  text
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_uid     uuid := auth.uid();
+  v_tbl     text := public.passkeys_table_name();
+  v_cred    text := public.webauthn_norm_b64url(p_credential_id);
+  v_updated integer := 0;
+begin
+  if v_uid is null or v_cred = '' or coalesce(btrim(p_sealed_vault), '') = '' then
+    return false;
+  end if;
+  execute format(
+    'update %s
+        set sealed_vault = $1
+      where user_id = $2
+        and public.webauthn_norm_b64url(credential_id) = $3',
+    v_tbl
+  ) using btrim(p_sealed_vault), v_uid, v_cred;
+  get diagnostics v_updated = row_count;
+  return v_updated > 0;
+end;
+$$;
+
+-- 15.4 Reto discoverable (permite login biométrico SIN escribir correo previo)
+create or replace function public.webauthn_begin_discoverable_login_rpc()
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_challenge text;
+  v_chal_id   uuid;
+begin
+  delete from public.webauthn_challenges where expires_at < now() - interval '1 hour';
+  v_challenge := public.webauthn_random_challenge();
+  insert into public.webauthn_challenges (user_id, kind, challenge)
+  values (null, 'login', v_challenge)
+  returning id into v_chal_id;
+
+  return jsonb_build_object(
+    'challengeId', v_chal_id,
+    'challenge', v_challenge,
+    'allowCredentials', '[]'::jsonb
+  );
+end;
+$$;
+
+-- 15.5 Consumir reto de login: soporta email-bound y discoverable + Base64URL estricto + sealedVault
+create or replace function public.webauthn_consume_login_challenge_rpc(
+  p_challenge_id  uuid,
+  p_credential_id text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_chal    public.webauthn_challenges;
+  v_tbl     text := public.passkeys_table_name();
+  v_uid     uuid;
+  v_pk      text;
+  v_alg     integer;
+  v_cnt     bigint;
+  v_vault   text;
+  v_email   text;
+  v_active  boolean;
+  v_susp    boolean;
+  v_cred    text := public.webauthn_norm_b64url(p_credential_id);
+begin
+  update public.webauthn_challenges
+     set consumed_at = now()
+   where id = p_challenge_id
+     and kind = 'login'
+     and consumed_at is null
+     and expires_at > now()
+  returning * into v_chal;
+
+  if not found then
+    raise exception 'CHALLENGE_INVALID: El reto biométrico expiró o ya fue usado. Intenta de nuevo.';
+  end if;
+
+  if v_chal.user_id is not null then
+    execute format(
+      'select user_id, public_key_spki, algorithm, sign_count, sealed_vault
+         from %s
+        where user_id = $1 and public.webauthn_norm_b64url(credential_id) = $2
+        limit 1',
+      v_tbl
+    ) into v_uid, v_pk, v_alg, v_cnt, v_vault using v_chal.user_id, v_cred;
+  else
+    execute format(
+      'select user_id, public_key_spki, algorithm, sign_count, sealed_vault
+         from %s
+        where public.webauthn_norm_b64url(credential_id) = $1
+        limit 1',
+      v_tbl
+    ) into v_uid, v_pk, v_alg, v_cnt, v_vault using v_cred;
+  end if;
+
+  if v_pk is null or v_uid is null then
+    raise exception 'CREDENTIAL_MISMATCH: Esta llave biométrica no está vinculada a ninguna cuenta activa.';
+  end if;
+
+  select email into v_email from auth.users where id = v_uid;
+  select coalesce(is_active, true), coalesce(is_suspended, false)
+    into v_active, v_susp
+    from public.profiles where id = v_uid;
+
+  if not coalesce(v_active, true) or coalesce(v_susp, false) then
+    raise exception 'CUENTA_SUSPENDIDA: la cuenta está suspendida';
+  end if;
+
+  return jsonb_build_object(
+    'challenge', v_chal.challenge,
+    'userId', v_uid,
+    'email', coalesce(v_email, ''),
+    'publicKeySpki', v_pk,
+    'algorithm', v_alg,
+    'signCount', v_cnt,
+    'sealedVault', v_vault
+  );
+end;
+$$;
+
+-- 15.6 Commit de uso compatible con retos discoverable + Base64URL normalizado
+create or replace function public.webauthn_commit_login_usage_rpc(
+  p_challenge_id   uuid,
+  p_credential_id  text,
+  p_new_sign_count bigint
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_chal public.webauthn_challenges;
+  v_tbl  text := public.passkeys_table_name();
+  v_cred text := public.webauthn_norm_b64url(p_credential_id);
+begin
+  select * into v_chal
+    from public.webauthn_challenges
+   where id = p_challenge_id
+     and kind = 'login'
+     and consumed_at is not null
+     and consumed_at > now() - interval '2 minutes';
+  if not found then
+    return false;
+  end if;
+
+  execute format(
+    'update %s
+        set sign_count = greatest(sign_count, $1),
+            last_used_at = now()
+      where public.webauthn_norm_b64url(credential_id) = $2',
+    v_tbl
+  ) using greatest(0, coalesce(p_new_sign_count, 0)), v_cred;
+
+  return true;
+end;
+$$;
+
+grant execute on function public.webauthn_complete_register_rpc(uuid, text, text, integer, text[], text, text) to authenticated;
+grant execute on function public.webauthn_sync_vault_rpc(text, text)                                            to authenticated;
+grant execute on function public.webauthn_begin_discoverable_login_rpc()                                        to anon, authenticated;
+grant execute on function public.webauthn_consume_login_challenge_rpc(uuid, text)                               to anon, authenticated;
+grant execute on function public.webauthn_commit_login_usage_rpc(uuid, text, bigint)                            to anon, authenticated;
+
+-- 15.7 Blindaje Anti-Tampering Financiero: revoca escrituras directas del cliente
+revoke insert, update, delete on public.offers          from anon, authenticated;
+revoke insert, update, delete on public.reservations    from anon, authenticated;
+revoke insert, update, delete on public.credit_orders   from anon, authenticated;
+revoke insert, update, delete on public.payment_methods from anon, authenticated;
+revoke insert, update, delete on public.kyb_verifications from anon, authenticated;
+revoke all on public.platform_settings from anon, authenticated;
+revoke all on public.app_settings      from anon, authenticated;
+
+create or replace function public.guard_app_settings_anti_tamper_fn()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if current_user in ('anon', 'authenticated') then
+    raise exception 'ANTI_TAMPER: Configuración financiera del administrador protegida.';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_guard_app_settings_anti_tamper on public.app_settings;
+create trigger trg_guard_app_settings_anti_tamper
+  before insert or update or delete on public.app_settings
+  for each row execute function public.guard_app_settings_anti_tamper_fn();
+
+-- 15.8 publish_offer_rpc con huella forense p_device_id + anti-flood (máx 15 ofertas/hora)
+do $$
+declare r record;
+begin
+  for r in
+    select p.oid::regprocedure as sig
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public' and p.proname = 'publish_offer_rpc'
+  loop
+    execute 'drop function if exists ' || r.sig;
+  end loop;
+end $$;
+
+create or replace function public.publish_offer_rpc(
+  p_category       text,
+  p_title          text,
+  p_description    text,
+  p_total_quota    integer,
+  p_emoji_icon     text default '🔥',
+  p_original_price numeric default null,
+  p_promo_price    numeric default null,
+  p_duration_hours numeric default 3,
+  p_municipality   text default 'Gachetá',
+  p_lat            double precision default 4.8167,
+  p_lng            double precision default -73.6333,
+  p_image_thumb    text default null,
+  p_delivery_type  text default 'local_fisico',
+  p_device_id      text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_profile       public.profiles;
+  v_offer         public.offers;
+  v_recent_offers integer := 0;
+begin
+  if p_promo_price is null or p_promo_price < 0 then
+    raise exception 'El precio de oferta es obligatorio';
+  end if;
+  if p_total_quota < 1 or p_total_quota > 500 then
+    raise exception 'El cupo debe estar entre 1 y 500';
+  end if;
+  if p_duration_hours <= 0 or p_duration_hours > 96 then
+    raise exception 'La duración debe estar entre 30 minutos y 96 horas (4 días)';
+  end if;
+  if char_length(trim(p_title)) < 3 or char_length(p_title) > 90 then
+    raise exception 'El título debe tener entre 3 y 90 caracteres';
+  end if;
+  if char_length(trim(p_description)) < 5 or char_length(p_description) > 280 then
+    raise exception 'La descripción debe tener entre 5 y 280 caracteres';
+  end if;
+  if p_category not in ('comida', 'transporte_flete', 'agro_mercado', 'hoteles_turismo', 'salud_belleza', 'hogar_construccion', 'servicios_comercios') then
+    raise exception 'Categoría inválida';
+  end if;
+
+  select * into v_profile from public.profiles where id = auth.uid() for update;
+  if not found then
+    raise exception 'Perfil no encontrado';
+  end if;
+  if v_profile.role not in ('merchant', 'admin') then
+    raise exception 'Rol sin permiso para publicar';
+  end if;
+  if not coalesce(v_profile.is_active, true) or coalesce(v_profile.is_suspended, false) then
+    raise exception 'CUENTA_SUSPENDIDA: tu cuenta está suspendida temporalmente. Contacta al administrador.';
+  end if;
+  if p_image_thumb is not null and char_length(p_image_thumb) > 35000 then
+    raise exception 'La foto es demasiado pesada. Intenta con otra imagen.';
+  end if;
+  if p_delivery_type not in ('local_fisico', 'parque_principal', 'domicilio') then
+    raise exception 'Modalidad de entrega inválida';
+  end if;
+
+  -- Rate limiting anti-flood en publicación (máx 15 ofertas por hora por comercio)
+  select count(*) into v_recent_offers
+    from public.offers
+   where merchant_id = v_profile.id
+     and created_at > now() - interval '1 hour';
+  if v_recent_offers >= 15 and v_profile.role <> 'admin' then
+    raise exception 'RATE_LIMIT: alcanzaste el límite de publicaciones por hora. Intenta más tarde.';
+  end if;
+
+  if v_profile.credits < 1 then
+    raise exception 'NO_CREDITS: No tienes créditos disponibles. Recarga con el administrador para volver a publicar.';
+  end if;
+
+  update public.profiles
+     set credits = credits - 1
+   where id = v_profile.id;
+
+  insert into public.offers (
+    merchant_id, category, title, description, emoji_icon,
+    original_price, promo_price, total_quota, available_quota,
+    municipality, lat, lng, expires_at, status,
+    image_thumb, delivery_type, device_id
+  ) values (
+    v_profile.id, p_category, trim(p_title), trim(p_description),
+    coalesce(nullif(trim(p_emoji_icon), ''), '🔥'),
+    p_original_price, p_promo_price, p_total_quota, p_total_quota,
+    coalesce(nullif(trim(p_municipality), ''), 'Gachetá'),
+    coalesce(p_lat, v_profile.lat, 4.8167),
+    coalesce(p_lng, v_profile.lng, -73.6333),
+    now() + (p_duration_hours * interval '1 hour'),
+    'active',
+    p_image_thumb,
+    p_delivery_type,
+    nullif(btrim(coalesce(p_device_id, '')), '')
+  )
+  returning * into v_offer;
+
+  delete from public.offers o
+   where o.merchant_id = v_profile.id
+     and o.id <> v_offer.id
+     and (o.status <> 'active' or o.expires_at < now())
+     and o.id not in (
+       select id
+         from public.offers
+        where merchant_id = v_profile.id
+          and (status <> 'active' or expires_at < now())
+        order by created_at desc
+        limit 10
+     );
+
+  return to_jsonb(v_offer);
+end;
+$$;
+grant execute on function public.publish_offer_rpc(text, text, text, integer, text, numeric, numeric, numeric, text, double precision, double precision, text, text, text) to authenticated;
+
+-- 15.9 Cumplimiento Ley 1581 (marca explícita gps_consent_at + poda automática a los 7 días)
+alter table public.reservations add column if not exists gps_consent_at timestamptz;
+
+create or replace function public.auto_prune_expired_data_rpc()
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_expired  integer;
+  v_requests integer;
+  v_gps_pruned integer;
+begin
+  update public.offers
+     set status = 'expired',
+         image_thumb = null
+   where status = 'active'
+     and expires_at < now();
+  get diagnostics v_expired = row_count;
+
+  update public.offers
+     set image_thumb = null
+   where status in ('expired', 'cancelled')
+     and image_thumb is not null;
+
+  -- Ley 1581: poda automática de coordenadas GPS puntuales tras 7 días
+  update public.reservations
+     set client_lat = null,
+         client_lng = null,
+         gps_consent_at = null
+   where (client_lat is not null or client_lng is not null)
+     and created_at < now() - interval '7 days';
+  get diagnostics v_gps_pruned = row_count;
+
+  delete from public.quick_requests
+   where expires_at < now() - interval '6 hours';
+  get diagnostics v_requests = row_count;
+
+  return jsonb_build_object(
+    'offers_expired', v_expired,
+    'requests_deleted', v_requests,
+    'gps_pruned', v_gps_pruned
+  );
+end;
+$$;
+grant execute on function public.auto_prune_expired_data_rpc() to anon, authenticated;
+
+-- 15.10 Rate limiting anti-abuso en reservas (máx 10/10min por dispositivo o IP) + marca gps_consent_at
+create or replace function public.reserve_offer_rpc(
+  p_offer_id       uuid,
+  p_customer_name  text,
+  p_customer_phone text,
+  p_quantity       integer default 1,
+  p_customer_note  text default '',
+  p_device_id      text default null,
+  p_client_lat     double precision default null,
+  p_client_lng     double precision default null,
+  p_edge_ip        text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_offer     public.offers;
+  v_merchant  public.profiles;
+  v_res       public.reservations;
+  v_code      text;
+  v_client_ip text;
+  v_device    text;
+  v_recent    integer := 0;
+  v_lat       double precision;
+  v_lng       double precision;
+begin
+  v_client_ip := public.resolve_client_ip(p_edge_ip);
+  v_device    := nullif(btrim(coalesce(p_device_id, '')), '');
+
+  if char_length(trim(p_customer_name)) < 2 or char_length(p_customer_name) > 60 then
+    raise exception 'El nombre debe tener entre 2 y 60 caracteres';
+  end if;
+  if char_length(p_customer_phone) < 7 or char_length(p_customer_phone) > 20 then
+    raise exception 'El teléfono debe tener entre 7 y 20 caracteres';
+  end if;
+  if p_quantity < 1 or p_quantity > 20 then
+    raise exception 'La cantidad debe estar entre 1 y 20';
+  end if;
+  if char_length(coalesce(p_customer_note, '')) > 140 then
+    raise exception 'La nota no puede superar 140 caracteres';
+  end if;
+
+  if public.is_client_blocked(trim(p_customer_phone), v_device) then
+    raise exception 'CLIENTE_BLOQUEADO: esta solicitud no puede completarse desde este dispositivo o número';
+  end if;
+
+  -- Rate limiting anti-flood (ventana deslizante 10 min)
+  select count(*) into v_recent
+    from public.reservations r
+   where r.created_at > now() - interval '10 minutes'
+     and (
+       (v_device is not null and r.device_id = v_device)
+       or (v_client_ip is not null and v_client_ip <> '0.0.0.0' and r.client_ip = v_client_ip)
+     );
+  if v_recent >= 10 then
+    raise exception 'RATE_LIMIT: demasiados apartados seguidos desde este dispositivo. Espera unos minutos.';
+  end if;
+
+  select * into v_offer from public.offers where id = p_offer_id for update;
+  if not found then
+    raise exception 'Oferta no encontrada';
+  end if;
+  if v_offer.status <> 'active' or v_offer.expires_at < now() then
+    raise exception 'Esta oferta ya no está activa';
+  end if;
+
+  if exists (
+    select 1
+      from public.reservations r
+     where r.offer_id = v_offer.id
+       and r.status = 'pending'
+       and (
+             (v_device is not null and r.device_id = v_device)
+             or r.customer_phone = trim(p_customer_phone)
+           )
+  ) then
+    raise exception 'YA_APARTASTE_ESTE_PEDIDO: ya tienes este pedido pendiente de recoger con este número o dispositivo';
+  end if;
+
+  if exists (
+    select 1
+      from public.blocked_clients b
+     where b.blocked_by = v_offer.merchant_id
+       and (
+             (v_device is not null and b.device_id = v_device)
+             or b.phone = trim(p_customer_phone)
+           )
+  ) then
+    raise exception 'CLIENTE_BLOQUEADO: esta solicitud no puede completarse desde este dispositivo o número';
+  end if;
+
+  if v_offer.available_quota < p_quantity then
+    raise exception 'SOLO_QUEDAN % unidades de esta oferta', v_offer.available_quota;
+  end if;
+
+  update public.offers
+     set available_quota = available_quota - p_quantity,
+         status = case when available_quota - p_quantity <= 0 then 'sold_out' else status end
+   where id = v_offer.id;
+
+  select upper(string_agg(c, ''))
+    into v_code
+    from (
+      select substr('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', (floor(random() * 32) + 1)::int, 1) as c
+      from generate_series(1, 4)
+    ) chars;
+
+  v_lat := coalesce(nullif(p_client_lat, 0), null);
+  v_lng := coalesce(nullif(p_client_lng, 0), null);
+
+  insert into public.reservations (
+    offer_id, merchant_id, customer_name, customer_phone,
+    quantity, customer_note, reservation_code, status,
+    client_ip, device_id, client_lat, client_lng, gps_consent_at
+  ) values (
+    v_offer.id, v_offer.merchant_id, trim(p_customer_name), trim(p_customer_phone),
+    p_quantity, coalesce(p_customer_note, ''), v_code, 'pending',
+    v_client_ip, v_device, v_lat, v_lng,
+    case when v_lat is not null and v_lng is not null then now() else null end
+  )
+  returning * into v_res;
+
+  select * into v_merchant from public.profiles where id = v_offer.merchant_id;
+
+  return jsonb_build_object(
+    'reservation', to_jsonb(v_res),
+    'offer', to_jsonb(v_offer),
+    'merchant', to_jsonb(v_merchant)
+  );
+end;
+$$;
+grant execute on function public.reserve_offer_rpc(uuid, text, text, integer, text, text, double precision, double precision, text) to anon, authenticated;
+
+-- 🔄 V19/V36 · Refresca el caché de PostgREST automáticamente al correr el script
 NOTIFY pgrst, 'reload schema';
 
 

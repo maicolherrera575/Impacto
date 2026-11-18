@@ -2,30 +2,33 @@ import crypto from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 /**
- * 🛡️ V20.0 · Verificador Forense de Pagos Nequi/Llave en Servidor (Anti-Tampering).
+ * 🛡️ V36.0 · Verificador Forense de Pagos Nequi/Llave en Servidor (Anti-Tampering).
  *
- * Todo el flujo sensible corre exclusivamente del lado del servidor:
- *   1. Validación estricta de sesión JWT del comerciante en Supabase Auth.
- *   2. Cálculo criptográfico real de huella SHA-256 de la imagen del comprobante (`node:crypto`).
- *   3. Lectura directa en servidor del Nequi oficial (`3158942112` / `get_payment_config_rpc`)
- *      y tarifas canónicas de paquetes (`arranque`, `activo`, `dominio`).
- *   4. Auditoría OCR + Gemini 2.5 Flash Vision en servidor (sin confiar en datos de IA del cliente).
- *   5. Verificación anti-reutilización, inserción (`submit_credit_order_rpc`) y auto-aprobación
- *      (`auto_approve_credit_order_rpc`) ejecutadas servidor-a-servidor.
+ * - Soporta pool de 4+ llaves Gemini (`GEMINI_API_KEY_1..5` + `GEMINI_API_KEY` + `GEMINI_API_KEYS`).
+ * - Model Discovery Cache (TTL 60 min) + Circuit Breaker (404 permanente / 429 cooldown 120s).
+ * - AbortController estricto (12s por intento de visión) — cero cuelgues.
+ * - Rate Limiting por ventana deslizante (IP + Fingerprint) contra abuso.
+ * - Validación estricta de sesión JWT + huella SHA-256 + destino oficial 3158942112.
  */
 
 const OFFICIAL_ADMIN_NEQUI = '3158942112';
 const OFFICIAL_ADMIN_LLAVE = '@impulso3158942112';
 const MAX_BODY_BYTES = 512 * 1024;
-const MODEL_CHAIN = [
-  'gemini-3.8-flash',
-  'gemini-3.5-flash',
+const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
+const DISCOVERY_TTL_MS = 60 * 60 * 1000;
+const VISION_TIMEOUT_MS = 12_000;
+const TOTAL_VISION_BUDGET_MS = 24_000;
+const RL_WINDOW_MS = 60_000;
+const RL_MAX_REQUESTS = 12;
+
+const FALLBACK_VISION_MODELS = [
   'gemini-2.5-flash',
   'gemini-2.5-flash-lite',
   'gemini-2.0-flash',
+  'gemini-2.5-pro',
 ] as const;
-const RETRYABLE_STATUS = new Set([404, 408, 429, 500, 502, 503, 504]);
-const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
+
+const FORBIDDEN_MODEL_RE = /embedding|aqa|imagen|veo|tts|audio|live|bison|gecko|legacy|1\.0|1\.5/i;
 
 const CANONICAL_PACKAGES = {
   arranque: { name: 'Plan Arranque', credits: 5, priceCop: 10000 },
@@ -40,9 +43,19 @@ type VercelRes = ServerResponse & {
   json?: (body: unknown) => void;
 };
 
-function sendJson(res: VercelRes, statusCode: number, body: unknown): void {
+let activeVerifyKeyIdx = 0;
+let discoveredVisionModels: string[] = [];
+let discoveredVisionAt = 0;
+const deadVisionModels = new Set<string>();
+const verifyCooldownUntil = new Map<string, number>();
+const verifyRateWindows = new Map<string, number[]>();
+
+function sendJson(res: VercelRes, statusCode: number, body: unknown, extraHeaders?: Record<string, string>): void {
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.setHeader('Cache-Control', 'no-store, max-age=0');
+  if (extraHeaders) {
+    for (const [k, v] of Object.entries(extraHeaders)) res.setHeader(k, v);
+  }
   if (typeof res.status === 'function' && typeof res.json === 'function') {
     const next = res.status(statusCode);
     if (typeof next.json === 'function') {
@@ -83,23 +96,47 @@ function firstHeader(headers: IncomingMessage['headers'], name: string): string 
   return typeof v === 'string' ? v : '';
 }
 
-let activeVerifyKeyIdx = 0;
+function checkRateLimit(req: IncomingMessage): { allowed: boolean; retryAfterSec: number } {
+  const xff = firstHeader(req.headers, 'x-forwarded-for').split(',')[0]?.trim();
+  const ip = xff || firstHeader(req.headers, 'x-real-ip') || req.socket?.remoteAddress || 'unknown';
+  const fp = firstHeader(req.headers, 'x-device-fingerprint').trim().slice(0, 48);
+  const id = fp ? `${ip}:${fp}` : ip;
+  const now = Date.now();
+  const prev = verifyRateWindows.get(id) ?? [];
+  const fresh = prev.filter((ts) => now - ts < RL_WINDOW_MS);
+  if (fresh.length >= RL_MAX_REQUESTS) {
+    const retryAfterSec = Math.max(1, Math.ceil((RL_WINDOW_MS - (now - (fresh[0] ?? now))) / 1000));
+    verifyRateWindows.set(id, fresh);
+    return { allowed: false, retryAfterSec };
+  }
+  fresh.push(now);
+  verifyRateWindows.set(id, fresh);
+  return { allowed: true, retryAfterSec: 0 };
+}
 
 function getGeminiKeyPool(): string[] {
+  const csvKeys = [process.env.GEMINI_API_KEYS, process.env.VITE_GEMINI_API_KEYS]
+    .filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+    .flatMap((v) => v.split(/[\s,;]+/));
+
   return Array.from(
     new Set(
       [
         process.env.GEMINI_API_KEY_1,
         process.env.GEMINI_API_KEY_2,
         process.env.GEMINI_API_KEY_3,
+        process.env.GEMINI_API_KEY_4,
+        process.env.GEMINI_API_KEY_5,
         process.env.GEMINI_API_KEY,
+        ...csvKeys,
         process.env.VITE_GEMINI_API_KEY_1,
         process.env.VITE_GEMINI_API_KEY_2,
         process.env.VITE_GEMINI_API_KEY_3,
+        process.env.VITE_GEMINI_API_KEY_4,
         process.env.VITE_GEMINI_API_KEY,
       ]
         .map((k) => (k ?? '').trim())
-        .filter(Boolean),
+        .filter((k) => k.length >= 16),
     ),
   );
 }
@@ -110,6 +147,62 @@ function getEnv() {
   const keyPool = getGeminiKeyPool();
   const geminiKey = keyPool[activeVerifyKeyIdx % Math.max(1, keyPool.length)] ?? '';
   return { supabaseUrl, anonKey, geminiKey, keyPool };
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: ctrl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function scoreVisionModel(name: string): number {
+  const lower = name.toLowerCase();
+  if (!lower.startsWith('gemini-') || FORBIDDEN_MODEL_RE.test(lower)) return -1;
+  if (/thinking|exp-\d{4}|preview-tts|computer-use|robotics|deep-research/i.test(lower)) return -1;
+  const m = /gemini-(\d+)(?:\.(\d+))?/i.exec(lower);
+  const ver = (m ? Number(m[1]) : 0) * 100 + (m && m[2] ? Number(m[2]) : 0) * 10;
+  const fam = lower.includes('flash-lite') ? 55 : lower.includes('flash') ? 95 : lower.includes('pro') ? 50 : 0;
+  const stab = /preview|exp/i.test(lower) ? -8 : 12;
+  return ver + fam + stab;
+}
+
+async function discoverVisionModels(keyPool: string[]): Promise<string[]> {
+  const now = Date.now();
+  if (discoveredVisionModels.length > 0 && now - discoveredVisionAt < DISCOVERY_TTL_MS) {
+    return discoveredVisionModels.filter((m) => !deadVisionModels.has(m));
+  }
+  for (let i = 0; i < Math.min(keyPool.length, 2); i += 1) {
+    const key = keyPool[(activeVerifyKeyIdx + i) % keyPool.length];
+    try {
+      const res = await fetchWithTimeout(
+        `${GEMINI_BASE}?key=${encodeURIComponent(key)}&pageSize=100`,
+        { method: 'GET', headers: { Accept: 'application/json' } },
+        3_200,
+      );
+      if (!res.ok) continue;
+      const json = (await res.json().catch(() => null)) as {
+        models?: Array<{ name?: string; supportedGenerationMethods?: string[] }>;
+      } | null;
+      const list = (json?.models ?? [])
+        .filter((m) => Array.isArray(m.supportedGenerationMethods) && m.supportedGenerationMethods.includes('generateContent'))
+        .map((m) => String(m.name ?? '').replace(/^models\//, '').trim())
+        .filter((name) => scoreVisionModel(name) > 0 && !deadVisionModels.has(name))
+        .sort((a, b) => scoreVisionModel(b) - scoreVisionModel(a));
+      const unique = Array.from(new Set(list)).slice(0, 5);
+      if (unique.length > 0) {
+        discoveredVisionModels = unique;
+        discoveredVisionAt = now;
+        return unique;
+      }
+    } catch {
+      /* fallback */
+    }
+  }
+  return FALLBACK_VISION_MODELS.filter((m) => !deadVisionModels.has(m));
 }
 
 function parseDataUrlImage(dataUrl: string): { mimeType: string; base64: string; bytes: Buffer } {
@@ -136,15 +229,19 @@ async function callSupabaseRpc(
   rpcName: string,
   params?: Record<string, unknown>,
 ): Promise<unknown> {
-  const res = await fetch(`${supabaseUrl}/rest/v1/rpc/${rpcName}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      apikey: anonKey,
-      Authorization: `Bearer ${userJwt}`,
+  const res = await fetchWithTimeout(
+    `${supabaseUrl}/rest/v1/rpc/${rpcName}`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: anonKey,
+        Authorization: `Bearer ${userJwt}`,
+      },
+      body: JSON.stringify(params ?? {}),
     },
-    body: JSON.stringify(params ?? {}),
-  });
+    8_000,
+  );
   const json: unknown = await res.json().catch(() => null);
   if (!res.ok) {
     const msg =
@@ -157,13 +254,17 @@ async function callSupabaseRpc(
 }
 
 async function assertAuthenticatedUser(supabaseUrl: string, anonKey: string, userJwt: string): Promise<string> {
-  const res = await fetch(`${supabaseUrl}/auth/v1/user`, {
-    method: 'GET',
-    headers: {
-      apikey: anonKey,
-      Authorization: `Bearer ${userJwt}`,
+  const res = await fetchWithTimeout(
+    `${supabaseUrl}/auth/v1/user`,
+    {
+      method: 'GET',
+      headers: {
+        apikey: anonKey,
+        Authorization: `Bearer ${userJwt}`,
+      },
     },
-  });
+    6_000,
+  );
   if (!res.ok) {
     throw new Error('Tu sesión expiró. Vuelve a iniciar sesión para recargar.');
   }
@@ -232,39 +333,73 @@ async function analyzeReceiptWithGeminiServer(
     },
   };
 
+  const models = await discoverVisionModels(effectivePool);
+  const deadline = Date.now() + TOTAL_VISION_BUDGET_MS;
   let rawText = '';
-  let lastErr = new Error('La IA no respondió');
-  for (const model of MODEL_CHAIN) {
+  let lastErr = new Error('La IA de verificación no respondió a tiempo');
+
+  for (const model of models.slice(0, 4)) {
+    if (Date.now() >= deadline || deadVisionModels.has(model)) break;
+    let all404 = true;
+
     for (let attempt = 0; attempt < effectivePool.length; attempt += 1) {
+      const now = Date.now();
+      if (now >= deadline) break;
       const idx = (activeVerifyKeyIdx + attempt) % effectivePool.length;
+      const comboId = `${idx}:${model}`;
+      if ((verifyCooldownUntil.get(comboId) ?? 0) > now || (verifyCooldownUntil.get(`key:${idx}`) ?? 0) > now) {
+        continue;
+      }
+
       const activeKey = effectivePool[idx];
+      const timeoutMs = Math.max(3_000, Math.min(VISION_TIMEOUT_MS, deadline - now));
       try {
-        const upstream = await fetch(`${GEMINI_BASE}/${model}:generateContent?key=${encodeURIComponent(activeKey)}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
+        const upstream = await fetchWithTimeout(
+          `${GEMINI_BASE}/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(activeKey)}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          },
+          timeoutMs,
+        );
         const json: unknown = await upstream.json().catch(() => null);
         if (!upstream.ok) {
           const msg = (json as { error?: { message?: string } } | null)?.error?.message;
           lastErr = new Error(msg || `Gemini HTTP ${upstream.status}`);
-          if (upstream.status === 429 && effectivePool.length > 1) {
+          if (upstream.status === 404) {
+            break;
+          }
+          all404 = false;
+          if (upstream.status === 429) {
+            verifyCooldownUntil.set(comboId, Date.now() + 120_000);
             activeVerifyKeyIdx = (idx + 1) % effectivePool.length;
             continue;
           }
-          if (RETRYABLE_STATUS.has(upstream.status)) break;
+          if (upstream.status === 401 || upstream.status === 403) {
+            verifyCooldownUntil.set(`key:${idx}`, Date.now() + 600_000);
+            activeVerifyKeyIdx = (idx + 1) % effectivePool.length;
+            continue;
+          }
+          if (upstream.status >= 500 || upstream.status === 408) {
+            activeVerifyKeyIdx = (idx + 1) % effectivePool.length;
+            continue;
+          }
           throw lastErr;
         }
+        all404 = false;
         activeVerifyKeyIdx = idx;
         const candidates = (json as { candidates?: { content?: { parts?: { text?: string }[] } }[] } | null)?.candidates;
         const parts = candidates?.[0]?.content?.parts ?? [];
         rawText = parts.map((p) => (typeof p?.text === 'string' ? p.text : '')).join('').trim();
         if (rawText) break;
       } catch (err) {
+        all404 = false;
         lastErr = err instanceof Error ? err : new Error(String(err));
-        break;
+        activeVerifyKeyIdx = (idx + 1) % effectivePool.length;
       }
     }
+    if (all404) deadVisionModels.add(model);
     if (rawText) break;
   }
 
@@ -310,6 +445,17 @@ export default async function handler(req: IncomingMessage, res: VercelRes): Pro
     return;
   }
 
+  const rl = checkRateLimit(req);
+  if (!rl.allowed) {
+    sendJson(
+      res,
+      429,
+      { error: { message: 'Demasiados intentos de verificación. Espera un minuto y vuelve a intentarlo.' } },
+      { 'Retry-After': String(rl.retryAfterSec) },
+    );
+    return;
+  }
+
   const env = getEnv();
   if (!env.supabaseUrl || !env.anonKey) {
     sendJson(res, 500, { error: { message: 'Configuración de Supabase incompleta en el servidor' } });
@@ -336,7 +482,6 @@ export default async function handler(req: IncomingMessage, res: VercelRes): Pro
     const action = typeof body.action === 'string' ? body.action : 'verify';
     const imageDataUrl = typeof body.imageDataUrl === 'string' ? body.imageDataUrl : '';
     const image = parseDataUrlImage(imageDataUrl);
-    // Huella SHA-256 calculada ESTRICTAMENTE en servidor sobre los bytes reales
     const receiptHash = crypto.createHash('sha256').update(image.bytes).digest('hex');
 
     const cfgRaw = (await callSupabaseRpc(env.supabaseUrl, env.anonKey, userJwt, 'get_payment_config_rpc')) as {
@@ -356,7 +501,6 @@ export default async function handler(req: IncomingMessage, res: VercelRes): Pro
       if (action === 'verify') {
         throw aiErr;
       }
-      // En envío manual de respaldo si la IA no está disponible, jamás permite auto-aprobación
       audit = null;
     }
 

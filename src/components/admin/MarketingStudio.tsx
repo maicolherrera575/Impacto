@@ -462,8 +462,8 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
   /** Refs de los 2 artboards dedicados al lanzador (story 9:16 y square 1:1). */
   const socialRefs = useRef<{ story: HTMLDivElement | null; square: HTMLDivElement | null }>({ story: null, square: null });
 
-  // ── V32 · Arquitectura Líquida: alterna entre 5 composiciones distintas y nunca repite ──
-  const lastStyleGroupRef = useRef<0 | 1 | 2 | 3 | 4>(0);
+  // ── V36 · Arquitectura de Agencia: alterna entre 6 composiciones radicalmente distintas y nunca repite ──
+  const lastStyleGroupRef = useRef<0 | 1 | 2 | 3 | 4 | 5>(0);
   const lastThemeIdxRef = useRef(themeIdx);
   const lastLayoutIdxRef = useRef<Layout>(layout);
   const lastFontIdxRef = useRef(fontIdx);
@@ -471,8 +471,9 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
   const lastQrStyleRef = useRef<QrStyle>(qrStyle);
   const lastPhotoUrlRef = useRef<string | null>(null);
 
-  // ── Fotografía y Paleta Dinámica de Marca (V22) ──
+  // ── Fotografía Dual y Paleta Dinámica de Marca (V36) ──
   const [customPhoto, setCustomPhoto] = useState<string | null>(null);
+  const [customPhoto2, setCustomPhoto2] = useState<string | null>(null);
   const [extLogoUrl, setExtLogoUrl] = useState<string | null>(null);
   const [brandPalette, setBrandPalette] = useState<ExtractedBrandPalette | null>(null);
   const [useBrandPalette, setUseBrandPalette] = useState(true);
@@ -659,6 +660,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     setExternalUrl('');
     userOwnPhotoLockRef.current = false;
     setCustomPhoto(null);
+    setCustomPhoto2(null);
     setExtLogoUrl(null);
     setBrandPalette(null);
     setUseBrandPalette(true);
@@ -866,9 +868,8 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
    *  del banco salgan barajadas — visuales 100% distintos en cada intento. */
   const [photoSeed, setPhotoSeed] = useState(0);
 
-  /** 🖼️ V19/V20 · CUATRO FOTOGRAFÍAS DIFERENTES del rubro (una por pieza):
-   *  la maestra (subida/IA/banco) + 3 tomas distintas barajadas del banco con
-   *  la semilla de la campaña. Nunca repite la misma combinación. */
+  /** 🖼️ V36 · CUATRO FOTOGRAFÍAS DIFERENTES: Foto 1 (principal) + Foto 2 (subida por comercio
+   *  para Polaroid/Collage o banco barajado) + 2 tomas extra para Infografía y Boleto VIP. */
   const piecePhotos = useMemo<string[]>(() => {
     const cat = guessPhotoCategory(briefText.trim() || `${brand.name} ${brand.slogan} ${brand.product}`);
     const bank = [...(PHOTO_BANK[cat] ?? [])];
@@ -883,6 +884,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       [bank[i], bank[j]] = [bank[j], bank[i]];
     }
     const out: string[] = [effectivePhoto ?? ''];
+    if (customPhoto2) out.push(customPhoto2);
     for (const u of bank) {
       if (out.length >= 4) break;
       if (u && !out.includes(u)) out.push(u);
@@ -890,7 +892,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     // Si el banco no alcanza para 4, completamos repitiendo la maestra
     while (out.length < 4) out.push(effectivePhoto ?? '');
     return out;
-  }, [effectivePhoto, briefText, brand.name, brand.slogan, brand.product, photoSeed]);
+  }, [effectivePhoto, customPhoto2, briefText, brand.name, brand.slogan, brand.product, photoSeed]);
 
   const selectedMerchantLogo = useMemo(
     () => (mode === 'plataforma' ? (merchants.find((x) => x.id === merchantId)?.logo_thumb ?? null) : null),
@@ -957,11 +959,9 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     });
   }
 
-  const effectiveQrIsLight = useMemo<boolean>(() => {
-    // Pieza 1 (Maestro) es siempre Full-Bleed oscuro con degradado intenso -> QR luminoso transparente
-    if (piece === 0 || piece === 1 || piece === 2) return false;
-    return Boolean(AFFICHE_THEMES[themeIdx]?.light);
-  }, [piece, themeIdx]);
+  // V36.0: QrOrganicToken usa siempre zona de silencio blanca pura + módulos oscuros teñidos de marca
+  // (contraste WCAG >= 8.5:1 garantizado en las 8 arquitecturas para lectura 100% instantánea en Google Lens).
+  const effectiveQrIsLight = true;
 
   // V19/V31: QR translúcido adaptado al tema con contraste >= 75% e insignia o logo del negocio.
   useEffect(() => {
@@ -1247,6 +1247,18 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     }
   }
 
+  /** 📷 Subida de segunda foto (Local / Detalle) en WebP ≤ 75 KB para Polaroid 3D, Collage y Pieza 2. */
+  async function handlePhoto2File(file: File | undefined): Promise<void> {
+    if (!file) return;
+    try {
+      const dataUrl = await compressImageToMicroWebP(file, 800, 0.66, 75 * 1024);
+      setCustomPhoto2(dataUrl);
+      toast.success('🖼️ Foto 2 (Local/Detalle) cargada en WebP · prueba el layout Polaroid 3D o Collage');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'No se pudo optimizar la segunda imagen');
+    }
+  }
+
   /** 🏷️ Subida de logo del comercio optimizado en WebP y extracción automática de paleta. */
   async function handleLogoFile(file: File | undefined): Promise<void> {
     if (!file) return;
@@ -1362,16 +1374,17 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
   }
 
   /**
-   * 🧬 V32.0 · Motor de Variabilidad Líquida (5 arquitecturas reales no repetitivas):
-   *  0. Fondo Completo Oscuro Centrado (100% foto + slate-950/900 profundo)
-   *  1. Editorial Revista Oscuro (izquierda asimétrica + filete vertical)
-   *  2. Fondo Completo Luminoso (100% foto + blanco/crema + tinta oscura)
-   *  3. Split Diagonal con Color Extraído (corte oblicuo orgánico + superficie de marca)
-   *  4. Collage Minimalista Multi-Imagen (foto principal + toma secundaria sin obstáculos)
+   * 🧬 V36.0 · Motor de Variabilidad Radical (6 arquitecturas maestras geométricamente distintas):
+   *  0. Split Screen Editorial 50/50 (foto limpia arriba + bloque sólido WCAG abajo)
+   *  1. Arco Orgánico / Boutique Luxury (ventana de arco + columna lateral QR)
+   *  2. Corte Diagonal Dinámico + QR VIP en esquina superior derecha
+   *  3. Portada de Revista Full-Bleed Inmersiva (masthead + viñeta editorial)
+   *  4. Cuadrícula Bento Asimétrica (4 módulos geométricos Apple / Suiza)
+   *  5. Polaroid 3D & Collage Multi-Foto (marcos físicos inclinados con 1 o 2 fotos)
    */
   function applyHyperVariability(opts?: { preserveBrandPalette?: boolean }): { themeIdx: number; layout: Layout; styleLabel: string } {
     const groups: Array<{
-      id: 0 | 1 | 2 | 3 | 4;
+      id: 0 | 1 | 2 | 3 | 4 | 5;
       styleLabel: string;
       layouts: Layout[];
       themeIds: string[];
@@ -1382,53 +1395,63 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     }> = [
       {
         id: 0,
-        styleLabel: 'Estilo 1 · Inmersivo Oscuro Centrado',
-        layouts: ['immersive', 'cinema', 'portal', 'orbits'],
-        themeIds: ['obsidian', 'emerald', 'aurora', 'oceano'],
-        fontIndices: [0, 3, 4],
-        dockVariant: 'glass',
-        benefits: ['callouts', 'watermark', 'editorial'],
-        qrStyles: ['luxury', 'rounded', 'dots'],
+        styleLabel: 'Arquitectura 1 · Split Screen Editorial 50/50',
+        layouts: ['split', 'swiss', 'zen', 'clinic'],
+        themeIds: ['marble', 'clinic', 'obsidian', 'slate'],
+        fontIndices: [1, 6, 3],
+        dockVariant: 'centered',
+        benefits: ['editorial', 'callouts', 'badges'],
+        qrStyles: ['sharp', 'rounded', 'luxury'],
       },
       {
         id: 1,
-        styleLabel: 'Estilo 2 · Editorial Revista (Izquierda)',
-        layouts: ['magazine', 'bento', 'bleed'],
-        themeIds: ['obsidian', 'vino', 'carbon', 'emerald'],
-        fontIndices: [1, 3, 6],
-        dockVariant: 'glass',
-        benefits: ['editorial', 'callouts', 'badges'],
-        qrStyles: ['rounded', 'luxury', 'dots'],
+        styleLabel: 'Arquitectura 2 · Arco Orgánico Boutique',
+        layouts: ['arc', 'vip', 'resort', 'eco'],
+        themeIds: ['arena', 'marble', 'vino', 'emerald'],
+        fontIndices: [1, 4, 6],
+        dockVariant: 'centered',
+        benefits: ['editorial', 'badges', 'callouts'],
+        qrStyles: ['luxury', 'dots', 'rounded'],
       },
       {
         id: 2,
-        styleLabel: 'Estilo 3 · Fondo Completo Luminoso',
-        layouts: ['swiss', 'zen', 'vip', 'arc'],
-        themeIds: ['marble', 'clinic', 'arena', 'kraft'],
-        fontIndices: [1, 6],
-        dockVariant: 'centered',
-        benefits: ['editorial', 'callouts', 'badges'],
-        qrStyles: ['sharp', 'dots', 'luxury'],
+        styleLabel: 'Arquitectura 3 · Corte Diagonal + QR VIP Superior',
+        layouts: ['diagonal', 'diagx', 'cyber', 'flash', 'diamond'],
+        themeIds: ['cyber', 'obsidian', 'ember', 'pop'],
+        fontIndices: [0, 2, 5, 7],
+        dockVariant: 'corner',
+        benefits: ['callouts', 'ribbons', 'badges'],
+        qrStyles: ['cyber', 'sharp', 'rounded'],
       },
       {
         id: 3,
-        styleLabel: 'Estilo 4 · Split Diagonal de Marca',
-        layouts: ['diagonal', 'diagx', 'split', 'cyber', 'bento3d'],
-        themeIds: ['cyber', 'slate', 'terracotta', 'pop'],
-        fontIndices: [2, 5, 7],
-        dockVariant: 'corner',
-        benefits: ['ribbons', 'badges', 'callouts'],
-        qrStyles: ['cyber', 'rounded', 'sharp'],
+        styleLabel: 'Arquitectura 4 · Portada de Revista Full-Bleed',
+        layouts: ['magazine', 'bleed', 'immersive', 'cinema'],
+        themeIds: ['obsidian', 'vino', 'emerald', 'oceano'],
+        fontIndices: [0, 3, 4],
+        dockVariant: 'glass',
+        benefits: ['editorial', 'callouts', 'watermark'],
+        qrStyles: ['rounded', 'luxury', 'dots'],
       },
       {
         id: 4,
-        styleLabel: 'Estilo 5 · Collage Multi-Imagen',
-        layouts: ['collage'],
-        themeIds: ['obsidian', 'emerald', 'aurora', 'terracotta'],
-        fontIndices: [0, 2, 4],
+        styleLabel: 'Arquitectura 5 · Cuadrícula Bento Asimétrica',
+        layouts: ['bento', 'bento3d'],
+        themeIds: ['slate', 'marble', 'cyber', 'emerald'],
+        fontIndices: [3, 6, 7],
+        dockVariant: 'glass',
+        benefits: ['editorial', 'bento', 'badges'],
+        qrStyles: ['rounded', 'sharp', 'dots'],
+      },
+      {
+        id: 5,
+        styleLabel: 'Arquitectura 6 · Polaroid 3D & Collage Multi-Foto',
+        layouts: ['polaroid', 'collage', 'float'],
+        themeIds: ['kraft', 'wood', 'arena', 'obsidian'],
+        fontIndices: [1, 2, 4],
         dockVariant: 'corner',
         benefits: ['editorial', 'callouts', 'badges'],
-        qrStyles: ['rounded', 'luxury', 'dots'],
+        qrStyles: ['rounded', 'dots', 'luxury'],
       },
     ];
 
@@ -1831,21 +1854,32 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     setFormat(v === 'historia' ? 'story' : 'square');
   }
 
-  /** 🟢 Texto WhatsApp con *negritas* y _cursivas_ nativas. */
+  /** 🟢 V36 · Copy de Agencia para WhatsApp: *negritas*, _cursivas_, dirección exacta y cero relleno spam. */
   const waSocialText = useMemo(() => {
     const hook = `${T.plain} ${T.highlight}`.trim();
-    const price = brand.promoPrice != null ? ` a SOLO *${formatCOP(brand.promoPrice)}*` : '';
+    const price =
+      brand.promoPrice != null
+        ? `Hoy por *${formatCOP(brand.promoPrice)}*${
+            brand.normalPrice != null && brand.normalPrice > brand.promoPrice ? ` _(antes ${formatCOP(brand.normalPrice)})_` : ''
+          }`
+        : `_${T.priceLabel.trim()}_`;
+    const place = brand.address?.trim()
+      ? `${brand.address.trim()} · ${brand.municipality || 'Gachetá'}`
+      : brand.municipality || 'Gachetá';
     return [
-      `🚨 *${hook.toUpperCase()}*`,
+      `*${hook.toUpperCase()}*`,
       `_${T.sub.trim()}_`,
-      `${brand.product || 'Promoción de hoy'}${price} · 📍 ${brand.address || brand.municipality || 'Gachetá'}`,
-      T.benefits.filter(Boolean).map((b) => `✅ ${b}`).join('\n'),
-      `💬 Escribe ya 👉 *${brand.phoneDisplay || 'nuestro WhatsApp'}*`,
+      '',
+      `${brand.product || brand.name || 'Promoción especial'} — ${price}`,
+      T.benefits.filter(Boolean).slice(0, 3).map((b) => `• ${b}`).join('\n'),
+      '',
+      `📍 *Dónde:* ${place}`,
+      `📲 *Aparta o cotiza directo:* ${brand.phoneDisplay || 'Escríbenos aquí'}`,
       `🔗 ${primaryLink}`,
     ].join('\n');
   }, [T, brand, primaryLink]);
 
-  /** 📸 8 hashtags estratégicos del municipio + rubro + producto. */
+  /** 📸 8 hashtags estratégicos del municipio (#Gachetá #Guavio) + rubro + producto. */
   const igHashtags = useMemo(() => {
     const words = (src: string): string[] =>
       src
@@ -1861,31 +1895,40 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       '#Cundinamarca',
       ...words(detectedCategory),
       ...words(brand.product),
-      '#ComprasLocales',
+      '#ComercioLocal',
       '#ApoyaLoNuestro',
       '#OfertasHoy',
-      '#NegocioLocal',
-      '#Colombia',
-      '#PromoDelDia',
+      '#ImpulsoLocal',
     ];
     return [...new Set(base)].slice(0, 8).join(' ');
   }, [detectedCategory, brand.product, brand.municipality]);
 
-  /** 📸 Descripción de Instagram con emojis persuasivos y 8 hashtags al final. */
-  const igCaption = useMemo(
-    () =>
-      [
-        `🔥 ${brand.emoji} *${`${T.plain} ${T.highlight}`.trim()}*`,
-        `✨ ${T.sub.trim()}`,
-        `👉 ${T.cta.trim()}`,
-        `📍 ${brand.address || brand.municipality || 'Gachetá'} · 💬 ${brand.phoneDisplay || 'Escríbenos por DM'}`,
-        '',
-        igHashtags,
-      ].join('\n'),
-    [T, brand, igHashtags],
-  );
+  /** 📸 V36 · Copy Instagram (estructura AIDA respirable + dirección exacta + hashtags del Guavio). */
+  const igCaption = useMemo(() => {
+    const hook = `${T.plain} ${T.highlight}`.trim();
+    const priceNote =
+      brand.promoPrice != null
+        ? `Precio especial de hoy: ${formatCOP(brand.promoPrice)}${
+            brand.normalPrice != null && brand.normalPrice > brand.promoPrice ? ` (precio habitual ${formatCOP(brand.normalPrice)})` : ''
+          }.`
+        : `${T.priceLabel.trim()}.`;
+    const bullets = T.benefits.filter(Boolean).slice(0, 3).map((b) => `— ${b}`).join('\n');
+    return [
+      `${brand.emoji} ${hook}`,
+      '',
+      T.sub.trim(),
+      '',
+      bullets,
+      '',
+      priceNote,
+      `📍 ${brand.address || brand.municipality || 'Gachetá'} · 📲 ${brand.phoneDisplay || 'Escríbenos por mensaje directo'}`,
+      `👉 ${T.cta.trim()}`,
+      '',
+      igHashtags,
+    ].join('\n');
+  }, [T, brand, igHashtags]);
 
-  /** 📘 Anuncio de alta conversión para grupos/marketplace con enlace al perfil. */
+  /** 📘 V36 · Copy Facebook (estructura PAS conversacional para grupos y Marketplace del Guavio). */
   const fbPostText = useMemo(() => {
     const hook = `${T.plain} ${T.highlight}`.trim();
     const profileUrl =
@@ -1894,19 +1937,22 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
         : primaryLink;
     const priceLine =
       brand.promoPrice != null
-        ? `💰 HOY por solo ${formatCOP(brand.promoPrice)}${
+        ? `💰 Precio de hoy: ${formatCOP(brand.promoPrice)}${
             brand.normalPrice != null && brand.normalPrice > brand.promoPrice ? ` (antes ${formatCOP(brand.normalPrice)})` : ''
           }`
         : `💬 ${T.priceLabel.trim()}`;
     return [
-      `🔥 ${hook.toUpperCase()} 🔥`,
+      `${hook.toUpperCase()}`,
+      '',
+      `Si estás en ${brand.municipality || 'Gachetá'} y buscas ${brand.product || 'atención de primera sin dar vueltas'}, en ${brand.name || 'nuestro local'} ya lo tenemos listo para ti.`,
       '',
       T.sub.trim(),
-      T.benefits.filter(Boolean).map((b) => `✅ ${b}`).join('\n'),
+      T.benefits.filter(Boolean).slice(0, 3).map((b) => `✅ ${b}`).join('\n'),
+      '',
       priceLine,
-      `📍 ${brand.address || brand.municipality || 'Gachetá'}`,
-      `📲 Escríbenos ya por WhatsApp: ${primaryLink}`,
-      `🏪 Verifica el local en Impulso: ${profileUrl}`,
+      `📍 Visítanos en: ${brand.address || brand.municipality || 'Gachetá'}`,
+      `📲 Escribe directo por WhatsApp: ${primaryLink}`,
+      `🏪 Ver perfil verificado y mapa en Impulso: ${profileUrl}`,
       '',
       igHashtags,
     ].join('\n');
@@ -1927,16 +1973,17 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     };
   }, [T, brand, primaryLink]);
 
-  /** 🎬 V24 · Guion nativo TikTok 15 s (Hook visual 0-3s, cuerpo rápido, CTA directo). */
+  /** 🎬 V36 · Guion profesional TikTok / Reels 20 s ([0-3s], [3-12s], [12-20s] + texto en pantalla). */
   const videoShots = useMemo(() => {
     const hook = `${T.plain} ${T.highlight}`.trim();
-    const price = brand.promoPrice != null ? ` Hoy por solo ${formatCOP(brand.promoPrice)}` : '';
+    const price = brand.promoPrice != null ? ` hoy en ${formatCOP(brand.promoPrice)}` : '';
     const ben = T.benefits.filter(Boolean);
-    const wa = brand.phoneDisplay || 'el WhatsApp del anuncio';
+    const wa = brand.phoneDisplay || 'nuestro WhatsApp';
+    const place = brand.address || brand.municipality || 'Gachetá';
     return {
-      s1: `[Cámara: Hook visual rápido 0-3s entrando directo al producto en uso] Texto: "¡Espera 3 segundos! Si buscas ${brand.product || 'esto'} en ${brand.municipality || 'tu municipio'}, mira ${brand.name || 'esto'}…"`,
-      s2: `[Cámara: Cortes ágiles mostrando beneficios reales en acción] Texto: "${hook || brand.product}${price}: ${ben[0] || T.sub.trim() || 'atención inmediata'}"`,
-      s3: `[Cámara: Cierre directo señalando QR y enlace en perfil] Texto: "Toca el enlace o escribe YA al ${wa} (${brand.address || brand.municipality || 'Gachetá'})"`,
+      s1: `[0-3s · Gancho visual] Primer plano en movimiento del producto real. Texto en pantalla: "${(hook || brand.product || 'MIRA ESTO').toUpperCase()}". Di a cámara: "¡Para un segundo! Si estás en ${brand.municipality || 'Gachetá'} y necesitas ${brand.product || 'esto'}, mira lo que tenemos hoy en ${brand.name || 'el local'}…"`,
+      s2: `[3-12s · Demostración y Valor] Toma media mostrando calidad, empaque o atención en vivo. Texto en pantalla: "${ben[0] || T.sub.trim() || 'Calidad garantizada'}". Di a cámara: "Te llevas ${brand.product || 'este servicio'}${price}, con ${ben.slice(0, 2).join(' y ') || 'atención inmediata sin filas'}."`,
+      s3: `[12-20s · Prueba local y Cierre] Plano de la fachada o señalando el QR/WhatsApp. Texto en pantalla: "📍 ${place} · ${wa}". Di a cámara: "Estamos en ${place}. Escribe ya al ${wa} o toca el enlace del perfil para apartar el tuyo hoy mismo."`,
     };
   }, [T, brand]);
 
@@ -1953,20 +2000,16 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     };
   }, [T, brand]);
 
-  /** 🎵 Guion de 15 s para TikTok/Reels (teleprompter gigante). */
+  /** 🎵 V36 · Guion de 20 s para TikTok/Reels (teleprompter gigante con tiempos exactos). */
   const ttScript = useMemo(() => {
     const v = campaign?.videoReelScript;
     return (
       [
-        v?.t0_3 ? `· 0-3 s: ${v.t0_3}` : '',
-        v?.t3_10 ? `· 3-10 s: ${v.t3_10}` : '',
-        v?.t10_15 ? `· 10-15 s: ${v.t10_15}` : '',
-      ].filter(Boolean).join('\n') ||
-      [
-        `· 0-3 s: ${videoShots.s1}`,
-        `· 3-10 s: ${videoShots.s2}`,
-        `· 10-15 s: ${videoShots.s3}`,
-      ].join('\n')
+        v?.t0_3 ? `[0-3s Gancho visual] ${v.t0_3}` : '',
+        v?.t3_10 ? `[3-12s Demostración/Valor] ${v.t3_10}` : '',
+        v?.t10_15 ? `[12-20s Prueba + Cierre] ${v.t10_15}` : '',
+      ].filter(Boolean).join('\n\n') ||
+      [videoShots.s1, videoShots.s2, videoShots.s3].join('\n\n')
     );
   }, [campaign, videoShots]);
 
@@ -2242,6 +2285,38 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
                 </button>
               )}
             </div>
+
+            {/* Subida de Foto 2 (Local / Detalle para Polaroid 3D y Collage) */}
+            <div className="flex items-center gap-2 rounded-2xl bg-slate-950/60 p-2.5 ring-1 ring-white/[0.05]">
+              {customPhoto2 ? (
+                <img
+                  src={customPhoto2}
+                  alt="Foto secundaria"
+                  className="h-10 w-10 shrink-0 rounded-xl object-cover"
+                />
+              ) : (
+                <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-white/[0.04] text-sm">🖼️</div>
+              )}
+              <label className="pressable flex min-w-0 flex-1 cursor-pointer flex-col">
+                <span className="truncate text-[11px] font-extrabold text-white">
+                  {customPhoto2 ? 'Foto 2 (Local/Detalle) activa ✅' : 'Subir Foto 2 · Local / Detalle (opcional)'}
+                </span>
+                <span className="text-[9px] font-semibold text-slate-400">
+                  Ideal para arquitectura Polaroid 3D, Collage Multi-Foto y Pieza 2
+                </span>
+                <input type="file" accept="image/*" className="hidden" onChange={(e) => void handlePhoto2File(e.target.files?.[0])} />
+              </label>
+              {customPhoto2 && (
+                <button
+                  type="button"
+                  onClick={() => setCustomPhoto2(null)}
+                  title="Quitar segunda foto"
+                  className="pressable shrink-0 rounded-lg bg-white/[0.05] px-2 py-1 text-[10px] font-bold text-slate-400 hover:text-impulso-rose"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -2287,7 +2362,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
               className={inputCls}
             />
           )}
-          <p className={labelCls}>Enfoque psicológico del anuncio</p>
+          <p className={labelCls}>Enfoque psicológico del anuncio (transforma copy + paleta + arquitectura)</p>
           <div className="grid grid-cols-2 gap-2">
             {FOCUS_OPTIONS.map((f) => (
               <button
@@ -2300,12 +2375,41 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
                   const biz = brand.name.trim() || 'nuestro local';
                   const headlines = rule.headlineFor(prod, biz, place);
                   const [nextPlain, nextHighlight] = headlines[Math.floor(Math.random() * headlines.length)] ?? headlines[0];
+                  const nextSub = `${rule.subPrefix} ${brand.slogan.trim() || `disponible hoy en ${place}`}`.trim();
+
+                  // Transforma también la paleta cromática y la arquitectura visual según la psicología elegida
+                  const hasLockedLogoPalette = Boolean(effectiveLogoUrl && useBrandPalette && brandPalette);
+                  if (!hasLockedLogoPalette) {
+                    const preferredThemeIndices = AFFICHE_THEMES
+                      .map((th, idx) => ({ id: th.id, idx }))
+                      .filter((x) => rule.preferredThemes.includes(x.id) && x.idx !== themeIdx);
+                    const pickedTheme =
+                      preferredThemeIndices[Math.floor(Math.random() * preferredThemeIndices.length)] ??
+                      AFFICHE_THEMES.map((th, idx) => ({ id: th.id, idx })).find((x) => rule.preferredThemes.includes(x.id));
+                    if (pickedTheme) {
+                      setThemeIdx(pickedTheme.idx);
+                      lastThemeIdxRef.current = pickedTheme.idx;
+                    }
+                  }
+
+                  const layoutFocusPool: Record<CampaignFocus, Layout[]> = {
+                    remate: ['diagonal', 'diagx', 'flash', 'split'],
+                    prestigio: ['arc', 'vip', 'magazine', 'swiss'],
+                    confianza: ['split', 'bento', 'polaroid', 'magazine'],
+                    viral: ['polaroid', 'collage', 'diagonal', 'bento'],
+                  };
+                  const candidateLayouts = layoutFocusPool[f.id].filter((id) => id !== layout);
+                  const nextFocusLayout = candidateLayouts[Math.floor(Math.random() * candidateLayouts.length)] ?? layoutFocusPool[f.id][0];
+                  setLayout(nextFocusLayout);
+                  lastLayoutIdxRef.current = nextFocusLayout;
+
                   setBadgeCustom(rule.badges[0]);
                   setBadgeMode('dynamic');
                   setTexts((prev) => ({
                     ...prev,
                     plain: nextPlain,
                     highlight: nextHighlight,
+                    sub: nextSub,
                     cta: qrMode === 'wa' ? rule.ctas[0] : prev.cta,
                   }));
                   setCampaign((prev) =>
@@ -2315,7 +2419,9 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
                           badgeText: rule.badges[0],
                           dynamicTagline: rule.badges[0],
                           headline: { plain: nextPlain, highlight: nextHighlight },
+                          subheadline: nextSub,
                           cta: rule.ctas[0],
+                          layoutId: nextFocusLayout,
                         }
                       : prev,
                   );

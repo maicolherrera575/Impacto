@@ -61,7 +61,9 @@ export function ForensicInspector({ data, onClose }: { data: ForensicData | null
 
   const isCgnatLikely = Boolean(
     geo &&
-      (/claro|comcel|movistar|telefonica|tigo|une|colombia\s+movil|wom|avantel|etb/i.test(geo.isp) ||
+      (/claro|comcel|movistar|telefonica|tigo|une|colombia\s+movil|wom|avantel|etb|hv\s*televisi|cable|fiber|fibra/i.test(
+        geo.isp,
+      ) ||
         /bogot[aá]|soacha|medell[ií]n|cali/i.test(geo.city)),
   );
 
@@ -201,13 +203,15 @@ export function ForensicInspector({ data, onClose }: { data: ForensicData | null
               </p>
             )}
             <Row label="📡 Operador / ISP" value={geo.isp} />
-            <Row label="🏙️ Ubicación de red" value={`${geo.city}, ${geo.region}, ${geo.country}`} />
-            {isCgnatLikely && (
-              <p className="mt-2 rounded-xl border border-amber-400/30 bg-amber-500/10 p-2.5 text-[11px] font-semibold leading-relaxed text-amber-200">
-                ⚠️ Nodo CGNAT Móvil detectado ({geo.city}): en datos móviles varios usuarios comparten IP. Usa el bloqueo por
-                <strong> Huella Digital ({data.deviceId ?? 'fp_...'})</strong> abajo para impedir el acceso desde ese teléfono o navegador aunque cambie de red.
-              </p>
-            )}
+            <Row label="🏙️ Nodo de red ISP" value={`${geo.city}, ${geo.region}, ${geo.country}`} />
+            <p className="mt-2 rounded-xl border border-amber-400/30 bg-amber-500/10 p-2.5 text-[11px] font-semibold leading-relaxed text-amber-200">
+              {isCgnatLikely ? '⚠️ ' : 'ℹ️ '}
+              <strong>Nota Forense (CGNAT):</strong> la ciudad de red ({geo.city}) corresponde al{' '}
+              <strong>nodo CGNAT del operador ISP</strong> ({geo.isp}) y no necesariamente a la calle exacta del usuario.
+              La identificación real y el bloqueo permanente se basan en la{' '}
+              <strong>Huella de Hardware Multicapa (Canvas + WebGL + Audio/CPU + Pantalla → SHA-256)</strong>{' '}
+              <span className="font-mono">{data.deviceId ?? 'fp_...'}</span>, que persiste aunque cambie de IP o de datos móviles.
+            </p>
           </div>
         ) : (
           <p className="mt-4 rounded-2xl border border-white/10 bg-slate-950/40 p-3 text-xs font-semibold text-slate-400">

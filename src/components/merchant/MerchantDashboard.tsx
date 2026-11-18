@@ -60,6 +60,8 @@ import { countdownText, cx, formatCOP, ratingAvg } from '../../utils/format';
 import { useTick } from '../../hooks/useTick';
 import { beepAlert } from '../../utils/sound';
 import { openWhatsApp, shareUrl } from '../../utils/whatsapp';
+import { encodeShortUuid } from '../../utils/shortId';
+import { resolveTrustLevel } from '../../types';
 import { ADMIN_WHATSAPP } from '../../config/env';
 
 interface MerchantDashboardProps {
@@ -673,12 +675,72 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
                 : '🔥 ¡Vas en racha! Sigue publicando ofertas relámpago para no perder el impulso.'
               : '🚀 Publica tu primera oferta y este termómetro empieza a contar tu dinero en ventas.'}
           </p>
-          <button
-            onClick={() => setCreditsOpen(true)}
-            className="pressable mt-2.5 flex w-full items-center justify-center gap-2 rounded-2xl bg-impulso-gold py-3 text-sm font-extrabold text-slate-950"
-          >
-            <MessageCircle className="h-4 w-4" /> Recargar créditos por Nequi
-          </button>
+          <div className="mt-2.5 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <button
+              onClick={() => setCreditsOpen(true)}
+              className="pressable flex w-full items-center justify-center gap-2 rounded-2xl bg-impulso-gold py-3 text-sm font-extrabold text-slate-950"
+            >
+              <MessageCircle className="h-4 w-4" /> Recargar créditos por Nequi
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const link = `${window.location.origin}${window.location.pathname}?c=${encodeShortUuid(profile.id)}`;
+                const text = `🏪 Visita ${profile.business_name} en Impulso (${profile.municipality}) y aparta nuestras ofertas activas 👉 ${link}`;
+                if (navigator.share) {
+                  void navigator.share({ title: profile.business_name, text, url: link }).catch(() => undefined);
+                } else {
+                  void navigator.clipboard
+                    .writeText(text)
+                    .then(() => toast.success('📢 Enlace de tu Perfil Público copiado para WhatsApp e Instagram'))
+                    .catch(() => toast.error('No se pudo copiar el enlace'));
+                }
+              }}
+              className="pressable flex w-full items-center justify-center gap-2 rounded-2xl border border-impulso-emerald/40 bg-impulso-emerald/15 py-3 text-sm font-extrabold text-impulso-mint"
+            >
+              📢 Compartir mi Perfil Público
+            </button>
+          </div>
+
+          {/* 👑 V36.0 · Gamificación de Nivel de Confianza (motor de retención y calidad) */}
+          {(() => {
+            const level = resolveTrustLevel(profile);
+            const pct = Math.min(100, Math.round((lifetimeOrders / 20) * 100));
+            return (
+              <div className="mt-3 rounded-2xl border border-white/10 bg-slate-950/55 p-3">
+                <div className="flex items-center justify-between gap-2 text-[11px]">
+                  <span className="font-extrabold text-white">
+                    {level === 'super'
+                      ? '👑 Nivel 3 · Súper Comercio Activo'
+                      : level === 'verified'
+                        ? '✓ Nivel 2 · Comercio Verificado'
+                        : '🌱 Nivel 1 · Comercio Nuevo'}
+                  </span>
+                  <span className="font-bold text-impulso-gold">
+                    {level === 'super' ? 'Halo Dorado Activo' : `${Math.min(lifetimeOrders, 20)}/20 entregas`}
+                  </span>
+                </div>
+                <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-white/10">
+                  <div
+                    className={cx(
+                      'h-full rounded-full transition-all duration-500',
+                      level === 'super'
+                        ? 'bg-gradient-to-r from-amber-400 to-yellow-300'
+                        : 'bg-gradient-to-r from-impulso-emerald to-sky-400',
+                    )}
+                    style={{ width: `${level === 'super' ? 100 : Math.max(8, pct)}%` }}
+                  />
+                </div>
+                <p className="mt-1.5 text-[10px] font-semibold leading-relaxed text-slate-400">
+                  {level === 'super'
+                    ? '¡Felicitaciones! Tus ofertas destacan con borde dorado y máxima confianza en el radar.'
+                    : level === 'verified'
+                      ? `Te faltan ${Math.max(0, 20 - lifetimeOrders)} entregas completadas para desbloquear el borde dorado 👑 Súper Comercio.`
+                      : 'Completa tu verificación KYB abajo para quitar el aviso de comercio nuevo y ganar el check azul Verificado.'}
+                </p>
+              </div>
+            );
+          })()}
         </section>
 
         {/* CTA principal */}
@@ -1416,7 +1478,8 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
         userRole={profile.role === 'admin' ? 'admin' : 'merchant'}
         userName={profile.business_name}
         municipality={profile.municipality}
-        bottomOffsetClass="bottom-4"
+        offers={myOffers}
+        bottomOffsetClass="bottom-5 right-4 sm:bottom-6 sm:right-6"
       />
     </div>
   );

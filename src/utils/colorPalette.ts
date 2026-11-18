@@ -72,21 +72,49 @@ export function colorDistance(hexA: string, hexB: string): number {
 }
 
 /**
+ * Ratio de contraste WCAG 2.1 real (1.0 a 21.0) entre dos colores hexadecimales.
+ */
+export function getContrastRatio(hexA: string, hexB: string): number {
+  const l1 = relativeLuminance(hexA);
+  const l2 = relativeLuminance(hexB);
+  const lighter = Math.max(l1, l2);
+  const darker = Math.min(l1, l2);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+/**
+ * Garantiza un ratio mínimo WCAG (por defecto 4.5:1) ajustando progresivamente
+ * el color `fg` contra el fondo real `bg` (prohibido texto ilegible sobre tonos similares).
+ */
+export function ensureContrastColor(fg: string, bg: string, minRatio = 4.5): string {
+  const cleanFg = normalizeHex(fg) ?? '#ffffff';
+  const cleanBg = normalizeHex(bg) ?? '#0b1220';
+  if (getContrastRatio(cleanFg, cleanBg) >= minRatio) return cleanFg;
+
+  const target = relativeLuminance(cleanBg) >= 0.42 ? '#090d16' : '#ffffff';
+  for (let step = 1; step <= 8; step += 1) {
+    const candidate = mixHex(cleanFg, target, step / 8);
+    if (getContrastRatio(candidate, cleanBg) >= minRatio) return candidate;
+  }
+  return target;
+}
+
+/**
  * Devuelve '#ffffff' u '#0b0f18' asegurando lectura nitida encima de un color o gradiente.
  */
 export function contrastTextOn(hexA: string, hexB?: string): '#ffffff' | '#0b0f18' {
-  const lum = hexB ? (relativeLuminance(hexA) + relativeLuminance(hexB)) / 2 : relativeLuminance(hexA);
-  return lum >= 0.42 ? '#0b0f18' : '#ffffff';
+  const bgMid = hexB ? mixHex(hexA, hexB, 0.5) : hexA;
+  const whiteRatio = getContrastRatio('#ffffff', bgMid);
+  const darkRatio = getContrastRatio('#0b0f18', bgMid);
+  return darkRatio >= whiteRatio ? '#0b0f18' : '#ffffff';
 }
 
 /**
  * Ajusta un color de acento para que no quede ilegible ni en fondos claros ni en fondos oscuros.
  */
 export function ensureReadableAccent(hex: string, bgIsLight: boolean): string {
-  const lum = relativeLuminance(hex);
-  if (bgIsLight && lum > 0.52) return mixHex(hex, '#0f172a', 0.45);
-  if (!bgIsLight && lum < 0.22) return mixHex(hex, '#ffffff', 0.48);
-  return hex;
+  const refBg = bgIsLight ? '#f4f1ea' : '#0b1220';
+  return ensureContrastColor(hex, refBg, bgIsLight ? 4.6 : 4.8);
 }
 
 function rgbSaturation({ r, g, b }: RgbColor): number {

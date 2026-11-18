@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { getDeviceId } from './deviceFingerprint';
 import type { CreditOrder, PaymentConfig } from '../types';
 import type { ReceiptVerification } from './gemini.service';
 
@@ -42,6 +43,7 @@ export async function verifyReceiptOnServer(input: {
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
+      'X-Device-Fingerprint': getDeviceId(),
     },
     body: JSON.stringify({
       action: 'verify',
@@ -83,6 +85,7 @@ export async function submitVerifiedCreditOrderOnServer(input: {
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
+      'X-Device-Fingerprint': getDeviceId(),
     },
     body: JSON.stringify({
       action: 'submit',

@@ -15,6 +15,8 @@ type Step = 'detail' | 'form' | 'success';
 
 interface OfferDetailModalProps {
   offer: Offer | null;
+  /** V36.0 · Permite abrir directo en el formulario de apartado (ej. desde una tarjeta de Radar). */
+  initialStep?: 'detail' | 'form';
   onClose: () => void;
   /** Registra el ticket en el dispositivo y en el estado de la app. */
   onReserved: (ticket: Ticket) => void;
@@ -30,10 +32,10 @@ const STEPS: Record<Step, string> = { detail: 'La oferta', form: 'Apartar', succ
  * llegar desde un enlace compartido (?oferta=UUID) y permite apartar
  * en segundos sin registro.
  */
-export function OfferDetailModal({ offer, onClose, onReserved, onViewTickets, onOpenMerchant }: OfferDetailModalProps) {
+export function OfferDetailModal({ offer, initialStep = 'detail', onClose, onReserved, onViewTickets, onOpenMerchant }: OfferDetailModalProps) {
   const toast = useToast();
   const now = useTick(1000);
-  const [step, setStep] = useState<Step>('detail');
+  const [step, setStep] = useState<Step>(initialStep);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [quantity, setQuantity] = useState(1);
@@ -47,14 +49,14 @@ export function OfferDetailModal({ offer, onClose, onReserved, onViewTickets, on
 
   useEffect(() => {
     if (offer) {
-      setStep('detail');
+      setStep(initialStep);
       setQuantity(1);
       setNote('');
       setTicket(null);
       setErrorMsg('');
       incrementViews(offer.id);
     }
-  }, [offer]);
+  }, [offer, initialStep]);
 
   /** 💳 V20 · Muestra los métodos de pago del COMERCIO: el cliente paga
    *  directo a él al recibir el pedido — Impulso jamás retiene el dinero. */

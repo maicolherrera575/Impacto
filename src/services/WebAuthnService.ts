@@ -1,14 +1,14 @@
 import { supabase } from './supabase';
+import { getDeviceId } from './deviceFingerprint';
 
 /**
- * 🔐 V19.0 · WebAuthnService — Autenticación Biométrica Criptográfica Real (Passkeys).
+ * 🔐 V36.0 · WebAuthnService — Reparación de Raíz de Autenticación Biométrica (Passkeys).
  *
- * - Registro: `navigator.credentials.create()` genera un par de claves ligado al hardware
- *   (Huella / FaceID / Windows Hello) y guarda la clave pública SPKI en `auth.user_passkeys`.
- * - Login: `navigator.credentials.get()` firma un reto aleatorio emitido por el servidor;
- *   `/api/webauthn` verifica la firma criptográficamente antes de conceder sesión.
- * - Si el usuario cambia de celular, este dispositivo no tendrá la llave privada vinculada
- *   y deberá iniciar sesión con contraseña para registrar el nuevo dispositivo.
+ * - Normalización Base64URL estricta (sin padding `=`) de `credentialId` entre registro,
+ *   consulta de `allowCredentials` y verificación en servidor.
+ * - Soporta login Discoverable (sin escribir correo) Y con correo opcional (sin restringir `transports`).
+ * - Elimina fragilidad de `localStorage`: la bóveda AES-256-GCM persiste en Supabase y
+ *   `syncPasskeyVaultsOnPasswordLogin()` la re-sella transparentemente al entrar con contraseña.
  */
 
 export interface PasskeyDevice {
@@ -25,6 +25,10 @@ export type WebAuthnServerMode = 'admin-otp' | 'sealed-vault' | 'unconfigured';
 const VAULT_STORAGE_PREFIX = 'impulso_pk_vault_v1:';
 
 // ── Utilidades Base64 / Base64URL ──────────────────────────────────────────
+
+function normalizeBase64Url(input: string): string {
+  return input.trim().replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
 
 function bufferToBase64Url(buf: ArrayBuffer | Uint8Array): string {
   const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
@@ -398,12 +402,13 @@ export async function completePreparedPasskeyEnrollment(
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${accessToken}`,
+      'X-Device-Fingerprint': getDeviceId(),
     },
     body: JSON.stringify({
       action: 'register',
       challengeId: begin.challengeId,
-      expectedChallenge: begin.challenge,
-      credentialId,
+      expectedChallenge: normalizeBase64Url(begin.challenge),
+      credentialId: normalizeBase64Url(credentialId),
       publicKeySpki,
       algorithm,
       transports,
@@ -429,9 +434,10 @@ export async function completePreparedPasskeyEnrollment(
     throw new Error(payload?.error?.message || 'No se pudo validar el registro biométrico en el servidor.');
   }
 
+  const finalCredId = normalizeBase64Url(String(payload.credentialId ?? credentialId));
   if (payload.sealedVault) {
     try {
-      localStorage.setItem(`${VAULT_STORAGE_PREFIX}${credentialId}`, payload.sealedVault);
+      localStorage.setItem(`${VAULT_STORAGE_PREFIX}${finalCredId}`, payload.sealedVault);
     } catch {
       /* almacenamiento bloqueado */
     }
@@ -439,7 +445,7 @@ export async function completePreparedPasskeyEnrollment(
 
   return {
     id: String(payload.id ?? ''),
-    credentialId: String(payload.credentialId ?? credentialId),
+    credentialId: finalCredId,
     deviceLabel: String(payload.deviceLabel ?? detectDeviceLabel()),
   };
 }
@@ -459,55 +465,106 @@ export async function registerDevicePasskey(options: {
   }
 }
 
+/**
+ * 🔄 V36.0 · Auto-sanación silenciosa de bóvedas biométricas al iniciar sesión con contraseña:
+ * Si el usuario ya tenía su huella vinculada (en este celular o sincronizada) y cambió su clave
+ * o borró caché local, esta llamada re-sella silenciosamente todas sus llaves en Supabase +
+ * localStorage sin pedirle jamás que borre ni recree su huella manualmente.
+ */
+export async function syncPasskeyVaultsOnPasswordLogin(email: string, password: string): Promise<void> {
+  if (!isWebAuthnSupported() || !email.trim() || password.length < 6) return;
+  try {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    if (!token) return;
+    const res = await fetch('/api/webauthn', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+        'X-Device-Fingerprint': getDeviceId(),
+      },
+      body: JSON.stringify({
+        action: 'sync-vault',
+        email: email.trim().toLowerCase(),
+        password,
+      }),
+    });
+    if (!res.ok) return;
+    const json = (await res.json().catch(() => null)) as { vaults?: Record<string, string> } | null;
+    if (json?.vaults && typeof json.vaults === 'object') {
+      for (const [cid, sealed] of Object.entries(json.vaults)) {
+        if (cid && sealed) {
+          try {
+            localStorage.setItem(`${VAULT_STORAGE_PREFIX}${normalizeBase64Url(cid)}`, sealed);
+          } catch {
+            /* continuar */
+          }
+        }
+      }
+    }
+  } catch {
+    /* silencioso: jamás bloquea el acceso con contraseña */
+  }
+}
+
 // ── Inicio de Sesión criptográfico (navigator.credentials.get) ─────────────
 
-export async function authenticateWithPasskey(email: string): Promise<void> {
+export async function authenticateWithPasskey(email?: string): Promise<void> {
   if (!isWebAuthnSupported()) {
     throw new Error('Este navegador o conexión no soporta desbloqueo biométrico seguro (requiere conexión cifrada HTTPS).');
   }
 
-  const cleanEmail = email.trim().toLowerCase();
-  if (!/.+@.+\..+/.test(cleanEmail)) {
-    throw new Error('Escribe tu correo para validar tu huella / FaceID.');
-  }
+  const cleanEmail = (email ?? '').trim().toLowerCase();
+  const hasValidEmail = /.+@.+\..+/.test(cleanEmail);
 
-  // 1. Solicitar reto aleatorio + lista de credenciales registradas al servidor
-  const { data: beginRaw, error: beginErr } = await supabase.rpc('webauthn_begin_login_rpc', {
-    p_email: cleanEmail,
-  });
-  if (beginErr) throw beginErr;
-
-  const begin = beginRaw as unknown as {
+  // 1. Solicitar reto aleatorio: con allowCredentials si escribió correo, o Discoverable si está vacío
+  let begin: {
     challengeId: string;
     challenge: string;
     allowCredentials: Array<{ id: string; transports?: string[] }>;
   };
 
-  if (!begin.allowCredentials || begin.allowCredentials.length === 0) {
-    throw new Error(WEBAUTHN_CROSS_DEVICE_MSG);
+  if (hasValidEmail) {
+    const { data: beginRaw, error: beginErr } = await supabase.rpc('webauthn_begin_login_rpc', {
+      p_email: cleanEmail,
+    });
+    if (beginErr) throw beginErr;
+    begin = beginRaw as unknown as typeof begin;
+    if (!begin.allowCredentials || begin.allowCredentials.length === 0) {
+      throw new Error(WEBAUTHN_CROSS_DEVICE_MSG);
+    }
+  } else {
+    const { data: beginRaw, error: beginErr } = await supabase.rpc('webauthn_begin_discoverable_login_rpc');
+    if (beginErr) {
+      throw new Error('Escribe tu correo para validar tu huella / FaceID.');
+    }
+    begin = beginRaw as unknown as typeof begin;
   }
 
   const rpId = window.location.hostname;
 
-  // 2. Firma criptográfica hardware del reto con FaceID / Huella / Windows Hello.
-  // Omitimos restringir transports aquí para que llaves sincronizadas/hybrid o locales
-  // puedan responder sin bloqueo artificial en móvil.
+  // 2. Firma criptográfica hardware del reto (sin restringir transports para soportar local + synced/hybrid)
   let assertion: Credential | null;
   try {
-    assertion = await navigator.credentials.get({
-      publicKey: {
-        challenge: toArrayBuffer(base64UrlToUint8Array(begin.challenge)),
-        rpId,
-        allowCredentials: begin.allowCredentials.map((c) => ({
-          type: 'public-key' as const,
-          id: toArrayBuffer(base64UrlToUint8Array(c.id)),
-        })),
-        userVerification: 'required',
-        timeout: 60_000,
-      },
-    });
+    const publicKeyOptions: PublicKeyCredentialRequestOptions = {
+      challenge: toArrayBuffer(base64UrlToUint8Array(normalizeBase64Url(begin.challenge))),
+      rpId,
+      userVerification: 'required',
+      timeout: 60_000,
+    };
+    if (hasValidEmail && begin.allowCredentials.length > 0) {
+      publicKeyOptions.allowCredentials = begin.allowCredentials.map((c) => ({
+        type: 'public-key' as const,
+        id: toArrayBuffer(base64UrlToUint8Array(normalizeBase64Url(c.id))),
+      }));
+    }
+    assertion = await navigator.credentials.get({ publicKey: publicKeyOptions });
   } catch (err) {
     if (err instanceof DOMException) {
+      if (err.name === 'NotAllowedError') {
+        throw new Error('Verificación biométrica cancelada o sin llave registrada en este equipo.');
+      }
       throw new Error(WEBAUTHN_CROSS_DEVICE_MSG);
     }
     throw err;
@@ -518,7 +575,7 @@ export async function authenticateWithPasskey(email: string): Promise<void> {
   }
 
   const res = assertion.response as AuthenticatorAssertionResponse;
-  const credentialId = bufferToBase64Url(assertion.rawId);
+  const credentialId = normalizeBase64Url(bufferToBase64Url(assertion.rawId));
 
   let sealedVault: string | null = null;
   try {
@@ -530,10 +587,13 @@ export async function authenticateWithPasskey(email: string): Promise<void> {
   // 3. Verificación criptográfica estricta en el servidor (/api/webauthn)
   const verifyRes = await fetch('/api/webauthn', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Device-Fingerprint': getDeviceId(),
+    },
     body: JSON.stringify({
       action: 'verify-login',
-      email: cleanEmail,
+      ...(hasValidEmail ? { email: cleanEmail } : {}),
       challengeId: begin.challengeId,
       credentialId,
       clientDataJSON: bufferToBase64Url(res.clientDataJSON),
@@ -549,14 +609,21 @@ export async function authenticateWithPasskey(email: string): Promise<void> {
     tokenHash?: string;
     accessToken?: string;
     refreshToken?: string;
-    error?: { message?: string };
+    refreshedVault?: string;
+    credentialId?: string;
+    error?: { code?: string; message?: string };
   } | null;
 
-  if (verifyRes.status === 428) {
-    throw new Error(WEBAUTHN_CROSS_DEVICE_MSG);
-  }
   if (!verifyRes.ok || !payload?.ok) {
-    throw new Error(payload?.error?.message || 'Firma biométrica inválida. Inicia sesión con tu contraseña.');
+    throw new Error(payload?.error?.message || 'No se pudo validar tu huella. Inicia sesión con tu contraseña.');
+  }
+
+  if (payload.refreshedVault) {
+    try {
+      localStorage.setItem(`${VAULT_STORAGE_PREFIX}${normalizeBase64Url(payload.credentialId || credentialId)}`, payload.refreshedVault);
+    } catch {
+      /* continuar */
+    }
   }
 
   // 4. Emitir sesión real de Supabase Auth (solo tras validación criptográfica en servidor)
