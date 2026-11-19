@@ -101,9 +101,21 @@ export function OfferCreator({ open, onClose, profile, onPublished, initialForm 
 
   async function createWithAi() {
     setErrorMsg('');
+    const preSec = validateOfferSecurity(freeText);
+    if (!preSec.ok) {
+      setErrorMsg(preSec.reason);
+      toast.error(preSec.reason);
+      return;
+    }
     setAiLoading(true);
     try {
       const parsed = await parsePromoFromText(freeText);
+      const postSec = validateOfferSecurity(`${parsed.title} ${parsed.description}`);
+      if (!postSec.ok) {
+        setErrorMsg(postSec.reason);
+        toast.error(postSec.reason);
+        return;
+      }
       setForm({
         emoji_icon: parsed.emoji_icon,
         category: parsed.category,
@@ -395,6 +407,15 @@ export function OfferCreator({ open, onClose, profile, onPublished, initialForm 
               </option>
             ))}
           </select>
+
+          {/* 🛡️ Aviso preventivo en categorías sensibles (fletes) o comercios nuevos */}
+          {(form.category === 'transporte_flete' || !profile.is_verified) && (
+            <p className="rounded-2xl border border-amber-400/25 bg-amber-500/10 p-3 text-[11px] font-semibold leading-relaxed text-amber-200/95">
+              {form.category === 'transporte_flete'
+                ? '🚚 Regla de confianza en Fletes: publica tarifas claras y acuerda pago al entregar o recoger. No se permiten solicitudes de dinero por adelantado.'
+                : '🛡️ Consejo para comercios nuevos: ofrecer pago contra entrega aumenta tus apartados y te ayuda a lograr tu insignia Verificado más rápido.'}
+            </p>
+          )}
 
           {/* ⚠️ V18 · Error DENTRO del modal, imposible de perderse */}
           {errorMsg && (

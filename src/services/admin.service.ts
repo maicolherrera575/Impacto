@@ -20,8 +20,16 @@ export async function fetchMerchants(): Promise<Profile[]> {
 
 export interface AdminStats {
   merchants: number;
+  clients?: number;
   activeOffers: number;
   pendingReservations: number;
+  verifiedMerchants?: number;
+  reservationsToday?: number;
+  totalReservations?: number;
+  openReports?: number;
+  openSupportTickets?: number;
+  activeDevices24h?: number;
+  demoOffersCount?: number;
 }
 
 /** Métricas en vivo del ecosistema para la cabecera del panel. */
@@ -151,12 +159,45 @@ export async function adminCleanupExpired(): Promise<number> {
 
 /**
  * Métricas reales del ecosistema vía RPC security definer (cruza el RLS
- * del admin para contar reservas de TODOS los comercios).
+ * del admin para contar comercios, clientes, ofertas, reservas, reportes y tickets).
  */
-export async function fetchAdminStatsRpc(): Promise<AdminStats & { verifiedMerchants: number; reservationsToday: number; openReports: number }> {
+export async function fetchAdminStatsRpc(): Promise<
+  AdminStats & { verifiedMerchants: number; reservationsToday: number; openReports: number }
+> {
   const { data, error } = await supabase.rpc('admin_stats_rpc');
   if (error) throw error;
-  return data as unknown as AdminStats & { verifiedMerchants: number; reservationsToday: number; openReports: number };
+  const raw = (data ?? {}) as Record<string, unknown>;
+  return {
+    merchants: Number(raw.merchants ?? 0),
+    clients: Number(raw.clients ?? 0),
+    verifiedMerchants: Number(raw.verifiedMerchants ?? 0),
+    activeOffers: Number(raw.activeOffers ?? 0),
+    pendingReservations: Number(raw.pendingReservations ?? 0),
+    reservationsToday: Number(raw.reservationsToday ?? 0),
+    totalReservations: Number(raw.totalReservations ?? 0),
+    openReports: Number(raw.openReports ?? 0),
+    openSupportTickets: Number(raw.openSupportTickets ?? 0),
+    activeDevices24h: Number(raw.activeDevices24h ?? 0),
+    demoOffersCount: Number(raw.demoOffersCount ?? 0),
+  };
+}
+
+/** 🧪 V38.0 · Genera o refresca 4 ofertas demo realistas (24h) en Gachetá para pruebas en 1 clic. */
+export async function adminSeedDemoOffers(municipality = 'Gachetá'): Promise<{ created: number }> {
+  const { data, error } = await supabase.rpc('admin_seed_demo_offers_rpc', {
+    p_municipality: municipality,
+  });
+  if (error) throw error;
+  const payload = (data ?? {}) as { created?: number };
+  return { created: Number(payload.created ?? 0) };
+}
+
+/** 🧹 V38.0 · Elimina únicamente las ofertas de laboratorio marcadas con [DEMO]. */
+export async function adminClearDemoOffers(): Promise<{ deleted: number }> {
+  const { data, error } = await supabase.rpc('admin_clear_demo_offers_rpc');
+  if (error) throw error;
+  const payload = (data ?? {}) as { deleted?: number };
+  return { deleted: Number(payload.deleted ?? 0) };
 }
 
 /** Fila de trazabilidad forense para la pestaña de Moderación. */

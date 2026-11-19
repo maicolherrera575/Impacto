@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BadgeCheck,
   Coins,
   Flag,
+  FlaskConical,
   Gavel,
   Loader2,
   MessageCircle,
+  RefreshCw,
   Search,
   ShieldCheck,
   Store,
@@ -18,7 +20,9 @@ import { useToast } from '../ui/Toast';
 import {
   adminBlockClient,
   adminCleanupExpired,
+  adminClearDemoOffers,
   adminDeleteOffer,
+  adminSeedDemoOffers,
   adminUnblockClient,
   cleanupExpiredData,
   clearMerchantReports,
@@ -43,7 +47,7 @@ import {
 import { fetchActiveOffers } from '../../services/offers.service';
 import { analyzeKybForensic, analyzeMerchantTrust, auditCommunityReportWithAI } from '../../services/gemini.service';
 import type { KybForensicResult, ReportFraudAuditResult } from '../../services/gemini.service';
-import { friendlyError } from '../../services/supabase';
+import { friendlyError, supabase } from '../../services/supabase';
 import { prepareCrispQrImage } from '../../services/imageCompressor';
 import {
   fetchAdminSupportTickets,
@@ -131,6 +135,20 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
   const [contactBusy, setContactBusy] = useState(false);
   const [supportTickets, setSupportTickets] = useState<SupportTicket[]>([]);
   const [ticketBusyId, setTicketBusyId] = useState<string | null>(null);
+  const [demoBusy, setDemoBusy] = useState<'seed' | 'clear' | null>(null);
+  const [statsRefreshing, setStatsRefreshing] = useState(false);
+  const [lastSyncLabel, setLastSyncLabel] = useState<string>('');
+  const realtimeTimerRef = useRef<number | null>(null);
+
+  const stampSync = useCallback(() => {
+    setLastSyncLabel(
+      new Date().toLocaleTimeString('es-CO', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      }),
+    );
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -138,6 +156,7 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
       const [list, s, config] = await Promise.all([fetchMerchants(), fetchAdminStatsRpc(), fetchPaymentConfig()]);
       setMerchants(list);
       setStats(s);
+      stampSync();
       if (config) {
         setPaymentContact(config.nequiPhone || '');
         setDaviplataContact(config.daviplataPhone || '');
@@ -160,7 +179,20 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, [stampSync, toast]);
+
+  const refreshLiveStats = useCallback(async () => {
+    setStatsRefreshing(true);
+    try {
+      const s = await fetchAdminStatsRpc();
+      setStats(s);
+      stampSync();
+    } catch {
+      /* silencioso en refresco en segundo plano */
+    } finally {
+      setStatsRefreshing(false);
+    }
+  }, [stampSync]);
 
   const loadOffers = useCallback(async () => {
     setOffersLoading(true);
@@ -179,20 +211,72 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
       setCreditOrders(ordersList);
       setReports(reportsList);
       setSupportTickets(ticketsList);
+      stampSync();
     } catch (err) {
       toast.error(friendlyError(err));
     } finally {
       setOffersLoading(false);
     }
-  }, [toast]);
+  }, [stampSync, toast]);
 
   useEffect(() => {
-    if (open) {
-      void load();
-      void loadOffers();
-    }
+    if (!open) return;
+    void load();
+    void loadOffers();
+
+    // 📡 V38.0 · Realtime liviano con debounce (2.5s) para mantener KPIs vivos sin saturar Supabase Free
+    const scheduleRefresh = () => {
+      if (realtimeTimerRef.current) window.clearTimeout(realtimeTimerRef.current);
+      realtimeTimerRef.current = window.setTimeout(() => {
+        void refreshLiveStats();
+      }, 2500);
+    };
+
+    const channel = supabase
+      .channel('impulso-admin-live-stats')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'offers' }, scheduleRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'reservations' }, scheduleRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, scheduleRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'admin_tickets' }, scheduleRefresh)
+      .subscribe();
+
+    return () => {
+      if (realtimeTimerRef.current) {
+        window.clearTimeout(realtimeTimerRef.current);
+        realtimeTimerRef.current = null;
+      }
+      void supabase.removeChannel(channel);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  /** 🧪 V38.0 · Crea o refresca 4 ofertas demo de 24h en Gachetá para probar mapa, Radar y reservas. */
+  async function handleSeedDemo() {
+    setDemoBusy('seed');
+    try {
+      const { created } = await adminSeedDemoOffers(profile?.municipality || 'Gachetá');
+      toast.success(`🧪 ${created} ofertas demo activas en Gachetá por 24 horas (sin gastar créditos).`);
+      await Promise.all([refreshLiveStats(), loadOffers()]);
+    } catch (err) {
+      toast.error(friendlyError(err));
+    } finally {
+      setDemoBusy(null);
+    }
+  }
+
+  /** 🧹 V38.0 · Limpia únicamente las ofertas demo de prueba sin tocar ofertas reales. */
+  async function handleClearDemo() {
+    setDemoBusy('clear');
+    try {
+      const { deleted } = await adminClearDemoOffers();
+      toast.info(deleted > 0 ? `🧹 ${deleted} ofertas demo eliminadas.` : 'No había ofertas demo activas.');
+      await Promise.all([refreshLiveStats(), loadOffers()]);
+    } catch (err) {
+      toast.error(friendlyError(err));
+    } finally {
+      setDemoBusy(null);
+    }
+  }
 
   async function act(merchant: Profile, addCredits: number, verify: boolean | null, active: boolean | null = null) {
     setBusyId(merchant.id);
@@ -1618,30 +1702,74 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
           </div>
         )}
 
-        {/* ═══ Pestaña 5: Resumen y limpieza ═══ */}
+        {/* ═══ Pestaña 5: Resumen en tiempo real, pruebas y limpieza ═══ */}
         {tab === 'summary' && (
-          <div className="space-y-3 p-4">
+          <div className="space-y-3.5 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-impulso-emerald/25 bg-impulso-emerald/[0.06] px-3.5 py-2.5">
+              <div className="flex items-center gap-2">
+                <span className="h-2.5 w-2.5 rounded-full bg-impulso-emerald animate-pulse" />
+                <div>
+                  <p className="text-xs font-extrabold text-impulso-mint">Estadísticas en tiempo real</p>
+                  <p className="text-[10px] font-semibold text-slate-400">
+                    {lastSyncLabel ? `Sincronizado a las ${lastSyncLabel}` : 'Conectado al radar en vivo'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={statsRefreshing}
+                onClick={() => void Promise.all([refreshLiveStats(), loadOffers()])}
+                className="pressable inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-slate-950/70 px-3 py-1.5 text-[11px] font-bold text-slate-200 hover:border-impulso-emerald/40 hover:text-impulso-mint disabled:opacity-50"
+              >
+                <RefreshCw className={cx('h-3.5 w-3.5', statsRefreshing && 'animate-spin')} />
+                Actualizar
+              </button>
+            </div>
+
             {stats ? (
-              <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
-                <div className="rounded-2xl bg-slate-950/50 p-3 text-center">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Comercios</p>
-                  <p className="text-xl font-extrabold text-white">{stats.merchants}</p>
+              <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
+                <div className="rounded-2xl border border-white/[0.05] bg-slate-950/55 p-3 text-center">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">🏪 Comercios</p>
+                  <p className="mt-0.5 text-xl font-extrabold text-white">{stats.merchants}</p>
+                  <p className="text-[10px] font-semibold text-impulso-gold">✅ {stats.verifiedMerchants} verificados</p>
                 </div>
-                <div className="rounded-2xl bg-slate-950/50 p-3 text-center">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">✅ Verificados</p>
-                  <p className="text-xl font-extrabold text-impulso-gold">{stats.verifiedMerchants}</p>
+                <div className="rounded-2xl border border-white/[0.05] bg-slate-950/55 p-3 text-center">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">🛍️ Clientes</p>
+                  <p className="mt-0.5 text-xl font-extrabold text-cyan-300">{stats.clients ?? 0}</p>
+                  <p className="text-[10px] font-semibold text-slate-500">Cuentas comprador</p>
                 </div>
-                <div className="rounded-2xl bg-slate-950/50 p-3 text-center">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Ofertas activas</p>
-                  <p className="text-xl font-extrabold text-impulso-mint">{stats.activeOffers}</p>
+                <div className="rounded-2xl border border-white/[0.05] bg-slate-950/55 p-3 text-center">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">🔥 Ofertas activas</p>
+                  <p className="mt-0.5 text-xl font-extrabold text-impulso-mint">{stats.activeOffers}</p>
+                  <p className="text-[10px] font-semibold text-slate-500">
+                    {(stats.demoOffersCount ?? 0) > 0 ? `${stats.demoOffersCount} de prueba` : 'En radar ahora'}
+                  </p>
                 </div>
-                <div className="rounded-2xl bg-slate-950/50 p-3 text-center">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Reservas hoy</p>
-                  <p className="text-xl font-extrabold text-white">{stats.reservationsToday}</p>
+                <div className="rounded-2xl border border-white/[0.05] bg-slate-950/55 p-3 text-center">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">🎟️ Reservas hoy</p>
+                  <p className="mt-0.5 text-xl font-extrabold text-white">{stats.reservationsToday}</p>
+                  <p className="text-[10px] font-semibold text-slate-500">
+                    {stats.pendingReservations} pendientes · {stats.totalReservations ?? stats.reservationsToday} totales
+                  </p>
                 </div>
-                <div className="col-span-2 lg:col-span-4 rounded-2xl border border-impulso-rose/25 bg-impulso-rose/5 p-3 text-center">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-impulso-rose/70">🚩 Reportes activos</p>
-                  <p className="text-xl font-extrabold text-impulso-rose">{stats.openReports}</p>
+                <div className="rounded-2xl border border-impulso-rose/25 bg-impulso-rose/[0.06] p-3 text-center">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-impulso-rose/80">🚩 Reportes activos</p>
+                  <p className="mt-0.5 text-xl font-extrabold text-impulso-rose">{stats.openReports}</p>
+                  <p className="text-[10px] font-semibold text-slate-400">Moderación comunitaria</p>
+                </div>
+                <div className="rounded-2xl border border-impulso-gold/25 bg-impulso-gold/[0.06] p-3 text-center">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-impulso-gold/90">🎫 Tickets Radar</p>
+                  <p className="mt-0.5 text-xl font-extrabold text-impulso-gold">
+                    {stats.openSupportTickets ?? supportTickets.filter((t) => t.status !== 'resolved').length}
+                  </p>
+                  <p className="text-[10px] font-semibold text-slate-400">Pendientes de atención</p>
+                </div>
+                <div className="col-span-2 rounded-2xl border border-cyan-500/20 bg-cyan-500/[0.05] p-3 text-center">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-cyan-300/90">📡 Actividad últimas 24 h</p>
+                  <p className="mt-0.5 text-xl font-extrabold text-white">{stats.activeDevices24h ?? 0}</p>
+                  <p className="text-[10px] font-semibold text-slate-400">
+                    Dispositivos únicos con reservas o pedidos en las últimas 24 horas
+                  </p>
                 </div>
               </div>
             ) : (
@@ -1650,14 +1778,61 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
               </div>
             )}
 
+            {/* 🧪 V38.0 · Laboratorio de Pruebas: Ofertas Demo en 1 clic */}
+            <section className="rounded-3xl border border-cyan-400/25 bg-cyan-950/20 p-4">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="flex items-center gap-1.5 text-sm font-extrabold text-cyan-200">
+                    <FlaskConical className="h-4 w-4 text-cyan-300" />
+                    Laboratorio de Pruebas · Ofertas Demo (Gachetá)
+                  </p>
+                  <p className="mt-1 text-xs leading-relaxed text-slate-300">
+                    Genera o renueva en 1 clic 4 ofertas realistas vigentes por 24 horas (comida, panadería, agro y
+                    flete) con pines reales en el mapa y precios variados, sin gastar créditos. Ideal para probar Radar,
+                    mapa y reservas en cualquier momento.
+                  </p>
+                </div>
+              </div>
+              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <button
+                  type="button"
+                  disabled={demoBusy !== null}
+                  onClick={() => void handleSeedDemo()}
+                  className="pressable flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-cyan-400 to-impulso-emerald px-3.5 py-2.5 text-xs font-extrabold text-slate-950 disabled:opacity-50"
+                >
+                  {demoBusy === 'seed' ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" /> Generando demos…
+                    </>
+                  ) : (
+                    '🧪 Generar / Refrescar Ofertas Demo'
+                  )}
+                </button>
+                <button
+                  type="button"
+                  disabled={demoBusy !== null}
+                  onClick={() => void handleClearDemo()}
+                  className="pressable flex items-center justify-center gap-2 rounded-2xl border border-white/15 bg-slate-950/70 px-3.5 py-2.5 text-xs font-bold text-slate-200 hover:border-impulso-rose/40 hover:text-impulso-rose disabled:opacity-50"
+                >
+                  {demoBusy === 'clear' ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" /> Limpiando…
+                    </>
+                  ) : (
+                    `🧹 Limpiar Demos (${stats?.demoOffersCount ?? 0})`
+                  )}
+                </button>
+              </div>
+            </section>
+
             {/* 💳 V18 · La configuración completa de recaudo vive en la pestaña Cobros */}
             <section className="rounded-3xl border border-impulso-emerald/25 bg-impulso-panel p-4">
               <p className="text-sm font-bold text-impulso-mint">
                 💳 Cobros Nequi {paymentContact || '3158942112'} · {autoApprove ? '⚡ Auto-aprobación ACTIVA' : '⏳ Aprobación manual'}
               </p>
               <p className="mt-1 text-xs leading-relaxed text-slate-400">
-                Número Nequi, Llave Bre-B, titular, QR oficial y el switch de aprobación automática se editan en la
-                pestaña 💳 Cobros. Todo vive protegido en la base de datos, sin redeploy.
+                Número Nequi, Daviplata, Llave Bre-B, titular, QR oficial y el switch de aprobación automática se editan
+                en la pestaña 💳 Cobros. Los cambios se aplican al instante sin redeploy.
               </p>
               <button
                 onClick={() => setTab('cobros')}

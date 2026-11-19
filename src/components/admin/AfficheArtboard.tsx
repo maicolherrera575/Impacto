@@ -1122,11 +1122,14 @@ function EditorialActionCue({
   showArrow?: boolean;
   variant?: 'ribbon' | 'stamp' | 'typographic';
 }) {
-  const clean = cleanPosterCopy(label).replace(/\s*(?:↗|→|->)\s*$/g, '').trim();
+  const clean = cleanPosterCopy(label)
+    .replace(/\s*(?:↗|→|->|»)\s*$/g, '')
+    .replace(/haz\s+clic\s*(aquí|aqui)?/gi, 'ESCANEA EL QR')
+    .trim();
   if (!clean) return null;
   const ts = s < 0.75 ? 0.78 : s;
   const barColor = accent2 || accent;
-  const textColor = inkColor ?? contrastTextOn(accent, barColor);
+  const textColor = inkColor ?? '#ffffff';
 
   if (variant === 'stamp') {
     return (
@@ -1141,21 +1144,29 @@ function EditorialActionCue({
       >
         <span
           style={{
-            border: `2px dashed ${barColor}`,
-            background: `${accent}24`,
-            color: inkColor ?? '#ffffff',
-            borderRadius: 10 * ts,
-            padding: `${6 * ts}px ${14 * ts}px`,
-            fontSize: 13.5 * ts,
+            borderTop: `1.5px solid ${barColor}`,
+            borderBottom: `1.5px solid ${barColor}`,
+            padding: `${5 * ts}px ${10 * ts}px`,
+            color: textColor,
+            fontSize: 13 * ts,
             fontWeight: 900,
-            letterSpacing: 1.4 * ts,
+            letterSpacing: 1.6 * ts,
             textTransform: 'uppercase',
             display: 'inline-flex',
             alignItems: 'center',
-            gap: 7 * ts,
+            gap: 8 * ts,
+            lineHeight: 1.1,
           }}
         >
-          <span style={{ width: 7 * ts, height: 7 * ts, borderRadius: '50%', background: barColor, flexShrink: 0 }} />
+          <span
+            style={{
+              width: 7 * ts,
+              height: 7 * ts,
+              background: barColor,
+              transform: 'rotate(45deg)',
+              flexShrink: 0,
+            }}
+          />
           {clean}
         </span>
         {showArrow && <CurvedQrArrow color={barColor} size={26 * ts} direction={arrowDir} />}
@@ -1178,12 +1189,12 @@ function EditorialActionCue({
           style={{
             borderLeft: `4px solid ${barColor}`,
             paddingLeft: 10 * ts,
-            color: inkColor ?? '#ffffff',
-            fontSize: 14.5 * ts,
+            color: textColor,
+            fontSize: 14 * ts,
             fontWeight: 900,
-            letterSpacing: 1.1 * ts,
+            letterSpacing: 1.2 * ts,
             textTransform: 'uppercase',
-            lineHeight: 1.1,
+            lineHeight: 1.12,
           }}
         >
           {clean}
@@ -1193,33 +1204,57 @@ function EditorialActionCue({
     );
   }
 
+  // V38.0 · Cero estética de botón web relleno: llamada tipográfica editorial impresa con filete de acento
   return (
     <div
       style={{
         display: 'flex',
         alignItems: 'center',
         justifyContent: align === 'left' ? 'flex-start' : 'center',
-        gap: 8 * ts,
+        gap: 9 * ts,
         flexShrink: 0,
       }}
     >
-      <span
+      <div
         style={{
-          background: `linear-gradient(90deg, ${accent}, ${barColor})`,
-          color: textColor,
-          borderRadius: 6 * ts,
-          padding: `${7 * ts}px ${15 * ts}px`,
-          fontSize: 13.5 * ts,
-          fontWeight: 900,
-          letterSpacing: 1.2 * ts,
-          textTransform: 'uppercase',
           display: 'inline-flex',
-          alignItems: 'center',
-          boxShadow: `0 10px 24px -8px ${accent}66`,
+          flexDirection: 'column',
+          alignItems: align === 'left' ? 'flex-start' : 'center',
+          gap: 4 * ts,
         }}
       >
-        {clean}
-      </span>
+        <span
+          style={{
+            color: textColor,
+            fontSize: 13.5 * ts,
+            fontWeight: 900,
+            letterSpacing: 1.5 * ts,
+            textTransform: 'uppercase',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 7 * ts,
+            lineHeight: 1.08,
+          }}
+        >
+          <span
+            style={{
+              width: 16 * ts,
+              height: 2.5 * ts,
+              background: `linear-gradient(90deg, ${accent}, ${barColor})`,
+              flexShrink: 0,
+            }}
+          />
+          {clean}
+        </span>
+        <span
+          style={{
+            width: '100%',
+            height: 2 * ts,
+            background: `linear-gradient(90deg, ${barColor}, transparent)`,
+            opacity: 0.85,
+          }}
+        />
+      </div>
       {showArrow && <CurvedQrArrow color={barColor} size={26 * ts} direction={arrowDir} />}
     </div>
   );
@@ -2843,7 +2878,7 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
                 s={s}
                 accent={t.accent}
                 accent2={diagTheme.accent2}
-                inkColor={contrastTextOn(t.accent, diagTheme.accent2)}
+                inkColor={diagTheme.text}
                 align="left"
                 arrowDir="right-up"
                 variant="ribbon"
@@ -3019,7 +3054,7 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
                 s={s}
                 accent={t.accent}
                 accent2={darkPhotoTheme.accent2}
-                inkColor={contrastTextOn(t.accent, darkPhotoTheme.accent2)}
+                inkColor="#ffffff"
                 align={align}
                 arrowDir="right-down"
                 variant="ribbon"
@@ -3469,6 +3504,270 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
     );
   };
 
+  // ── ARQUITECTURA 7 (V38.0): Galería Editorial Multi-Foto / Tríptico de Agencia ──
+  const renderEditorialGalleryStrip = (): ReactElement => {
+    const isLightBg = Boolean(t.light);
+    const surfaceRef = isLightBg ? '#f8fafc' : dominantDark;
+    const galTheme: AfficheTheme = {
+      ...t,
+      text: ensureContrastColor(isLightBg ? '#0f172a' : '#f8fafc', surfaceRef, 8.2),
+      sub: ensureContrastColor(isLightBg ? '#475569' : '#cbd5e1', surfaceRef, 5.2),
+      accent: ensureContrastColor(t.accent, surfaceRef, 4.6),
+      accent2: ensureContrastColor(t.accent2, surfaceRef, 4.9),
+    };
+    const overlayPriceTheme: AfficheTheme = {
+      ...t,
+      text: '#ffffff',
+      accent: ensureContrastColor(t.accent, '#060a14', 4.8),
+      accent2: ensureContrastColor(t.accent2, '#060a14', 5.2),
+    };
+    const stageH = isSquare ? 168 : 344;
+    const hasSecond = Boolean(photo2 && photo2 !== photoUrl);
+    const hasThird = Boolean(photo3 && photo3 !== photo2 && photo3 !== photoUrl);
+
+    return (
+      <div
+        style={{
+          position: 'relative',
+          width: '100%',
+          height: '100%',
+          padding: isSquare ? 14 : 20,
+          boxSizing: 'border-box',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'space-between',
+          gap: isSquare ? 6 : 10,
+          overflow: 'hidden',
+        }}
+      >
+        {/* Cabecera minimalista de estudio */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 10,
+            paddingRight: logoUrl ? 50 * s : 0,
+            flexShrink: 0,
+          }}
+        >
+          <Badge text={badge} t={galTheme} s={s} align="left" />
+          <span
+            style={{
+              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+              fontSize: 10 * ts,
+              fontWeight: 900,
+              letterSpacing: 1.8 * ts,
+              color: galTheme.accent2,
+              textTransform: 'uppercase',
+              flexShrink: 0,
+            }}
+          >
+            {cleanPosterCopy(brand.municipality || 'GACHETÁ').toUpperCase()}
+          </span>
+        </div>
+
+        {/* Tríptico Fotográfico Asimétrico (soporta 1, 2 o 3 fotos sin recortes ni fondos grises) */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1.48fr 1fr',
+            gap: isSquare ? 7 : 10,
+            height: stageH,
+            flexShrink: 0,
+          }}
+        >
+          {/* Toma Principal Hero */}
+          <div
+            style={{
+              position: 'relative',
+              borderRadius: 20 * ts,
+              overflow: 'hidden',
+              border: `1.5px solid ${galTheme.accent2}55`,
+              boxShadow: '0 22px 42px -14px rgba(0,0,0,0.58)',
+              background: '#050811',
+            }}
+          >
+            <Photo url={photoUrl} zoom={photoZoom} posY={photoPosY} accent={t.accent} accent2={t.accent2} monogram={brandMonogram} />
+            <div
+              style={{
+                position: 'absolute',
+                inset: 0,
+                background: 'linear-gradient(180deg, transparent 58%, rgba(3,7,18,0.72) 100%)',
+                pointerEvents: 'none',
+              }}
+            />
+            {priceOverlay && (
+              <div style={{ position: 'absolute', left: 10 * ts, bottom: 10 * ts, zIndex: 4 }}>
+                <PricePill brand={brand} t={overlayPriceTheme} s={s * 0.9} />
+              </div>
+            )}
+          </div>
+
+          {/* Columna Derecha: 2 Marcos Orgánicos de Detalle / Escena */}
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateRows: '1.12fr 0.88fr',
+              gap: isSquare ? 7 : 10,
+              minHeight: 0,
+            }}
+          >
+            <div
+              style={{
+                position: 'relative',
+                borderRadius: `${20 * ts}px ${20 * ts}px ${20 * ts}px ${6 * ts}px`,
+                overflow: 'hidden',
+                border: `1px solid ${galTheme.accent}44`,
+                background: '#050811',
+              }}
+            >
+              <Photo
+                url={photo2}
+                zoom={hasSecond ? 1.05 : Math.min(1.42, photoZoom + 0.22)}
+                posY={hasSecond ? 0.45 : Math.max(0.18, photoPosY - 0.14)}
+                accent={t.accent}
+                accent2={t.accent2}
+                monogram={brandMonogram}
+              />
+            </div>
+
+            <div
+              style={{
+                position: 'relative',
+                borderRadius: `${6 * ts}px ${20 * ts}px ${20 * ts}px ${20 * ts}px`,
+                overflow: 'hidden',
+                border: `1px solid ${galTheme.accent2}44`,
+                background: isLightBg ? 'rgba(15,23,42,0.06)' : 'rgba(255,255,255,0.06)',
+              }}
+            >
+              {hasThird || hasSecond ? (
+                <Photo
+                  url={hasThird ? photo3 : photoUrl}
+                  zoom={hasThird ? 1.06 : Math.min(1.5, photoZoom + 0.3)}
+                  posY={hasThird ? 0.5 : Math.min(0.84, photoPosY + 0.16)}
+                  accent={t.accent}
+                  accent2={t.accent2}
+                  monogram={brandMonogram}
+                />
+              ) : (
+                <div
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    padding: isSquare ? 8 : 12,
+                    boxSizing: 'border-box',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'center',
+                    gap: 4,
+                    background: `linear-gradient(135deg, ${galTheme.accent}24, ${galTheme.accent2}16)`,
+                  }}
+                >
+                  <span
+                    style={{
+                      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                      fontSize: 9.5 * ts,
+                      fontWeight: 900,
+                      letterSpacing: 1.4 * ts,
+                      color: galTheme.accent2,
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    SELLO LOCAL
+                  </span>
+                  <p
+                    style={{
+                      margin: 0,
+                      fontFamily: `"${boardDisplayFont}", system-ui, sans-serif`,
+                      fontSize: (isSquare ? 15 : 20) * ts,
+                      fontWeight: 900,
+                      lineHeight: 1.02,
+                      color: galTheme.text,
+                      textTransform: 'uppercase',
+                      overflow: 'hidden',
+                      display: '-webkit-box',
+                      WebkitLineClamp: 2,
+                      WebkitBoxOrient: 'vertical',
+                    }}
+                  >
+                    {cleanPosterCopy(brand.name || brand.product || 'EDICIÓN HOY')}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Bloque Tipográfico Monumental + Beneficios + Acción Editorial + QR */}
+        <div
+          style={{
+            flex: 1,
+            minHeight: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'space-between',
+            gap: isSquare ? 5 : 8,
+          }}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: isSquare ? 4 : 7 }}>
+            <Headline
+              texts={texts}
+              t={galTheme}
+              s={s}
+              size={isSquare ? 34 : 47}
+              align="left"
+              styleId={fontStyle}
+              scale={Math.min(hs, 1.2)}
+              fullWidth
+            />
+            <SubHead text={texts.sub} t={galTheme} s={s} align="left" color={galTheme.sub} />
+            {showBenefits && benefits.length > 0 && (
+              <BenefitsShowcase
+                items={benefits}
+                t={galTheme}
+                s={s}
+                mode={benefitStyle === 'auto' ? 'editorial' : resolvedBenefitMode}
+                align="left"
+              />
+            )}
+            {adaptiveCta && (
+              <EditorialActionCue
+                label={adaptiveCta}
+                s={s}
+                accent={galTheme.accent}
+                accent2={galTheme.accent2}
+                inkColor={galTheme.text}
+                align="left"
+                arrowDir="right-down"
+                variant="typographic"
+                showArrow={showQr}
+              />
+            )}
+          </div>
+          <Dock
+            brand={brand}
+            t={galTheme}
+            s={s}
+            qrUrl={qrUrl}
+            qrValue={qrValue}
+            qrStyle={qrStyle}
+            size={isSquare ? 112 : dockQrSize}
+            qrLabel={qrLabel}
+            displayFont={boardDisplayFont}
+            bodyFont={activeTypo.bodyFont}
+            variant={resolvedDockVariant}
+            brandColors={brandColors}
+            logoUrl={logoUrl}
+            qrMode={qrMode}
+            surfaceHex={isLightBg ? '#ffffff' : '#080e1c'}
+            showQrToken={showQr}
+          />
+        </div>
+      </div>
+    );
+  };
+
   const blendWord = (cleanPosterCopy(brand.product || brand.name || 'IMPULSO').split(/\s+/)[0] || 'OFERTA').toUpperCase();
   const isDiagonalVipLayout =
     layout === 'diagonal' ||
@@ -3477,8 +3776,7 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
     layout === 'flash' ||
     layout === 'diamond' ||
     layout === 'brutal' ||
-    layout === 'retail' ||
-    layout === 'hud';
+    layout === 'retail';
   const isBentoGridLayout = layout === 'bento' || layout === 'bento3d';
 
   let body: ReactElement;
@@ -3496,9 +3794,16 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
     case 'arc':
     case 'vip':
     case 'resort':
-    case 'eco':
-    case 'portal': {
+    case 'eco': {
       body = renderOrganicArchLuxury();
+      break;
+    }
+
+    case 'portal':
+    case 'orbits':
+    case 'float':
+    case 'hud': {
+      body = renderEditorialGalleryStrip();
       break;
     }
 
@@ -3508,8 +3813,7 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
     case 'flash':
     case 'diamond':
     case 'brutal':
-    case 'retail':
-    case 'hud': {
+    case 'retail': {
       body = renderDynamicDiagonalVip();
       break;
     }
@@ -3521,18 +3825,16 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
     }
 
     case 'polaroid':
-    case 'collage':
-    case 'float': {
+    case 'collage': {
       body = renderPolaroid3dCollage();
       break;
     }
 
     case 'immersive':
-    case 'cinema':
-    case 'orbits': {
+    case 'cinema': {
       body = renderMagazineCover({
         align: 'center',
-        watermarkText: layout === 'immersive' || layout === 'orbits' ? blendWord : undefined,
+        watermarkText: layout === 'immersive' ? blendWord : undefined,
         editorialAccentRule: false,
       });
       break;

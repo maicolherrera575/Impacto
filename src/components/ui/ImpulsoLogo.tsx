@@ -84,6 +84,15 @@ export function ImpulsoLogo({ subtitle, size = 'md', hideTextOnMobile = false, c
             </linearGradient>
           </defs>
 
+          {/* Pulso radar sutil y elegante integrado sobre la "I" oficial de IMPULSO */}
+          <circle
+            cx="5.2"
+            cy="7.7"
+            r="3.4"
+            stroke={`url(#${gradId})`}
+            strokeWidth="1.2"
+            className="imp-logo-radar-ring"
+          />
           {/* Letra I geométrica autoritaria con punto/cabezal integrado en degradado Esmeralda -> Cian */}
           <rect x="2" y="5" width="6.4" height="5.4" rx="1.4" fill={`url(#${gradId})`} />
           <rect x="2" y="12.2" width="6.4" height="16.8" rx="1.4" fill="#F8FAFC" />

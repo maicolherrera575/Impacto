@@ -732,6 +732,8 @@ export default function App() {
           onExit={() => setView('radar')}
           onSignOut={handleSignOut}
           onOpenAdmin={() => setAdminOpen(true)}
+          onFocusOfferOnMap={handleFocusOfferOnMap}
+          onReserveOffer={handleOpenOfferQuickReserve}
         />
       ) : (
         <div className="grid min-h-dvh place-items-center px-4">

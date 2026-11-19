@@ -4875,3 +4875,235 @@ begin
   return to_jsonb(v_order);
 end;
 $$;
+
+
+-- ============================================================================
+--  17. V38.0 (NEÓN EXTRA) · ESTADÍSTICAS ADMIN EN TIEMPO REAL, LABORATORIO
+--      DE OFERTAS DEMO EN 1 CLIC Y PODA DE FAVORITOS VENCIDOS
+--  100% Idempotente: ejecutable en cualquier instancia sin perder datos.
+-- ============================================================================
+
+-- 17.1 Estadísticas en vivo del ecosistema para el Súper Panel Admin (1 sola RPC)
+create or replace function public.admin_stats_rpc()
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_merchants          integer := 0;
+  v_clients            integer := 0;
+  v_verified           integer := 0;
+  v_active_offers      integer := 0;
+  v_pending_res        integer := 0;
+  v_reservations_today integer := 0;
+  v_total_res          integer := 0;
+  v_reports            integer := 0;
+  v_open_tickets       integer := 0;
+  v_active_devices_24h integer := 0;
+  v_demo_offers        integer := 0;
+begin
+  if not public.is_admin() then
+    raise exception 'SOLO_ADMIN: esta acción está reservada al administrador';
+  end if;
+
+  select count(*) into v_merchants from public.profiles where role = 'merchant';
+  select count(*) into v_clients from public.profiles where role = 'client';
+  select count(*) into v_verified from public.profiles where role = 'merchant' and is_verified;
+  select count(*) into v_active_offers from public.offers where status = 'active' and expires_at > now();
+  select count(*) into v_demo_offers from public.offers where status = 'active' and expires_at > now() and title like '[DEMO]%';
+  select count(*) into v_pending_res from public.reservations where status = 'pending';
+  select count(*) into v_reservations_today from public.reservations where created_at >= date_trunc('day', now());
+  select count(*) into v_total_res from public.reservations;
+  select coalesce(sum(reports_count), 0) into v_reports from public.offers where status = 'active';
+
+  if to_regclass('public.admin_tickets') is not null then
+    execute 'select count(*) from public.admin_tickets where status <> ''resolved''' into v_open_tickets;
+  elsif to_regclass('public.support_tickets') is not null then
+    execute 'select count(*) from public.support_tickets where status <> ''resolved''' into v_open_tickets;
+  end if;
+
+  select count(distinct dev) into v_active_devices_24h
+    from (
+      select device_id as dev from public.reservations
+       where created_at >= now() - interval '24 hours' and device_id is not null and device_id <> ''
+      union
+      select device_id as dev from public.quick_requests
+       where created_at >= now() - interval '24 hours' and device_id is not null and device_id <> ''
+    ) t;
+
+  return jsonb_build_object(
+    'merchants', v_merchants,
+    'clients', v_clients,
+    'verifiedMerchants', v_verified,
+    'activeOffers', v_active_offers,
+    'pendingReservations', v_pending_res,
+    'reservationsToday', v_reservations_today,
+    'totalReservations', v_total_res,
+    'openReports', v_reports,
+    'openSupportTickets', v_open_tickets,
+    'activeDevices24h', v_active_devices_24h,
+    'demoOffersCount', v_demo_offers
+  );
+end;
+$$;
+grant execute on function public.admin_stats_rpc() to authenticated;
+
+-- 17.2 Laboratorio de pruebas en 1 clic: genera/refresca 4 ofertas [DEMO] por 24h en Gachetá sin gastar créditos
+create or replace function public.admin_seed_demo_offers_rpc(p_municipality text default 'Gachetá')
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_muni text := coalesce(nullif(btrim(p_municipality), ''), 'Gachetá');
+  v_admin_id uuid := auth.uid();
+  v_created integer := 0;
+begin
+  if not public.is_admin() then
+    raise exception 'SOLO_ADMIN: solo el administrador puede generar ofertas demo';
+  end if;
+
+  -- Reemplaza demos anteriores para mantener el radar limpio sin duplicados
+  delete from public.offers
+   where title like '[DEMO]%';
+
+  insert into public.offers (
+    merchant_id, category, title, description, emoji_icon,
+    original_price, promo_price, total_quota, available_quota,
+    municipality, lat, lng, expires_at, status, delivery_type
+  ) values
+    (
+      v_admin_id, 'comida',
+      '[DEMO] Combo Pan de Yuca + Café Recién Molido',
+      'Oferta de prueba: 4 panes de yuca calientes con café campesino cerca al Parque Principal.',
+      '🥐', 12000, 7500, 15, 15,
+      v_muni, 4.8167, -73.6333, now() + interval '24 hours', 'active', 'local_fisico'
+    ),
+    (
+      v_admin_id, 'comida',
+      '[DEMO] Almuerzo Casero Completo con Sopa y Jugo',
+      'Oferta de prueba: sopa del día, proteína a elección, ensalada fresca y jugo natural. Domicilio urbano.',
+      '🍽️', 16000, 12000, 12, 12,
+      v_muni, 4.8175, -73.6321, now() + interval '24 hours', 'active', 'domicilio'
+    ),
+    (
+      v_admin_id, 'agro_mercado',
+      '[DEMO] Canasta Campesina de Frutas y Verduras',
+      'Oferta de prueba: papa sabanera, plátano, tomate, cilantro y frutas recién cosechadas del Guavio.',
+      '🥬', 24000, 18000, 10, 10,
+      v_muni, 4.8159, -73.6345, now() + interval '24 hours', 'active', 'parque_principal'
+    ),
+    (
+      v_admin_id, 'transporte_flete',
+      '[DEMO] Flete Urbano y a Veredas Cercanas (Camioneta)',
+      'Oferta de prueba: acarreo seguro de mercado, bultos o trasteos cortos en casco urbano. Pago contraentrega.',
+      '🚚', 32000, 25000, 5, 5,
+      v_muni, 4.8182, -73.6338, now() + interval '24 hours', 'active', 'domicilio'
+    );
+
+  get diagnostics v_created = row_count;
+  return jsonb_build_object('created', v_created);
+end;
+$$;
+grant execute on function public.admin_seed_demo_offers_rpc(text) to authenticated;
+
+-- 17.3 Limpieza en 1 clic de ofertas de laboratorio [DEMO] (no toca ofertas reales de comercios)
+create or replace function public.admin_clear_demo_offers_rpc()
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_deleted integer := 0;
+begin
+  if not public.is_admin() then
+    raise exception 'SOLO_ADMIN: solo el administrador puede limpiar ofertas demo';
+  end if;
+
+  delete from public.offers
+   where title like '[DEMO]%';
+  get diagnostics v_deleted = row_count;
+
+  return jsonb_build_object('deleted', v_deleted);
+end;
+$$;
+grant execute on function public.admin_clear_demo_offers_rpc() to authenticated;
+
+-- 17.4 Auto-poda extendida: también limpia IDs de ofertas vencidas en client_preferences (plan gratuito ultra-ligero)
+create or replace function public.auto_prune_expired_data_rpc()
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_expired      integer := 0;
+  v_requests     integer := 0;
+  v_gps_pruned   integer := 0;
+  v_prefs_pruned integer := 0;
+begin
+  update public.offers
+     set status = 'expired',
+         image_thumb = null
+   where status = 'active'
+     and expires_at < now();
+  get diagnostics v_expired = row_count;
+
+  update public.offers
+     set image_thumb = null
+   where status in ('expired', 'cancelled')
+     and image_thumb is not null;
+
+  -- Ley 1581: poda automática de coordenadas GPS puntuales tras 7 días
+  update public.reservations
+     set client_lat = null,
+         client_lng = null,
+         gps_consent_at = null
+   where (client_lat is not null or client_lng is not null)
+     and created_at < now() - interval '7 days';
+  get diagnostics v_gps_pruned = row_count;
+
+  delete from public.quick_requests
+   where expires_at < now() - interval '6 hours';
+  get diagnostics v_requests = row_count;
+
+  -- Limpia favoriteOfferIds expirados dentro de profiles.client_preferences
+  update public.profiles p
+     set client_preferences = jsonb_set(
+       p.client_preferences,
+       '{favoriteOfferIds}',
+       coalesce(
+         (
+           select jsonb_agg(elem)
+             from jsonb_array_elements_text(coalesce(p.client_preferences -> 'favoriteOfferIds', '[]'::jsonb)) as elem
+            where exists (
+              select 1 from public.offers o
+               where o.id::text = elem
+                 and o.status = 'active'
+                 and o.expires_at > now()
+            )
+         ),
+         '[]'::jsonb
+       ),
+       true
+     )
+   where p.client_preferences is not null
+     and jsonb_typeof(p.client_preferences -> 'favoriteOfferIds') = 'array'
+     and jsonb_array_length(p.client_preferences -> 'favoriteOfferIds') > 0;
+  get diagnostics v_prefs_pruned = row_count;
+
+  return jsonb_build_object(
+    'offers_expired', v_expired,
+    'requests_deleted', v_requests,
+    'gps_pruned', v_gps_pruned,
+    'prefs_checked', v_prefs_pruned
+  );
+end;
+$$;
+grant execute on function public.auto_prune_expired_data_rpc() to anon, authenticated;
+
+-- Recarga inmediata del caché de esquema de PostgREST
+NOTIFY pgrst, 'reload schema';

@@ -100,6 +100,15 @@ export function RadarTab({
   onGoToRequests,
 }: RadarTabProps) {
   const [search, setSearch] = useState('');
+  const [searchHint] = useState(() => {
+    const hints = [
+      'Busca: almuerzo, trucha, abono, flete…',
+      '¿Qué necesitas hoy? Ej: pandebono, café, ferretería…',
+      'Busca por producto o comercio local…',
+      'Ej: domicilio, cabaña, veterinaria, panadería…',
+    ];
+    return hints[Math.floor(Math.random() * hints.length)];
+  });
   const [category, setCategory] = useState<Category | 'all'>('all');
   const [quickFilter, setQuickFilter] = useState<QuickFilter>('none');
   const [gpsDeniedLocal, setGpsDeniedLocal] = useState(false);
@@ -282,7 +291,7 @@ export function RadarTab({
             <p className="text-xs font-semibold leading-relaxed text-slate-300">
               📍 <span className="font-extrabold text-impulso-mint">Radar de Cercanía Voluntario:</span> si deseas ver a
               cuántos metros estás de cada local, autoriza tu <strong className="text-white">ubicación exacta</strong>.
-              (Efímera en tu navegador, jamás se guarda en base de datos — Ley 1581 de 2012).
+              (Solo se usa en tu pantalla; jamás guardamos tu ubicación ni te rastreamos — Ley 1581 de 2012).
             </p>
             <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
               <button
@@ -324,7 +333,7 @@ export function RadarTab({
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Busca: trucha, flete, abono, pandebono…"
+            placeholder={searchHint}
             className="w-full rounded-2xl border border-white/10 bg-impulso-panel py-3.5 pl-11 pr-4 text-[15px] font-medium text-white placeholder:text-slate-500 outline-none focus:border-impulso-emerald/60"
             aria-label="Buscar ofertas"
           />

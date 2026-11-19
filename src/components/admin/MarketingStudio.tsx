@@ -463,7 +463,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
   const socialRefs = useRef<{ story: HTMLDivElement | null; square: HTMLDivElement | null }>({ story: null, square: null });
 
   // ── V36 · Arquitectura de Agencia: alterna entre 6 composiciones radicalmente distintas y nunca repite ──
-  const lastStyleGroupRef = useRef<0 | 1 | 2 | 3 | 4 | 5>(0);
+  const lastStyleGroupRef = useRef<0 | 1 | 2 | 3 | 4 | 5 | 6>(0);
   const lastThemeIdxRef = useRef(themeIdx);
   const lastLayoutIdxRef = useRef<Layout>(layout);
   const lastFontIdxRef = useRef(fontIdx);
@@ -1384,7 +1384,7 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
    */
   function applyHyperVariability(opts?: { preserveBrandPalette?: boolean }): { themeIdx: number; layout: Layout; styleLabel: string } {
     const groups: Array<{
-      id: 0 | 1 | 2 | 3 | 4 | 5;
+      id: 0 | 1 | 2 | 3 | 4 | 5 | 6;
       styleLabel: string;
       layouts: Layout[];
       themeIds: string[];
@@ -1446,12 +1446,22 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       {
         id: 5,
         styleLabel: 'Arquitectura 6 · Polaroid 3D & Collage Multi-Foto',
-        layouts: ['polaroid', 'collage', 'float'],
+        layouts: ['polaroid', 'collage'],
         themeIds: ['kraft', 'wood', 'arena', 'obsidian'],
         fontIndices: [1, 2, 4],
         dockVariant: 'corner',
         benefits: ['editorial', 'callouts', 'badges'],
         qrStyles: ['rounded', 'dots', 'luxury'],
+      },
+      {
+        id: 6,
+        styleLabel: 'Arquitectura 7 · Galería Tríptico Editorial Multi-Foto',
+        layouts: ['portal', 'orbits', 'float', 'hud'],
+        themeIds: ['obsidian', 'marble', 'emerald', 'slate', 'aurora'],
+        fontIndices: [0, 3, 5, 6],
+        dockVariant: 'glass',
+        benefits: ['editorial', 'callouts', 'badges'],
+        qrStyles: ['rounded', 'luxury', 'sharp'],
       },
     ];
 
@@ -2373,9 +2383,20 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
                   const place = brand.municipality || 'Gachetá';
                   const prod = brand.product.trim() || campaign?.headline.highlight || 'tu producto';
                   const biz = brand.name.trim() || 'nuestro local';
-                  const headlines = rule.headlineFor(prod, biz, place);
+                  const fullContext = `${briefText} ${brand.product} ${brand.name} ${brand.slogan}`;
+                  const isDigitalOrAgency = /marketing|agencia|publicidad|redes|digital|software|web|dise[nñ]o|consultor|asesor|plataforma|app/i.test(fullContext);
+                  const detectedInd = isDigitalOrAgency ? 'digital_tech' : campaign?.industryType;
+                  const isSvc = priceMode === 'servicio' || isDigitalOrAgency;
+                  const headlines = rule.headlineFor(prod, biz, place, isSvc, detectedInd);
                   const [nextPlain, nextHighlight] = headlines[Math.floor(Math.random() * headlines.length)] ?? headlines[0];
-                  const nextSub = `${rule.subPrefix} ${brand.slogan.trim() || `disponible hoy en ${place}`}`.trim();
+                  const briefFirstLine = briefText.trim().split(/[.!?\n]+/)[0]?.trim() || '';
+                  const cleanBriefHint = briefFirstLine.length >= 16 && briefFirstLine.length <= 105 ? briefFirstLine : '';
+                  const nextSub =
+                    brand.slogan.trim() ||
+                    cleanBriefHint ||
+                    `${isSvc ? rule.serviceSubPrefix : rule.subPrefix} disponible hoy en ${place}`.trim();
+                  const nextBadge = (isSvc ? rule.serviceBadges : rule.badges)[0];
+                  const nextCta = (isSvc ? rule.serviceCtas : rule.ctas)[0];
 
                   // Transforma también la paleta cromática y la arquitectura visual según la psicología elegida
                   const hasLockedLogoPalette = Boolean(effectiveLogoUrl && useBrandPalette && brandPalette);
@@ -2393,34 +2414,34 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
                   }
 
                   const layoutFocusPool: Record<CampaignFocus, Layout[]> = {
-                    remate: ['diagonal', 'diagx', 'flash', 'split'],
-                    prestigio: ['arc', 'vip', 'magazine', 'swiss'],
-                    confianza: ['split', 'bento', 'polaroid', 'magazine'],
-                    viral: ['polaroid', 'collage', 'diagonal', 'bento'],
+                    remate: ['diagonal', 'diagx', 'flash', 'split', 'portal'],
+                    prestigio: ['arc', 'vip', 'magazine', 'swiss', 'orbits'],
+                    confianza: ['split', 'bento', 'polaroid', 'magazine', 'portal'],
+                    viral: ['polaroid', 'collage', 'diagonal', 'bento', 'float'],
                   };
                   const candidateLayouts = layoutFocusPool[f.id].filter((id) => id !== layout);
                   const nextFocusLayout = candidateLayouts[Math.floor(Math.random() * candidateLayouts.length)] ?? layoutFocusPool[f.id][0];
                   setLayout(nextFocusLayout);
                   lastLayoutIdxRef.current = nextFocusLayout;
 
-                  setBadgeCustom(rule.badges[0]);
+                  setBadgeCustom(nextBadge);
                   setBadgeMode('dynamic');
                   setTexts((prev) => ({
                     ...prev,
                     plain: nextPlain,
                     highlight: nextHighlight,
                     sub: nextSub,
-                    cta: qrMode === 'wa' ? rule.ctas[0] : prev.cta,
+                    cta: qrMode === 'wa' ? nextCta : prev.cta,
                   }));
                   setCampaign((prev) =>
                     prev
                       ? {
                           ...prev,
-                          badgeText: rule.badges[0],
-                          dynamicTagline: rule.badges[0],
+                          badgeText: nextBadge,
+                          dynamicTagline: nextBadge,
                           headline: { plain: nextPlain, highlight: nextHighlight },
                           subheadline: nextSub,
-                          cta: rule.ctas[0],
+                          cta: nextCta,
                           layoutId: nextFocusLayout,
                         }
                       : prev,

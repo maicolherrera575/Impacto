@@ -182,9 +182,11 @@ export function OfferCard({
             </span>
           </div>
 
-          {trustLevel === 'new' && (
+          {(trustLevel === 'new' || offer.category === 'transporte_flete') && (
             <p className="mt-2 rounded-xl border border-amber-400/25 bg-amber-500/10 px-2.5 py-1.5 text-[11px] font-semibold leading-snug text-amber-200/95">
-              ⚠️ Comercio Nuevo: Para tu seguridad, Impulso recomienda pagar únicamente al recibir el producto o servicio.
+              {offer.category === 'transporte_flete'
+                ? '🚚 Seguridad en Fletes: acuerda la tarifa exacta antes del viaje y paga al recibir o confirmar la entrega.'
+                : '⚠️ Comercio Nuevo: para tu seguridad, Impulso recomienda pagar únicamente al recibir el producto o servicio.'}
             </p>
           )}
 

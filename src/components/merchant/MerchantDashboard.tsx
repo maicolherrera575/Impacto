@@ -71,6 +71,9 @@ interface MerchantDashboardProps {
   onSignOut: () => Promise<void>;
   /** Abre el Panel de Administrador (solo cuenta con rol admin). */
   onOpenAdmin?: () => void;
+  /** V38.0 · Permite que Radar desde Mi Panel también salte al mapa o abra una oferta. */
+  onFocusOfferOnMap?: (offer: Offer) => void;
+  onReserveOffer?: (offer: Offer) => void;
 }
 
 /**
@@ -79,7 +82,15 @@ interface MerchantDashboardProps {
  *  - Reservas en vivo con alerta sonora nativa.
  *  - Créditos, republicación en 1 clic y recarga vía WhatsApp del admin.
  */
-export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut, onOpenAdmin }: MerchantDashboardProps) {
+export function MerchantDashboard({
+  profile,
+  onProfileChange,
+  onExit,
+  onSignOut,
+  onOpenAdmin,
+  onFocusOfferOnMap,
+  onReserveOffer,
+}: MerchantDashboardProps) {
   const toast = useToast();
   const now = useTick(1000);
   const [myOffers, setMyOffers] = useState<Offer[]>([]);
@@ -1365,8 +1376,8 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
             {payBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : '💾'} {payType === 'efectivo' ? 'Activar pago en efectivo' : 'Guardar y verificar método de pago'}
           </button>
           <p className="mt-2 text-[10px] leading-relaxed text-slate-500">
-            🛡️ Verificación automática y segura: formato colombiano, unicidad global en toda la plataforma y bloqueo
-            anti-trampa a nivel de base de datos. Nadie puede registrar un canal de cobro ajeno.
+            🛡️ Verificación automática y segura: formato colombiano válido y protección exclusiva para tu cuenta. Nadie
+            más puede registrar tu mismo canal de cobro.
           </p>
         </section>
 
@@ -1479,6 +1490,8 @@ export function MerchantDashboard({ profile, onProfileChange, onExit, onSignOut,
         userName={profile.business_name}
         municipality={profile.municipality}
         offers={myOffers}
+        onFocusOfferOnMap={onFocusOfferOnMap}
+        onReserveOffer={onReserveOffer}
         bottomOffsetClass="bottom-5 right-4 sm:bottom-6 sm:right-6"
       />
     </div>

@@ -468,9 +468,9 @@ export function ClientProfileModal({
               <div className="rounded-2xl border border-sky-400/25 bg-sky-500/10 p-4 text-center">
                 <p className="text-sm font-extrabold text-white">Guarda tus favoritos en cualquier celular</p>
                 <p className="mt-1 text-xs leading-relaxed text-slate-300">
-                  Tus preferencias ya funcionan gratis en este equipo. Si creas una cuenta gratuita de{' '}
-                  <strong className="text-sky-300">Cliente / Comprador</strong>, se sincronizan en la nube sin
-                  confundirse jamás con un comercio.
+                  Puedes explorar y apartar gratis sin crear cuenta. Si deseas guardar tus favoritos y gustos para
+                  verlos desde otro celular, crea tu perfil gratuito de{' '}
+                  <strong className="text-sky-300">Cliente / Comprador</strong> (100% separado de los comercios).
                 </p>
                 <button
                   type="button"

@@ -13,6 +13,7 @@ import type { LatLng } from './geo';
 export type RadarConversationalIntent =
   | 'greeting'
   | 'what_is_this'
+  | 'safety_trust'
   | 'clarify_followup'
   | 'how_to_reserve'
   | 'is_free_payment'
@@ -28,6 +29,7 @@ export interface RadarMatchResult {
   intent: RadarConversationalIntent;
   isShoppingIntent: boolean;
   isSupportOrReport: boolean;
+  isNearMatch: boolean;
   parsedBudget: number | null;
   isUrgent: boolean;
   detectedCategory: Category | null;
@@ -75,29 +77,43 @@ const STOP_WORDS = new Set([
   'algo', 'tengo', 'menos', 'hasta', 'como', 'donde', 'aqui', 'hay', 'tienen',
   'aparte', 'apartame', 'apartar', 'ensename', 'muestrame', 'ver', 'recomiendame',
   'pesos', 'cop', 'mil', 'del', 'las', 'los', 'este', 'esta', 'esto', 'hoy', 'ahora',
-  'porfa', 'gracias', 'radar', 'impulso', 'deme', 'dame', 'ayuda',
+  'porfa', 'gracias', 'radar', 'impulso', 'deme', 'dame', 'ayuda', 'saber', 'sorprendeme',
+  'sorpendame', 'sorprendame', 'sorprenda', 'sorpenda', 'sugiereme', 'opciones', 'cualquier',
 ]);
 
 const SHOPPING_INTENT_RE =
-  /busco|quiero|necesito|apart|compr|recomiend|mu[eé]str|ens[eé][nñ]|oferta|promo|barat|econ[oó]mic|presupuesto|tengo\s+\$?\d|menos\s+de|que\s+hay|qu[eé]\s+hay|donde\s+consigo|hambre|comer|almuerz|abono|agro|campo|flete|pan|trucha|ferreter|droguer|hotel|caba[nñ]|descuento|hoy/i;
+  /busco|quiero\s+(comprar|comer|almorzar|ver|apartar|algo|un|una)|apart(ar|ame|o)|compr(ar|o)|recomiend|sorpr?end|mu[eé]str|ens[eé][nñ]|oferta|promo|barat|econ[oó]mic|presupuesto|tengo\s+\$?\d|menos\s+de|que\s+hay|qu[eé]\s+hay|donde\s+consigo|hambre|comer|almuerz|abono|agro|campo|flete|pan|trucha|ferreter|droguer|hotel|caba[nñ]|descuento/i;
 
 const SUPPORT_REPORT_RE =
-  /error|no\s+(funciona|carga|abre|sirve|deja|llega)|fall[ao]|bug|roto|congel|bloque|duplicad|cobr[oó]|descont[oó]|estafa|fraude|enga[nñ]|robo|reportar|soporte|contrase[nñ]a|huella|biometr|recarg|cr[eé]dito|nequi\s+oficial|gps\s+no/i;
+  /error|no\s+(funciona|carga|abre|sirve|deja|llega)|fall[ao]|bug|roto|congel|bloque|duplicad|cobr[oó]|descont[oó]|reportar|denunciar|reclamo|disputa|hablar\s+con\s+(un\s+)?(humano|admin|administrador|soporte|alguien)|soporte\s+t[eé]cnico|contrase[nñ]a|huella|biometr|recarg|cr[eé]dito|nequi\s+oficial|gps\s+no/i;
+
+const SAFETY_TRUST_RE =
+  /como\s+se\s+que\s+no\s+es\s+estafa|no\s+es\s+(estafa|fraude)|es\s+(segur[oa]|confiable|real|verdad|leg[ií]tim)|puedo\s+confiar|me\s+pueden\s+estafar|garantia\s+de\s+seguridad/i;
+
+const FRAUD_INCIDENT_RE =
+  /me\s+estaf|fui\s+estaf|intento\s+de\s+estafa|estafa\s+en|fraude\s+en|comercio\s+falso|robo\s+en|me\s+robaron|reportar\s+(estafa|fraude)/i;
 
 const URGENCY_RE = /\bya\b|ahora|r[aá]pido|urgente|1\s*hora|una\s+hora|inmediato|pronto|cerca|ahorita|hoy\s+mismo/i;
 
-/** Clasifica intención conversacional natural (incluyendo preguntas cortas de seguimiento). */
+const GENERIC_BROWSE_RE =
+  /oferta|promo|barat|econom|hoy|que\s+hay|recomiend|sorpr?end|sugier|cualquier|algo|todo|opciones|muestrame|dame|tengo\s+\$?\d/i;
+
+/** Clasifica intención conversacional natural (incluyendo preguntas cortas de seguimiento y confianza). */
 export function detectConversationalIntent(raw: string): RadarConversationalIntent {
   const norm = normalizeText(raw);
   if (!norm) return 'general';
-  if (SUPPORT_REPORT_RE.test(raw)) return 'support';
+  if (SAFETY_TRUST_RE.test(norm) && !FRAUD_INCIDENT_RE.test(norm)) return 'safety_trust';
+  if (FRAUD_INCIDENT_RE.test(norm) || SUPPORT_REPORT_RE.test(raw)) return 'support';
   if (/^(hola+|buenas|buenos\s+dias|buenas\s+tardes|buenas\s+noches|hey|que\s+mas|quiubo|saludos)\b/.test(norm) && norm.length <= 28) {
     return 'greeting';
   }
   if (/^(gracias|muchas\s+gracias|mil\s+gracias|vale|listo|perfecto|genial|super|bacano|ok|dale)\b/.test(norm) && norm.length <= 36) {
     return 'thanks';
   }
-  if (/que\s+es\s+(esto|impulso|radar|esta\s+app|esta\s+pagina)|para\s+que\s+sirve|como\s+funciona(\s+esto|\s+impulso)?|de\s+que\s+trata|quien\s+eres/.test(norm)) {
+  if (
+    /\bque\s+es(\s+(esto|impulso|radar|esta\s+app|esta\s+pagina))?(\s*$|\b)/.test(norm) ||
+    /saber\s+que\s+es|para\s+que\s+sirve|como\s+funciona(\s+esto|\s+impulso)?|de\s+que\s+(trata|se\s+trata)|quien\s+(eres|la\s+creo|hizo\s+esto)|explicame\s+que\s+es/.test(norm)
+  ) {
     return 'what_is_this';
   }
   if (/^(como\s+asi|no\s+entendi|explicame|expliqueme|que\s+quieres\s+decir|y\s+eso|a\s+ver|y\s+como|como\s+es\s+eso|me\s+explicas)\b/.test(norm)) {
@@ -222,6 +238,7 @@ export function matchLiveOffersForRadar(
   const isNonShoppingChat =
     baseIntent === 'greeting' ||
     baseIntent === 'what_is_this' ||
+    baseIntent === 'safety_trust' ||
     baseIntent === 'clarify_followup' ||
     baseIntent === 'how_to_reserve' ||
     baseIntent === 'is_free_payment' ||
@@ -237,11 +254,14 @@ export function matchLiveOffersForRadar(
       parsedBudget !== null ||
       SHOPPING_INTENT_RE.test(query));
 
-  const intent: RadarConversationalIntent = isSupportOrReport
-    ? 'support'
-    : isShoppingIntent && baseIntent === 'general'
-      ? 'shopping'
-      : baseIntent;
+  const intent: RadarConversationalIntent =
+    baseIntent === 'safety_trust'
+      ? 'safety_trust'
+      : isSupportOrReport
+        ? 'support'
+        : isShoppingIntent && baseIntent === 'general'
+          ? 'shopping'
+          : baseIntent;
 
   const now = Date.now();
   const activePool = offers.filter(
@@ -252,7 +272,8 @@ export function matchLiveOffersForRadar(
     return {
       intent,
       isShoppingIntent,
-      isSupportOrReport,
+      isSupportOrReport: intent === 'support',
+      isNearMatch: false,
       parsedBudget,
       isUrgent,
       detectedCategory,
@@ -320,8 +341,11 @@ export function matchLiveOffersForRadar(
       }
     }
 
-    // Si pide genérico ("qué ofertas hay hoy", "algo barato"), todas las vigentes califican
-    const isGenericBrowse = keywords.length === 0 || /oferta|promo|barat|econom|hoy|que hay|recomiend/i.test(norm);
+    // Si pide genérico ("qué ofertas hay hoy", "tengo 10000 sorpendame", "algo barato"), todas califican
+    const isGenericBrowse =
+      keywords.length === 0 ||
+      GENERIC_BROWSE_RE.test(norm) ||
+      (parsedBudget !== null && keywords.length <= 1);
     if (score === 0 && !isGenericBrowse) continue;
     if (score === 0 && isGenericBrowse) score = 10;
 
@@ -351,10 +375,38 @@ export function matchLiveOffersForRadar(
 
   scored.sort((a, b) => b.score - a.score || Number(a.offer.promo_price) - Number(b.offer.promo_price));
 
+  // 🔄 Respaldo inteligente de opciones cercanas: si el presupuesto o búsqueda no tuvo coincidencia exacta
+  // pero SÍ hay ofertas activas en el municipio, proponemos las más económicas / cercanas (nunca muro vacío)
+  if (scored.length === 0 && activePool.length > 0 && (parsedBudget !== null || GENERIC_BROWSE_RE.test(norm) || baseIntent === 'cheaper_followup')) {
+    const nearest = [...activePool]
+      .sort((a, b) => Number(a.promo_price) - Number(b.promo_price))
+      .slice(0, Math.min(3, maxResults))
+      .map((offer) => ({
+        offer,
+        score: 5,
+        distanceMeters:
+          geoPos && offer.lat != null && offer.lng != null
+            ? haversineMeters(geoPos, { lat: offer.lat, lng: offer.lng })
+            : null,
+      }));
+    return {
+      intent,
+      isShoppingIntent,
+      isSupportOrReport: false,
+      isNearMatch: true,
+      parsedBudget,
+      isUrgent,
+      detectedCategory,
+      keywords,
+      matches: nearest,
+    };
+  }
+
   return {
     intent,
     isShoppingIntent,
-    isSupportOrReport,
+    isSupportOrReport: false,
+    isNearMatch: false,
     parsedBudget,
     isUrgent,
     detectedCategory,

@@ -113,20 +113,43 @@ input[type='number'] {
   z-index: 10 !important;
 }
 
-/* V37.0 · Capas nativas HD (CARTO Voyager / Esri Satélite / CARTO Dark Matter):
-   sin filtro CSS invert destructivo para nitidez nivel Google Maps */
+/* V38.0 · Mapas 100% libres sin API Key (OSM Calles nativo, Esri Satélite libre, OSM Radar Nocturno) */
 .imp-map[data-style='osm-dark'] .leaflet-tile-pane {
-  filter: invert(1) hue-rotate(190deg) brightness(0.88) contrast(0.94) saturate(0.6);
+  filter: invert(1) hue-rotate(190deg) brightness(0.86) contrast(0.95) saturate(0.62);
+}
+.imp-map[data-style='streets'] .leaflet-tile-pane {
+  filter: saturate(1.06) contrast(1.02);
 }
 .imp-map {
   background: #0d1526;
   font-family: inherit;
 }
 .imp-map[data-style='streets'] {
-  background: #e8eef4;
+  background: #e5ece6;
 }
 .imp-map .leaflet-container {
   background: inherit;
+}
+
+/* Animación sutil y elegante del pulso radar en el isotipo oficial de IMPULSO */
+@keyframes imp-logo-radar {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.55;
+  }
+  70% {
+    transform: scale(2.15);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(2.15);
+    opacity: 0;
+  }
+}
+.imp-logo-radar-ring {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: imp-logo-radar 3.6s cubic-bezier(0.22, 1, 0.36, 1) infinite;
 }
 .imp-pin-focused .imp-pin-bubble {
   border-color: #f59e0b;

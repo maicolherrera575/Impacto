@@ -1109,68 +1109,130 @@ export const FOCUS_DIRECTIVES: Record<
   {
     prompt: string;
     badges: string[];
+    serviceBadges: string[];
     ctas: string[];
+    serviceCtas: string[];
     preferredThemes: readonly string[];
     preferredLayouts: readonly string[];
-    headlineFor: (product: string, brand: string, place: string) => Array<[string, string]>;
+    headlineFor: (
+      product: string,
+      brand: string,
+      place: string,
+      isService?: boolean,
+      industry?: IndustryType,
+    ) => Array<[string, string]>;
     subPrefix: string;
+    serviceSubPrefix: string;
   }
 > = {
   remate: {
     prompt:
-      'ENFOQUE PSICOLÓGICO — URGENCIA / REMATE: Tono eléctrico de acción inmediata, escasez real y oportunidad límite de hoy (claves: "SOLO POR HOY", "ÚLTIMOS CUPOS", "APROVECHA YA"). Empuja al cierre inmediato sin rodeos.',
+      'ENFOQUE PSICOLÓGICO — URGENCIA / ACCIÓN INMEDIATA: Tono eléctrico de acción inmediata, escasez real y oportunidad límite de hoy (para productos: "SOLO POR HOY", "ÚLTIMOS CUPOS"; para servicios/agencias/profesionales: "AGENDA ABIERTA HOY", "CUPOS LIMITADOS", PROHIBIDO escribir "en remate" si el brief es una agencia, servicio profesional o plataforma digital). Empuja al cierre inmediato sin rodeos.',
     badges: ['SOLO POR HOY', 'ÚLTIMOS CUPOS', 'OFERTA RELÁMPAGO', 'CIERRE DE HOY'],
-    ctas: ['Aparta YA por WhatsApp', 'Pide hoy antes que se acabe'],
+    serviceBadges: ['AGENDA ABIERTA HOY', 'CUPOS LIMITADOS', 'IMPULSO INMEDIATO', 'ATENCIÓN PRIORITARIA'],
+    ctas: ['ESCANEA Y APARTA HOY', 'RESERVA HOY EN IMPULSO'],
+    serviceCtas: ['ESCANEA Y AGENDA HOY', 'SOLICITA TU ASESORÍA HOY'],
     preferredThemes: ['obsidian', 'ember', 'pop', 'vino', 'carbon'],
-    preferredLayouts: ['diagonal', 'diagx', 'immersive', 'split', 'flash'],
-    headlineFor: (product, _brand, place) => [
-      [`Solo por hoy en ${place}:`, `${product} en remate`],
-      ['Últimos cupos de hoy para', `llevar ${product} YA`],
-      ['Aprovecha antes del cierre:', `${product} precio especial`],
-    ],
+    preferredLayouts: ['diagonal', 'diagx', 'immersive', 'split', 'portal'],
+    headlineFor: (product, brand, place, isService = false, industry) => {
+      const treatAsService =
+        isService ||
+        industry === 'digital_tech' ||
+        industry === 'servicios_profesionales' ||
+        industry === 'salud_belleza';
+      if (treatAsService) {
+        return [
+          ['Activa hoy tus resultados con', product],
+          [`Cupos limitados esta semana en`, brand],
+          ['Acelera hoy tu crecimiento con', product],
+        ];
+      }
+      return [
+        [`Solo por hoy en ${place}:`, `${product} a precio especial`],
+        ['Últimos cupos de hoy para', `llevar ${product} YA`],
+        ['Aprovecha antes del cierre:', `${product} hoy mismo`],
+      ];
+    },
     subPrefix: 'Oportunidad por tiempo limitado:',
+    serviceSubPrefix: 'Agenda prioritaria abierta hoy:',
   },
   prestigio: {
     prompt:
       'ENFOQUE PSICOLÓGICO — PRESTIGIO / LUJO: Tono editorial sofisticado, exclusividad, maestría y alto nivel (claves: "EDICIÓN EXCLUSIVA", "SELECCIÓN PREMIUM", "EXPERIENCIA SUPERIOR"). PROHIBIDO sonar a remate barato.',
     badges: ['EDICIÓN EXCLUSIVA', 'SELECCIÓN PREMIUM', 'ALTO NIVEL', 'CALIDAD SUPERIOR'],
-    ctas: ['Agenda tu atención VIP', 'Reserva experiencia exclusiva'],
+    serviceBadges: ['ESTUDIO DE ÉLITE', 'ESTRATEGIA PREMIUM', 'ALTO IMPACTO', 'ASESORÍA EXCLUSIVA'],
+    ctas: ['ESCANEA PARA ATENCIÓN VIP', 'RESERVA EXPERIENCIA EXCLUSIVA'],
+    serviceCtas: ['ESCANEA Y AGENDA ASESORÍA VIP', 'CONOCE NUESTRO PORTAFOLIO'],
     preferredThemes: ['marble', 'obsidian', 'vino', 'arena', 'slate'],
-    preferredLayouts: ['swiss', 'zen', 'immersive', 'magazine', 'collage'],
-    headlineFor: (product, brand) => [
-      ['Exclusividad y alto nivel en', product],
-      [`${brand}: pensado para quienes`, 'exigen lo mejor'],
-      ['Selección premium creada para', `destacar con ${product}`],
-    ],
+    preferredLayouts: ['swiss', 'zen', 'immersive', 'magazine', 'portal'],
+    headlineFor: (product, brand, _place, isService = false, industry) => {
+      if (isService || industry === 'digital_tech' || industry === 'servicios_profesionales') {
+        return [
+          ['Dirección y estrategia superior en', product],
+          [`${brand}: excelencia diseñada para`, 'marcas que lideran'],
+          ['Eleva el nivel de tu negocio con', product],
+        ];
+      }
+      return [
+        ['Exclusividad y alto nivel en', product],
+        [`${brand}: pensado para quienes`, 'exigen lo mejor'],
+        ['Selección premium creada para', `destacar con ${product}`],
+      ];
+    },
     subPrefix: 'Experiencia superior:',
+    serviceSubPrefix: 'Estándar ejecutivo de agencia:',
   },
   confianza: {
     prompt:
       'ENFOQUE PSICOLÓGICO — CONFIANZA / TRADICIÓN: Tono cercano, honesto, respaldo comprobado y trato directo en el municipio (claves: "RESPALDO REAL", "GARANTÍA DIRECTA", "TRATO HONESTO"). Transmite seguridad total.',
     badges: ['RESPALDO GARANTIZADO', 'CONFIANZA LOCAL', 'ATENCIÓN DIRECTA', 'COMPRA SEGURA'],
-    ctas: ['Cotiza directo sin compromiso', 'Escríbenos con total confianza'],
+    serviceBadges: ['RESPALDO PROFESIONAL', 'RESULTADOS REALES', 'ASESORÍA DIRECTA', 'ALIADO DE CONFIANZA'],
+    ctas: ['ESCANEA Y COTIZA DIRECTO', 'ESCRÍBENOS CON CONFIANZA'],
+    serviceCtas: ['ESCANEA PARA DIAGNÓSTICO', 'HABLA DIRECTO CON UN EXPERTO'],
     preferredThemes: ['emerald', 'wood', 'slate', 'clinic', 'kraft'],
-    preferredLayouts: ['magazine', 'bento', 'collage', 'immersive', 'swiss'],
-    headlineFor: (product, brand, place) => [
-      ['Calidad real y garantizada en', product],
-      [`La confianza de ${place} está`, `en ${brand} cada día`],
-      ['Cero sorpresas y trato directo:', `elige ${product}`],
-    ],
+    preferredLayouts: ['magazine', 'bento', 'collage', 'immersive', 'orbits'],
+    headlineFor: (product, brand, place, isService = false, industry) => {
+      if (isService || industry === 'digital_tech' || industry === 'servicios_profesionales') {
+        return [
+          ['Resultados claros y respaldo real en', product],
+          [`${brand}: tu aliado estratégico`, `de confianza en ${place}`],
+          ['Acompañamiento directo y medible en', product],
+        ];
+      }
+      return [
+        ['Calidad real y garantizada en', product],
+        [`La confianza de ${place} está`, `en ${brand} cada día`],
+        ['Cero sorpresas y trato directo:', `elige ${product}`],
+      ];
+    },
     subPrefix: 'Respaldo directo y transparente:',
+    serviceSubPrefix: 'Acompañamiento real paso a paso:',
   },
   viral: {
     prompt:
       'ENFOQUE PSICOLÓGICO — VIRAL / CURIOSIDAD: Tono disruptivo, conversacional y magnético que detiene el scroll en TikTok, Reels y Estados (contraste inesperado, pregunta gancho o prueba social masiva).',
     badges: ['TENDENCIA HOY', 'LO MÁS BUSCADO', 'NO TE LO PIERDAS', 'VIRAL EN REDES'],
-    ctas: ['Descubre por qué · WhatsApp', 'Mira y aparta el tuyo ahora'],
+    serviceBadges: ['CRECIMIENTO IMPARABLE', 'TENDENCIA DIGITAL', 'IDEAS QUE VENDEN', 'IMPACTO REAL'],
+    ctas: ['ESCANEA Y DESCUBRE CÓMO', 'ESCANEA Y CONOCE MÁS HOY'],
+    serviceCtas: ['ESCANEA Y TRANSFORMA TU MARCA', 'DESCUBRE EL MÉTODO AQUÍ'],
     preferredThemes: ['cyber', 'aurora', 'oceano', 'pop', 'carbon'],
-    preferredLayouts: ['orbits', 'bleed', 'immersive', 'diagx', 'collage'],
-    headlineFor: (product, _brand, place) => [
-      [`Todos en ${place} están hablando`, `hoy de ${product}`],
-      ['¿Por qué todos eligen ahora', `${product} por encima del resto?`],
-      ['El secreto mejor guardado para', `disfrutar ${product}`],
-    ],
+    preferredLayouts: ['orbits', 'bleed', 'immersive', 'diagx', 'float'],
+    headlineFor: (product, brand, place, isService = false, industry) => {
+      if (isService || industry === 'digital_tech' || industry === 'servicios_profesionales') {
+        return [
+          ['Haz que todos en redes hablen', `de tu marca con ${brand}`],
+          ['¿Listo para destacar hoy con', `${product}?`],
+          ['Convierte miradas en clientes con', product],
+        ];
+      }
+      return [
+        [`Todos en ${place} están hablando`, `hoy de ${product}`],
+        ['¿Por qué todos eligen ahora', `${product} por encima del resto?`],
+        ['El secreto mejor guardado para', `disfrutar ${product}`],
+      ];
+    },
     subPrefix: 'Tendencia imparable hoy:',
+    serviceSubPrefix: 'La fórmula que destaca en redes:',
   },
 };
 
@@ -1390,7 +1452,9 @@ Recibirás la ESTRATEGIA de la campaña (rubro, promesa de valor, tema y layout)
  ]
 }
 REGLAS DE ORO:
-- PROHIBIDO copiar frases literales del brief del usuario ni rellenar con plantillas genéricas: todo el copy debe nacer de la promesa de valor de la estrategia.
+- PROHIBIDO copiar frases literales del brief del usuario ni rellenar con plantillas genéricas: todo el copy debe nacer de la promesa de valor de la estrategia y respetar 100% el rubro real del brief.
+- PROHIBIDO escribir "en remate", "liquidación" o "solo por hoy en Gachetá" cuando el brief describa una agencia de marketing, plataforma digital, consultoría o servicio profesional (salvo que el brief lo pida expresamente).
+- PROHIBIDO usar flechas web ('↗', '→', '->') o textos de botón clickeable ('Haz clic aquí', 'Ver más ↗') en el afiche: es una pieza gráfica estática con QR escaneable.
 - PROHIBIDO el patrón "¿Te sumamos ...?" en dispatchUpsell: la confirmación de despacho es ejecutiva (confirma el pedido, la entrega y ofrece el trato de cliente fiel con naturalidad).
 - 🎯 CERO EMOJIS en badge_text, headline, sub, benefits y cta: el afiche usa iconografía vectorial propia de agencia. Los emojis solo se permiten en los textos de WhatsApp/redes (status, pas, aida, dispatch).
 - Los beneficios deben describir algo que SOLO ese negocio puede decir.
@@ -1999,7 +2063,12 @@ export function synthesizeArtDirection(
   const pickedFont =
     candidateFonts[Math.floor(Math.random() * candidateFonts.length)] || TYPOGRAPHY_PAIR_IDS[0];
 
-  const dynamicBadge = rotate(focusRule.badges, seed) || stripPictographics(rotate(niche.badges, Math.floor(seed / 11))).toUpperCase();
+  const isServiceCtx =
+    input.priceMode === 'servicio' || industry === 'digital_tech' || industry === 'servicios_profesionales';
+  const badgePool = isServiceCtx ? focusRule.serviceBadges : focusRule.badges;
+  const subPrefix = isServiceCtx ? focusRule.serviceSubPrefix : focusRule.subPrefix;
+  const dynamicBadge =
+    rotate(badgePool, seed) || stripPictographics(rotate(niche.badges, Math.floor(seed / 11))).toUpperCase();
 
   return {
     industryType: industry,
@@ -2010,7 +2079,7 @@ export function synthesizeArtDirection(
     themeId: pickedTheme,
     layoutId: pickedLayout,
     typographyPair: pickedFont,
-    valueProposition: `${focusRule.subPrefix} ${rotate(niche.subs, Math.floor(seed / 3))}`,
+    valueProposition: `${subPrefix} ${rotate(niche.subs, Math.floor(seed / 3))}`,
     imagePromptEn: INDUSTRY_PHOTO_PROMPTS[industry],
   };
 }
@@ -2023,13 +2092,21 @@ export function synthesizeCampaign(input: CampaignInput, art: ArtDirection): Mar
   const seed = Math.floor(Math.random() * 100000);
   const niche = detectNiche(`${input.brief} ${input.slogan} ${input.product} ${input.businessName}`, input.categoryHint);
   const focusRule = FOCUS_DIRECTIVES[input.focus] ?? FOCUS_DIRECTIVES.confianza;
-  const isService = input.priceMode === 'servicio';
+  const isService =
+    input.priceMode === 'servicio' ||
+    art.industryType === 'digital_tech' ||
+    art.industryType === 'servicios_profesionales';
   const brand = input.businessName.trim() || art.brandName;
   const product = input.product.trim() || art.productTitle;
   const addr = input.address.trim() || input.municipality;
   const place = input.municipality || 'Gachetá';
-  const focusHeadlines = focusRule.headlineFor(product, brand, place);
-  const [plain, highlight] = rotate(focusHeadlines, seed);
+  const focusHeadlines = focusRule.headlineFor(product, brand, place, isService, art.industryType);
+  // Mezcla coherente: en servicios/nichos específicos también aprovecha los titulares nativos del nicho
+  const mergedHeadlines: Array<[string, string]> =
+    input.focus === 'confianza' || input.focus === 'prestigio'
+      ? [...focusHeadlines, ...niche.headlines]
+      : focusHeadlines;
+  const [plain, highlight] = rotate(mergedHeadlines, seed);
   const price =
     !isService && input.promoPrice != null
       ? ` a SOLO $${input.promoPrice.toLocaleString('es-CO')}`
@@ -2060,8 +2137,13 @@ export function synthesizeCampaign(input: CampaignInput, art: ArtDirection): Mar
     '#ApoyaLoNuestro',
   ];
   const hashtags = [...new Set(hashtagsList)].slice(0, 8).join(' ');
-  const resolvedBadge = stripPictographics(rotate(focusRule.badges, seed) || art.dynamicTagline).toUpperCase() || art.categoryLabel.toUpperCase();
-  const resolvedSub = `${focusRule.subPrefix} ${rotate(niche.subs, Math.floor(seed / 5))}`;
+  const badgePool = isService ? focusRule.serviceBadges : focusRule.badges;
+  const ctaPool = isService ? focusRule.serviceCtas : focusRule.ctas;
+  const subPrefix = isService ? focusRule.serviceSubPrefix : focusRule.subPrefix;
+  const resolvedBadge = stripPictographics(rotate(badgePool, seed) || art.dynamicTagline).toUpperCase() || art.categoryLabel.toUpperCase();
+  const briefSentence = input.slogan.trim() || input.brief.trim().split(/[.!?\n]+/)[0]?.trim() || '';
+  const compactBriefSub = briefSentence.length >= 16 && briefSentence.length <= 108 ? briefSentence : '';
+  const resolvedSub = compactBriefSub || `${subPrefix} ${rotate(niche.subs, Math.floor(seed / 5))}`;
 
   return {
     industryType: art.industryType,
@@ -2075,8 +2157,8 @@ export function synthesizeCampaign(input: CampaignInput, art: ArtDirection): Mar
     // 🎯 V21 · Cero emojis en el afiche: el motor sintético limpia los
     // pictográficos de nicho (los íconos los dibuja el sistema vectorial).
     benefits: [stripPictographics(b0), stripPictographics(b1), stripPictographics(b2)],
-    cta: isService ? rotate(focusRule.ctas, seed) : rotate(focusRule.ctas, seed + 1),
-    priceLabel: isService
+    cta: rotate(ctaPool, seed),
+    priceLabel: input.priceMode === 'servicio'
       ? input.priceLabel.trim() || `${art.productTitle} · Cotiza sin compromiso`
       : null,
     imagePromptEn: art.imagePromptEn,
@@ -2230,20 +2312,32 @@ function synthesizeLocalSupportFallback(params: {
   history: Array<{ role: 'user' | 'assistant'; content: string }>;
   intent?: string;
   matchedOffers?: RadarMatchedOfferContext[];
+  isNearMatch?: boolean;
   parsedBudget?: number | null;
   isShoppingIntent?: boolean;
   liveCatalogDigest?: { activeCount: number; categoriesLabel: string; cheapestLabel?: string | null };
 }): SupportConciergeAssessment {
-  const { message, userRole, municipality, history, intent, matchedOffers, parsedBudget, isShoppingIntent, liveCatalogDigest } = params;
+  const { message, userRole, municipality, history, intent, matchedOffers, isNearMatch, parsedBudget, isShoppingIntent, liveCatalogDigest } = params;
   const m = message.toLowerCase().trim();
   const prevAssistant = [...history].reverse().find((h) => h.role === 'assistant')?.content ?? '';
   const activeCount = liveCatalogDigest?.activeCount ?? 0;
   const cats = liveCatalogDigest?.categoriesLabel ?? '';
   const cheapest = liveCatalogDigest?.cheapestLabel ?? '';
 
+  if (intent === 'safety_trust') {
+    return {
+      isTechnicalIssue: false,
+      severity: 'low',
+      category: 'usage',
+      summary: 'Consulta de confianza y seguridad anti-estafas',
+      aiAnalysis: 'Usuario preguntó cómo saber que Impulso es seguro.',
+      reply: `Qué buena pregunta 🛡️ En Impulso NUNCA te pedimos tarjetas ni dinero por adelantado: apartas gratis con tu WhatsApp y pagas directo al comercio cuando recibes tu producto. Además, puedes ver la insignia azul de ✅ Verificado o 👑 Súper Comercio en los locales auditados y reportar cualquier irregularidad en 1 toque.`,
+    };
+  }
+
   const looksTechnical =
     intent === 'support' ||
-    /error|no\s+(funciona|carga|abre|sirve|deja|llega)|fall[ao]|bug|roto|blanco|congel|bloque|duplicad|cobr[oó]|descont[oó]|no\s+se\s+reflej|problema\s+t[eé]cnico|estafa|fraude/i.test(
+    /error|no\s+(funciona|carga|abre|sirve|deja|llega)|fall[ao]|bug|roto|blanco|congel|bloque|duplicad|cobr[oó]|descont[oó]|no\s+se\s+reflej|problema\s+t[eé]cnico|me\s+estaf|fui\s+estaf|hablar\s+con\s+(un\s+)?(humano|admin|administrador|soporte)|reclamo|disputa/i.test(
       m,
     );
 
@@ -2254,30 +2348,40 @@ function synthesizeLocalSupportFallback(params: {
       isTechnicalIssue: true,
       severity: isFraud ? 'critical' : isBillingOrCritical ? 'high' : 'medium',
       category: isFraud ? 'abuse' : isBillingOrCritical ? 'billing' : 'technical',
-      summary: message.trim().slice(0, 120) || 'Reporte técnico del usuario',
-      aiAnalysis: `Incidencia reportada a Radar por ${userRole === 'merchant' ? 'comercio' : 'cliente'}: "${message.trim().slice(0, 220)}".`,
+      summary: message.trim().slice(0, 120) || 'Solicitud escalada al administrador',
+      aiAnalysis: `Caso escalado por Radar (${userRole === 'merchant' ? 'comercio' : 'cliente'}): "${message.trim().slice(0, 220)}".`,
       reply: isFraud
-        ? 'Tranquilo, estás respaldado. Acabo de escalar este reporte con prioridad máxima al equipo de seguridad de Impulso para auditar y bloquear al infractor. Nunca hagas giros anticipados y cuéntame si tienes el nombre del local o de la oferta.'
+        ? 'Tranquilo, estás respaldado. Acabo de enviar este reporte con prioridad máxima al panel del administrador para auditar y bloquear al infractor. Nunca hagas giros anticipados y cuéntame el nombre del local o de la oferta si lo tienes.'
         : isBillingOrCritical
-          ? 'Te entiendo perfecto. Ya registré un reporte prioritario para que el administrador revise tu pago o cuenta de una vez. Si tienes la referencia del comprobante, déjamela por aquí para agilizarlo.'
-          : 'Gracias por avisarme. Ya dejé el reporte en la cola técnica de Impulso para revisarlo rápido; mientras tanto, cuéntame en qué pantalla pasó para ayudarte a resolverlo ya mismo.',
+          ? 'Te entiendo perfecto. Ya registré un aviso prioritario en el panel del administrador para revisar tu pago o cuenta de inmediato. Si tienes la referencia del comprobante, déjamela aquí para agilizarlo.'
+          : '¡Listo! Como este caso requiere atención humana, ya dejé un ticket directo en el panel del administrador de Impulso para que lo revise cuanto antes. Si quieres agregar algún detalle adicional, escríbelo aquí mismo.',
     };
   }
 
-  // 1. Ofertas activas encontradas en memoria (<5ms)
+  // 1. Ofertas activas encontradas en memoria (<5ms) — exactas o alternativas más cercanas al presupuesto
   if (matchedOffers && matchedOffers.length > 0) {
     const top = matchedOffers[0];
     const extraCount = matchedOffers.length - 1;
-    const budgetText = parsedBudget ? ` dentro de tus $${parsedBudget.toLocaleString('es-CO')}` : '';
     const extraText = extraCount > 0 ? ` y ${extraCount} opción${extraCount === 1 ? '' : 'es'} más` : '';
     const dist = top.distanceLabel ? ` (${top.distanceLabel})` : '';
+    if (isNearMatch && parsedBudget) {
+      return {
+        isTechnicalIssue: false,
+        severity: 'low',
+        category: 'usage',
+        summary: `Opciones cercanas a $${parsedBudget.toLocaleString('es-CO')}`,
+        aiAnalysis: `Radar propuso ${matchedOffers.length} ofertas más económicas cercanas al presupuesto.`,
+        reply: `Ahorita mismo en ${municipality} no veo una oferta exacta de $${parsedBudget.toLocaleString('es-CO')} o menos, ¡pero mira las más económicas activas hoy! Arrancan con "${top.title}" en ${top.merchant} por $${top.priceCop.toLocaleString('es-CO')}${dist}${extraText}. Toca "Apartar ahora" o "Ver en mapa" abajo 👇`,
+      };
+    }
+    const budgetText = parsedBudget ? ` dentro de tus $${parsedBudget.toLocaleString('es-CO')}` : '';
     return {
       isTechnicalIssue: false,
       severity: 'low',
       category: 'usage',
       summary: `Búsqueda en vivo: ${message.trim().slice(0, 90)}`,
       aiAnalysis: `Radar recomendó ${matchedOffers.length} ofertas activas localmente.`,
-      reply: `¡Aquí tienes lo mejor que encontré en ${municipality}${budgetText}! Te recomiendo "${top.title}" en ${top.merchant} por $${top.priceCop.toLocaleString('es-CO')}${dist} (quedan ${top.quota} cupos)${extraText}. Toca "Apartar ahora" abajo para asegurar tu cupo o "Ver en mapa" para ubicar el local.`,
+      reply: `¡Mira lo mejor que encontré activo en ${municipality}${budgetText}! Destaca "${top.title}" en ${top.merchant} por $${top.priceCop.toLocaleString('es-CO')}${dist} (quedan ${top.quota} cupos)${extraText}. Toca "Apartar ahora" abajo para asegurar tu cupo o "Ver en mapa" para ubicar el local.`,
     };
   }
 
@@ -2432,6 +2536,7 @@ export async function askSupportConcierge(input: {
   municipality: string;
   intent?: string;
   matchedOffersSummary?: RadarMatchedOfferContext[];
+  isNearMatch?: boolean;
   parsedBudget?: number | null;
   isShoppingIntent?: boolean;
   liveCatalogDigest?: { activeCount: number; categoriesLabel: string; cheapestLabel?: string | null };
@@ -2449,13 +2554,14 @@ export async function askSupportConcierge(input: {
     history: recentTurns,
     intent: input.intent,
     matchedOffers: matched,
+    isNearMatch: input.isNearMatch,
     parsedBudget: input.parsedBudget,
     isShoppingIntent: input.isShoppingIntent,
     liveCatalogDigest: digest,
   };
 
-  // Saludos simples o agradecimientos responden en <5ms con calidez humana (0 espera, 0 tokens)
-  if (input.intent === 'greeting' || input.intent === 'thanks') {
+  // Saludos simples, agradecimientos o preguntas directas de confianza responden en <5ms (0 espera, 0 tokens)
+  if (input.intent === 'greeting' || input.intent === 'thanks' || input.intent === 'safety_trust') {
     return synthesizeLocalSupportFallback(fallbackParams);
   }
 
@@ -2467,7 +2573,7 @@ export async function askSupportConcierge(input: {
 
   const compactOffersBlock =
     matched.length > 0
-      ? `\n[OFERTAS_ACTIVAS_COINCIDENTES (tarjetas interactivas ya visibles debajo):\n${matched
+      ? `\n[${input.isNearMatch ? 'OFERTAS_ALTERNATIVAS_MAS_ECONOMICAS' : 'OFERTAS_ACTIVAS_COINCIDENTES'} (tarjetas interactivas ya visibles debajo):\n${matched
           .slice(0, 5)
           .map(
             (o, idx) =>

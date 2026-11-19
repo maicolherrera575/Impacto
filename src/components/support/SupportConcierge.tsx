@@ -44,17 +44,20 @@ interface SupportConciergeProps {
   bottomOffsetClass?: string;
 }
 
-const QUICK_PROMPTS_CLIENT = [
-  '¿Qué almuerzos hay hoy por menos de $15.000?',
-  'Muéstrame algo del campo o abono',
-  '¿Cómo aparto una oferta?',
-  'Reportar un problema o fraude',
+const QUICK_PROMPTS_CLIENT_POOL = [
+  '¿Qué es Impulso y cómo funciona?',
+  'Tengo $15.000, ¿qué me recomiendas hoy?',
+  '¿Cómo sé que es seguro apartar?',
+  'Busco algo del campo o abono',
+  '¿Qué almuerzos ricos hay hoy?',
+  'Necesito hablar con soporte o reportar algo',
 ] as const;
 
 const QUICK_PROMPTS_MERCHANT = [
   '¿Cómo recargo créditos?',
   'No me aparece mi comprobante',
   'Vincular huella en equipo nuevo',
+  'Reportar un problema al administrador',
 ] as const;
 
 interface RecommendedCardItem {
@@ -110,7 +113,11 @@ export function SupportConcierge({
     void sendMessage(transcript);
   });
 
-  const suggestions = userRole === 'merchant' ? QUICK_PROMPTS_MERCHANT : QUICK_PROMPTS_CLIENT;
+  const [promptSeed] = useState(() => Math.floor(Math.random() * QUICK_PROMPTS_CLIENT_POOL.length));
+  const suggestions =
+    userRole === 'merchant'
+      ? QUICK_PROMPTS_MERCHANT
+      : Array.from({ length: 4 }, (_, i) => QUICK_PROMPTS_CLIENT_POOL[(promptSeed + i) % QUICK_PROMPTS_CLIENT_POOL.length]);
 
   function scrollToBottom() {
     window.setTimeout(() => {
@@ -154,6 +161,7 @@ export function SupportConcierge({
         municipality,
         intent: localMatch.intent,
         matchedOffersSummary: compactSummary,
+        isNearMatch: localMatch.isNearMatch,
         parsedBudget: localMatch.parsedBudget,
         isShoppingIntent: localMatch.isShoppingIntent,
         liveCatalogDigest: {
@@ -374,10 +382,10 @@ export function SupportConcierge({
                               type="button"
                               onClick={() => {
                                 setOpen(false);
-                                // Ejecutamos tras cerrar el modal para que el mapa reciba foco, haga flyTo y scroll suave
+                                // Espera a que ModalShell libere el bloqueo de scroll antes de volar y centrar el mapa
                                 window.setTimeout(() => {
                                   onFocusOfferOnMap?.(offer);
-                                }, 60);
+                                }, 140);
                               }}
                               className="pressable flex items-center justify-center gap-1.5 rounded-xl border border-white/15 bg-slate-950/70 py-2 text-[11px] font-bold text-slate-200 transition hover:border-impulso-mint/40 hover:text-impulso-mint"
                             >
