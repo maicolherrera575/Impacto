@@ -105,11 +105,13 @@ export default async function handler(req: IncomingMessage, res: VercelRes): Pro
       ? rows.filter((o) => o.merchant?.is_active !== false && o.merchant?.is_suspended !== true)
       : [];
 
+    // ⚡ V39.0 · Edge CDN dinámico 15s + stale-while-revalidate 45s:
+    // entrega ofertas frescas en ~15s a miles de celulares con <= 4 lecturas/min reales en Supabase Free.
     sendJson(
       res,
       200,
       { offers: active, cachedAt: new Date().toISOString() },
-      'public, s-maxage=30, stale-while-revalidate=120',
+      'public, s-maxage=15, stale-while-revalidate=45',
     );
   } catch {
     sendJson(res, 504, { error: 'Timeout al consultar el feed público' }, 'no-store');

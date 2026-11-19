@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import * as QRCode from 'qrcode';
 import jsQR from 'jsqr';
-import { CheckCircle2, Copy, Download, ExternalLink, Loader2, QrCode, ShieldCheck, Sparkles, Upload, X } from 'lucide-react';
+import { CheckCircle2, Copy, Download, ExternalLink, Loader2, Maximize2, QrCode, ShieldCheck, Sparkles, Upload, X } from 'lucide-react';
 import type { PaymentConfig, Profile } from '../../types';
 import { CREDIT_PACKAGES } from '../../types';
 import { ModalShell } from '../ui/ModalShell';
@@ -57,14 +56,15 @@ export function CreditsModal({ open, onClose, profile, onCreditsApproved }: Cred
   /** 📷 Escáner nativo de cámara + guardia anti doble lectura. */
   const [scannerOpen, setScannerOpen] = useState(false);
   const scannedRef = useRef(false);
-  /** 🟡 QR de pago generado en pantalla si el Admin aún no sube el suyo. */
-  const [generatedQr, setGeneratedQr] = useState<string | null>(null);
+  /** 🔍 V39.0 · Vista ampliada sobre fondo blanco puro para escaneo bancario 100% confiable. */
+  const [qrZoomOpen, setQrZoomOpen] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     scannedRef.current = false;
     setErrorMsg('');
     setSuccessMsg('');
+    setQrZoomOpen(false);
     let cancelled = false;
     fetchPaymentConfig()
       .then((config) => {
@@ -91,37 +91,16 @@ export function CreditsModal({ open, onClose, profile, onCreditsApproved }: Cred
   const holderName = payConfig?.holderName?.trim() || 'Administrador Impulso';
   const autoApproveOn = payConfig?.autoApprove === true;
 
-  // QR oficial del canal elegido (Nequi / Daviplata / Llave)
+  // V39.0 · QR oficial ESTRICTO por canal (cero QR sintéticos de texto plano que rechazan las apps bancarias)
   const channelQr =
     method === 'Daviplata'
-      ? (payConfig?.daviplataQrThumb?.trim() || payConfig?.qrThumb?.trim() || '')
+      ? (payConfig?.daviplataQrThumb?.trim() || '')
       : method === 'Llave'
-        ? (payConfig?.llaveQrThumb?.trim() || payConfig?.qrThumb?.trim() || '')
+        ? (payConfig?.llaveQrThumb?.trim() || '')
         : (payConfig?.qrThumb?.trim() || '');
   const hasOfficialQr = Boolean(channelQr);
-  const displayedQr = channelQr || generatedQr;
   const activeCopyValue = method === 'Daviplata' ? daviLocal : method === 'Llave' ? llave : nequiLocal;
   const activePrettyLabel = method === 'Daviplata' ? daviPretty : method === 'Llave' ? llave : nequiPretty;
-
-  /** QR genérico de respaldo únicamente si el Admin aún no ha subido su imagen oficial para el canal. */
-  useEffect(() => {
-    if (!open || channelQr) {
-      setGeneratedQr(null);
-      return;
-    }
-    let cancelled = false;
-    QRCode.toDataURL(
-      `PAGO IMPULSO | ${method} ${activeCopyValue} | ${holderName}`,
-      { width: 480, margin: 2, errorCorrectionLevel: 'M' },
-    )
-      .then((url) => {
-        if (!cancelled) setGeneratedQr(url);
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [open, channelQr, activeCopyValue, holderName, method]);
 
   /** 🔍 Decodifica un QR dentro de una imagen subida (jsQR sobre canvas). */
   async function decodeQrFromImage(dataUrl: string): Promise<string | null> {
@@ -265,14 +244,14 @@ export function CreditsModal({ open, onClose, profile, onCreditsApproved }: Cred
     window.location.href = schemes[method];
   }
 
-  /** ⬇️ Descarga el QR de pago en 1 clic. */
+  /** ⬇️ Descarga el QR oficial de pago en 1 clic. */
   function downloadQr(): void {
-    if (!displayedQr) return;
+    if (!channelQr) return;
     const a = document.createElement('a');
-    a.href = displayedQr;
-    a.download = hasOfficialQr ? 'impulso-qr-oficial.png' : 'impulso-qr-pago.png';
+    a.href = channelQr;
+    a.download = `impulso-qr-oficial-${method.toLowerCase()}.png`;
     a.click();
-    toast.success('📥 QR de pago descargado');
+    toast.success(`📥 QR oficial de ${method} descargado`);
   }
 
   /** 📤 Paso final: validación de pago segura en servidor (/api/verify-receipt). */
@@ -438,44 +417,56 @@ export function CreditsModal({ open, onClose, profile, onCreditsApproved }: Cred
             </button>
           </div>
 
-          {/* QR oficial del canal elegido */}
-          {displayedQr && (
-            <div className="rounded-xl border border-white/10 bg-slate-950/45 p-2.5">
+          {/* QR oficial bancario del canal elegido (solo imagen oficial real: cero QRs falsos) */}
+          {hasOfficialQr ? (
+            <div className="rounded-xl border border-impulso-emerald/30 bg-slate-950/50 p-3">
               <div className="flex items-center justify-between gap-2">
-                <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">
+                <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">
                   Código QR oficial · {method}
                 </p>
-                {hasOfficialQr ? (
-                  <span className="rounded-full bg-impulso-emerald/15 px-2 py-0.5 text-[9px] font-extrabold text-impulso-mint">
-                    ✅ QR Oficial Verificado
-                  </span>
-                ) : (
-                  <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[9px] font-extrabold text-amber-300">
-                    ℹ️ Usa el número o Llave arriba
-                  </span>
-                )}
+                <span className="rounded-full bg-impulso-emerald/15 px-2 py-0.5 text-[9px] font-extrabold text-impulso-mint">
+                  ✅ QR Bancario Oficial
+                </span>
               </div>
-              <div className="mt-1.5 flex items-center gap-3">
-                <img
-                  src={displayedQr}
-                  alt={`QR oficial ${method} del administrador`}
-                  className="h-28 w-28 shrink-0 rounded-xl bg-white object-contain p-1"
-                />
-                <div className="min-w-0 flex-1 space-y-1.5">
+              <div className="mt-2 flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setQrZoomOpen(true)}
+                  title="Toca para ampliar el QR en alta nitidez"
+                  className="pressable shrink-0 rounded-2xl bg-white p-2 shadow-md ring-2 ring-impulso-emerald/40"
+                >
+                  <img
+                    src={channelQr}
+                    alt={`QR oficial ${method} del administrador`}
+                    className="h-28 w-28 object-contain"
+                  />
+                </button>
+                <div className="min-w-0 flex-1 space-y-2">
                   <p className="text-[11px] font-semibold leading-relaxed text-slate-300">
-                    {hasOfficialQr
-                      ? `Escanea este QR oficial directamente desde ${method === 'Llave' ? 'tu app bancaria' : method}, o descárgalo para abrirlo en tu galería.`
-                      : 'El administrador aún no ha subido el QR de este canal. Te recomendamos copiar el número o Llave de arriba.'}
+                    Escanea este QR oficial directo desde {method === 'Llave' ? 'tu app bancaria' : method}, amplíalo en pantalla o descárgalo a tu galería.
                   </p>
-                  <button
-                    type="button"
-                    onClick={downloadQr}
-                    className="pressable flex items-center gap-1.5 rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-[11px] font-extrabold text-slate-200"
-                  >
-                    <Download className="h-3.5 w-3.5" /> Descargar QR
-                  </button>
+                  <div className="flex flex-wrap gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setQrZoomOpen(true)}
+                      className="pressable flex items-center gap-1 rounded-xl border border-impulso-emerald/40 bg-impulso-emerald/15 px-2.5 py-1.5 text-[11px] font-extrabold text-impulso-mint"
+                    >
+                      <Maximize2 className="h-3.5 w-3.5" /> Ampliar QR
+                    </button>
+                    <button
+                      type="button"
+                      onClick={downloadQr}
+                      className="pressable flex items-center gap-1 rounded-xl border border-white/10 bg-slate-950/70 px-2.5 py-1.5 text-[11px] font-extrabold text-slate-200"
+                    >
+                      <Download className="h-3.5 w-3.5" /> Descargar
+                    </button>
+                  </div>
                 </div>
               </div>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-amber-400/25 bg-amber-500/[0.07] px-3 py-2.5 text-[11px] font-semibold leading-relaxed text-amber-100">
+              ℹ️ El administrador aún no cargó una imagen QR para <strong>{method}</strong>. Copia el número o Llave oficial arriba y realiza tu pago directo desde tu app bancaria.
             </div>
           )}
         </div>
@@ -587,6 +578,49 @@ export function CreditsModal({ open, onClose, profile, onCreditsApproved }: Cred
         onScan={handleScanned}
         hint="Apunta al QR del comprobante que te mostró la app al confirmar el pago"
       />
+      {qrZoomOpen && hasOfficialQr && (
+        <div
+          className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/90 p-5 backdrop-blur-md"
+          onClick={() => setQrZoomOpen(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-label={`QR oficial ampliado de ${method}`}
+        >
+          <div
+            className="w-full max-w-xs space-y-3 rounded-3xl border border-impulso-emerald/40 bg-slate-900 p-5 text-center shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-extrabold text-impulso-mint">QR Oficial · {method}</p>
+              <button
+                type="button"
+                onClick={() => setQrZoomOpen(false)}
+                aria-label="Cerrar vista ampliada"
+                className="grid h-7 w-7 place-items-center rounded-full bg-white/10 text-slate-200"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="mx-auto rounded-2xl bg-white p-4 shadow-inner">
+              <img
+                src={channelQr}
+                alt={`QR bancario oficial ${method}`}
+                className="mx-auto h-60 w-60 object-contain"
+              />
+            </div>
+            <p className="text-[11px] font-bold text-slate-300">
+              {holderName} · <span className="font-mono text-white">{activePrettyLabel}</span>
+            </p>
+            <button
+              type="button"
+              onClick={downloadQr}
+              className="pressable flex w-full items-center justify-center gap-1.5 rounded-xl bg-impulso-emerald py-2.5 text-xs font-extrabold text-slate-950"
+            >
+              <Download className="h-4 w-4" /> Guardar QR en mi galería
+            </button>
+          </div>
+        </div>
+      )}
     </ModalShell>
   );
 }

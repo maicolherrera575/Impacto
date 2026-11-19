@@ -8,12 +8,15 @@ import {
   LocateFixed,
   Maximize2,
   Minimize2,
+  Minus,
   Navigation,
+  Plus,
   Ticket,
   X,
 } from 'lucide-react';
 import 'leaflet/dist/leaflet.css';
-import type { Offer } from '../../types';
+import type { Category, Offer } from '../../types';
+import { resolveTrustLevel } from '../../types';
 import { cx, formatCOP } from '../../utils/format';
 import { ACCURACY_LIMIT_M, EXACT_GPS_OPTIONS, EXACT_GPS_WARNING, distanceText, haversineMeters } from '../../utils/geo';
 import type { GeoStatus, LatLng } from '../../utils/geo';
@@ -74,27 +77,55 @@ function safeCoord(val: unknown): number | null {
   return Number.isFinite(n) && Math.abs(n) > 0.001 ? n : null;
 }
 
-/** Pines personalizados: emoji + precio flotante en tiempo real (+ anillo radar si está enfocado). */
+const CATEGORY_PIN_ACCENT: Record<Category, string> = {
+  comida: '#10b981',
+  agro_mercado: '#84cc16',
+  transporte_flete: '#38bdf8',
+  hoteles_turismo: '#a855f7',
+  salud_belleza: '#f43f5e',
+  hogar_construccion: '#f59e0b',
+  servicios_comercios: '#06b6d4',
+};
+
+function escapeAttr(raw: string): string {
+  return raw.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/** Pines personalizados V39.0: código de color por categoría, insignia verificada y precio ultra-nítido. */
 function buildPinIcon(offer: Offer, focused: boolean): L.DivIcon {
+  const accent = CATEGORY_PIN_ACCENT[offer.category] ?? '#10b981';
+  const trust = resolveTrustLevel(offer.merchant);
+  const badgeHtml =
+    trust === 'super'
+      ? '<span class="imp-pin-trust imp-pin-trust-super" title="Súper Comercio">★</span>'
+      : trust === 'verified'
+        ? '<span class="imp-pin-trust imp-pin-trust-verified" title="Comercio Verificado">✓</span>'
+        : '';
+  const merchantLabel = offer.merchant?.business_name ? escapeAttr(offer.merchant.business_name) : 'Comercio local';
+  const safeTitle = escapeAttr(`${offer.title} · ${merchantLabel}`);
   const html = `
-    <div class="imp-pin ${focused ? 'imp-pin-focused' : ''}">
+    <div class="imp-pin ${focused ? 'imp-pin-focused' : ''}" style="--pin-accent:${accent}" title="${safeTitle}">
       ${focused ? '<div class="imp-pin-pulse"></div>' : ''}
-      <div class="imp-pin-bubble" role="img" aria-label="${offer.emoji_icon}">${offer.emoji_icon}</div>
+      <div class="imp-pin-bubble" role="img" aria-label="${escapeAttr(offer.emoji_icon)}">
+        <span>${offer.emoji_icon}</span>
+        ${badgeHtml}
+      </div>
       <div class="imp-pin-price">${formatCOP(offer.promo_price)}</div>
       <div class="imp-pin-tip"></div>
     </div>`;
   return L.divIcon({
     className: 'imp-pin-marker',
     html,
-    iconSize: [48, 72],
-    iconAnchor: [24, 70],
+    iconSize: [56, 76],
+    iconAnchor: [28, 74],
   });
 }
 
 const PIN_ICON_CACHE = new Map<string, L.DivIcon>();
 
 function pinIconFor(offer: Offer, focused: boolean): L.DivIcon {
-  const key = `${offer.id}|${offer.promo_price}|${focused ? '1' : '0'}`;
+  const trust = resolveTrustLevel(offer.merchant);
+  const key = `${offer.id}|${offer.promo_price}|${offer.category}|${trust}|${focused ? '1' : '0'}`;
   const cached = PIN_ICON_CACHE.get(key);
   if (cached) return cached;
   const icon = buildPinIcon(offer, focused);
@@ -176,12 +207,14 @@ function MapController({
   }, [map, expanded, mapStyle, recenterToken, focusToken]);
 
   useEffect(() => {
-    const onDragStart = () => {
+    const onUserMove = () => {
       followingRef.current = false;
     };
-    map.on('dragstart', onDragStart);
+    map.on('dragstart', onUserMove);
+    map.on('zoomstart', onUserMove);
     return () => {
-      map.off('dragstart', onDragStart);
+      map.off('dragstart', onUserMove);
+      map.off('zoomstart', onUserMove);
     };
   }, [map]);
 
@@ -269,34 +302,72 @@ function MapController({
   }
 
   return (
-    <button
-      type="button"
-      onClick={handleTarget}
-      disabled={locating}
-      title={
-        locating
-          ? 'Buscando tu ubicación exacta…'
-          : geoActive
-            ? 'Punto azul activo: centrar en mi ubicación exacta'
+    <>
+      {/* Controles de zoom + / - separados con margen limpio bajo el selector Calles / Satélite / Nocturno */}
+      <div
+        className="absolute left-3 top-[58px] z-20 flex flex-col overflow-hidden rounded-2xl border border-white/15 bg-slate-950/90 shadow-[0_6px_18px_rgba(2,6,23,0.55)] backdrop-blur-md"
+        onMouseDown={(e) => e.stopPropagation()}
+        onDoubleClick={(e) => e.stopPropagation()}
+      >
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            followingRef.current = false;
+            map.zoomIn();
+          }}
+          title="Acercar mapa (+)"
+          aria-label="Acercar mapa"
+          className="pressable grid h-9 w-9 place-items-center text-slate-200 transition hover:bg-impulso-emerald/20 hover:text-impulso-mint"
+        >
+          <Plus className="h-4 w-4" />
+        </button>
+        <div className="h-px w-full bg-white/10" />
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            followingRef.current = false;
+            map.zoomOut();
+          }}
+          title="Alejar mapa (-)"
+          aria-label="Alejar mapa"
+          className="pressable grid h-9 w-9 place-items-center text-slate-200 transition hover:bg-impulso-emerald/20 hover:text-impulso-mint"
+        >
+          <Minus className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* Botón GPS en esquina superior derecha (sin choque con el rail izquierdo) */}
+      <button
+        type="button"
+        onClick={handleTarget}
+        disabled={locating}
+        title={
+          locating
+            ? 'Buscando tu ubicación exacta…'
+            : geoActive
+              ? 'Punto azul activo: centrar en mi ubicación exacta'
+              : geoStatus === 'inexact'
+                ? 'Señal aproximada detectada: toca para pedir ubicación exacta'
+                : '📍 Encontrar ofertas exactas cerca de mí'
+        }
+        aria-label="Centrar en mi ubicación exacta"
+        className={
+          geoActive
+            ? 'pressable absolute right-3 top-3 z-20 grid h-10 w-10 place-items-center rounded-full border border-blue-400/60 bg-blue-500 text-white shadow-[0_6px_18px_rgba(2,6,23,0.55)] transition hover:brightness-110'
             : geoStatus === 'inexact'
-              ? 'Señal aproximada detectada: toca para pedir ubicación exacta'
-              : '📍 Encontrar ofertas exactas cerca de mí'
-      }
-      aria-label="Centrar en mi ubicación exacta"
-      className={
-        geoActive
-          ? 'pressable absolute right-3 top-3 z-20 grid h-10 w-10 place-items-center rounded-full border border-blue-400/60 bg-blue-500 text-white shadow-[0_6px_18px_rgba(2,6,23,0.55)] transition hover:brightness-110'
-          : geoStatus === 'inexact'
-            ? 'pressable absolute right-3 top-3 z-20 grid h-10 w-10 place-items-center rounded-full border border-amber-400/60 bg-amber-500 text-slate-950 shadow-[0_6px_18px_rgba(2,6,23,0.55)] transition hover:brightness-110'
-            : 'pressable absolute right-3 top-3 z-20 grid h-10 w-10 place-items-center rounded-full border border-impulso-emerald/50 bg-slate-950/90 text-impulso-mint shadow-[0_6px_18px_rgba(2,6,23,0.55)] backdrop-blur-md transition hover:bg-impulso-emerald hover:text-slate-950'
-      }
-    >
-      {locating ? (
-        <Loader2 className="h-4 w-4 animate-spin" />
-      ) : (
-        <LocateFixed className={geoActive ? 'h-4 w-4 animate-pulse-soft' : 'h-4 w-4'} />
-      )}
-    </button>
+              ? 'pressable absolute right-3 top-3 z-20 grid h-10 w-10 place-items-center rounded-full border border-amber-400/60 bg-amber-500 text-slate-950 shadow-[0_6px_18px_rgba(2,6,23,0.55)] transition hover:brightness-110'
+              : 'pressable absolute right-3 top-3 z-20 grid h-10 w-10 place-items-center rounded-full border border-impulso-emerald/50 bg-slate-950/90 text-impulso-mint shadow-[0_6px_18px_rgba(2,6,23,0.55)] backdrop-blur-md transition hover:bg-impulso-emerald hover:text-slate-950'
+        }
+      >
+        {locating ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          <LocateFixed className={geoActive ? 'h-4 w-4 animate-pulse-soft' : 'h-4 w-4'} />
+        )}
+      </button>
+    </>
   );
 }
 
@@ -491,13 +562,13 @@ export function LiveMap({
           })}
         </div>
 
-        {/* Botón ampliar/compactar mapa */}
+        {/* Botón ampliar/compactar mapa (alineado al rail derecho bajo GPS) */}
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
           title={expanded ? 'Compactar mapa' : 'Ampliar mapa'}
           aria-label={expanded ? 'Compactar mapa' : 'Ampliar mapa'}
-          className="pressable absolute right-3 top-14 z-20 grid h-9 w-9 place-items-center rounded-full border border-white/15 bg-slate-950/85 text-slate-200 shadow-md backdrop-blur-md transition hover:border-impulso-emerald/50 hover:text-impulso-mint"
+          className="pressable absolute right-3 top-[60px] z-20 grid h-9 w-9 place-items-center rounded-full border border-white/15 bg-slate-950/90 text-slate-200 shadow-md backdrop-blur-md transition hover:border-impulso-emerald/50 hover:text-impulso-mint"
         >
           {expanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
         </button>
@@ -575,7 +646,10 @@ export function LiveMap({
         <MapContainer
           center={[effectiveCenter.lat, effectiveCenter.lng]}
           zoom={focusedCoords ? 17 : zoom}
-          scrollWheelZoom={false}
+          scrollWheelZoom={true}
+          zoomControl={false}
+          wheelDebounceTime={40}
+          wheelPxPerZoomLevel={90}
           attributionControl
           className="h-full w-full"
         >

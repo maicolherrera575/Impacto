@@ -29,6 +29,8 @@ export interface RadarMatchResult {
   intent: RadarConversationalIntent;
   isShoppingIntent: boolean;
   isSupportOrReport: boolean;
+  /** V39.0 · True cuando la pregunta es puramente informativa/confianza (JAMÁS debe abrir ticket). */
+  isInformationalOnly: boolean;
   isNearMatch: boolean;
   parsedBudget: number | null;
   isUrgent: boolean;
@@ -87,11 +89,22 @@ const SHOPPING_INTENT_RE =
 const SUPPORT_REPORT_RE =
   /error|no\s+(funciona|carga|abre|sirve|deja|llega)|fall[ao]|bug|roto|congel|bloque|duplicad|cobr[oó]|descont[oó]|reportar|denunciar|reclamo|disputa|hablar\s+con\s+(un\s+)?(humano|admin|administrador|soporte|alguien)|soporte\s+t[eé]cnico|contrase[nñ]a|huella|biometr|recarg|cr[eé]dito|nequi\s+oficial|gps\s+no/i;
 
+/** V39.0 · Preguntas informativas sobre confianza, seguridad, garantías o cómo evitar estafas (CERO falsos tickets). */
 const SAFETY_TRUST_RE =
-  /como\s+se\s+que\s+no\s+es\s+estafa|no\s+es\s+(estafa|fraude)|es\s+(segur[oa]|confiable|real|verdad|leg[ií]tim)|puedo\s+confiar|me\s+pueden\s+estafar|garantia\s+de\s+seguridad/i;
+  /(que\s+me\s+garantiz|como\s+garantiz|como\s+se\s+que|como\s+saber\s+si|no\s+me\s+(van\s+a\s+)?estaf|no\s+me\s+engañ|no\s+me\s+roban|no\s+es\s+(una?\s+)?(estafa|fraude|mentira|falso)|es\s+(segur[oa]|confiable|real|verdad|leg[ií]tim|serio)|puedo\s+confiar|me\s+pueden\s+estafar|evitar\s+(una?\s+)?estafa|garanti[az]|seguridad\s+al\s+(comprar|apartar)|que\s+significa(n)?\s+(las?\s+)?insignia|comercio\s+verificado)/i;
 
+/** V39.0 · Reporte REAL de incidente de estafa/fraude ocurrido o en curso (excluye dudas con "no me estafarán"). */
 const FRAUD_INCIDENT_RE =
-  /me\s+estaf|fui\s+estaf|intento\s+de\s+estafa|estafa\s+en|fraude\s+en|comercio\s+falso|robo\s+en|me\s+robaron|reportar\s+(estafa|fraude)/i;
+  /(ya\s+me\s+estaf|me\s+estafaron|fui\s+estafad|me\s+robaron|me\s+engañaron|me\s+enganaron|quiero\s+(reportar|denunciar)\s+(una?\s+)?(estafa|fraude|comercio|oferta)|reportar\s+(una?\s+)?(estafa|fraude)|esta\s+oferta\s+es\s+(una?\s+)?(estafa|falsa)|cobraron\s+y\s+no\s+(entregaron|dieron)|comercio\s+falso\s+me)/i;
+
+export function isActualIncidentOrHumanHelp(raw: string): boolean {
+  const norm = normalizeText(raw);
+  if (!norm) return false;
+  if (SAFETY_TRUST_RE.test(norm) && !FRAUD_INCIDENT_RE.test(norm) && !/hablar\s+con\s+(un\s+)?(humano|admin|administrador|soporte)/i.test(norm)) {
+    return false;
+  }
+  return FRAUD_INCIDENT_RE.test(norm) || SUPPORT_REPORT_RE.test(raw);
+}
 
 const URGENCY_RE = /\bya\b|ahora|r[aá]pido|urgente|1\s*hora|una\s+hora|inmediato|pronto|cerca|ahorita|hoy\s+mismo/i;
 
@@ -213,8 +226,8 @@ export function matchLiveOffersForRadar(
   const norm = normalizeText(query);
   const parsedBudget = extractBudgetCop(query);
   const isUrgent = URGENCY_RE.test(query);
-  const isSupportOrReport = SUPPORT_REPORT_RE.test(query);
   const baseIntent = detectConversationalIntent(query);
+  const isSupportOrReport = baseIntent === 'support';
 
   // Detectar categoría explícita o por sinónimos
   let detectedCategory: Category | null = null;
@@ -268,11 +281,24 @@ export function matchLiveOffersForRadar(
     (o) => o.status === 'active' && o.available_quota > 0 && new Date(o.expires_at).getTime() > now,
   );
 
+  const isInformationalOnly =
+    !isSupportOrReport &&
+    (intent === 'greeting' ||
+      intent === 'thanks' ||
+      intent === 'what_is_this' ||
+      intent === 'safety_trust' ||
+      intent === 'how_to_reserve' ||
+      intent === 'is_free_payment' ||
+      intent === 'account_question' ||
+      intent === 'clarify_followup' ||
+      intent === 'where_followup');
+
   if (activePool.length === 0 || !isShoppingIntent) {
     return {
       intent,
       isShoppingIntent,
       isSupportOrReport: intent === 'support',
+      isInformationalOnly,
       isNearMatch: false,
       parsedBudget,
       isUrgent,
@@ -393,6 +419,7 @@ export function matchLiveOffersForRadar(
       intent,
       isShoppingIntent,
       isSupportOrReport: false,
+      isInformationalOnly: false,
       isNearMatch: true,
       parsedBudget,
       isUrgent,
@@ -406,6 +433,7 @@ export function matchLiveOffersForRadar(
     intent,
     isShoppingIntent,
     isSupportOrReport: false,
+    isInformationalOnly: false,
     isNearMatch: false,
     parsedBudget,
     isUrgent,

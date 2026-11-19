@@ -276,13 +276,13 @@ function resolveAdaptiveCta(
     .trim();
   const cleanPhone = (phoneDisplay ?? '').replace(/^[^\p{L}\p{N}+]+/u, '').trim();
   if (qrMode === 'perfil') {
-    return /whatsapp|pide\s+el\s+tuyo|cotiza/i.test(cleaned) || !cleaned
+    return /whatsapp|pide\s+el\s+tuyo|cotiza|ver\s+todas\s+las\s+ofertas/i.test(cleaned) || !cleaned
       ? 'ESCANEA Y EXPLORA EL CATÁLOGO'
       : cleaned;
   }
   if (qrMode === 'externo') {
-    return /whatsapp|pide\s+el\s+tuyo|cotiza|aparta|ver\s+todas/i.test(cleaned) || !cleaned
-      ? 'ESCANEA PARA MÁS INFORMACIÓN'
+    return /whatsapp|pide\s+el\s+tuyo|cotiza|aparta|ver\s+todas|visita\s+nuestro\s+sitio/i.test(cleaned) || !cleaned
+      ? 'ESCANEA PARA CONOCER MÁS'
       : cleaned;
   }
   if (qrMode === 'oferta') {
@@ -290,9 +290,9 @@ function resolveAdaptiveCta(
       ? 'ESCANEA PARA APARTAR HOY'
       : cleaned;
   }
-  if (cleaned) return cleaned;
-  if (cleanPhone && cleanPhone.length >= 7) return `PEDIDOS AL WHATSAPP ${cleanPhone}`;
-  return isService ? 'ESCANEA PARA COTIZAR HOY' : 'RESERVA HOY EN IMPULSO';
+  if (cleaned && !/^ver\s+todas\s+las\s+ofertas$/i.test(cleaned)) return cleaned;
+  if (cleanPhone && cleanPhone.length >= 7) return `ESCANEA O ESCRIBE AL ${cleanPhone}`;
+  return isService ? 'ESCANEA Y AGENDA TU ASESORÍA' : 'ESCANEA Y RESERVA HOY';
 }
 
 /**
@@ -2351,7 +2351,7 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
           }}
         />
 
-        {/* Mitad inferior: Bloque sólido editorial de alto contraste WCAG (cero recortes) */}
+        {/* Mitad inferior: Bloque editorial rico con profundidad ambiental y trama sutil (cero planicie) */}
         <div
           style={{
             flex: 1,
@@ -2362,9 +2362,9 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
             flexDirection: 'column',
             justifyContent: 'space-between',
             gap: isSquare ? 4 : 8,
-            background: isLightSplit
-              ? `linear-gradient(180deg, ${solidSurfaceHex} 0%, #ede8dc 100%)`
-              : `linear-gradient(180deg, ${solidSurfaceHex} 0%, #050811 100%)`,
+            backgroundImage: isLightSplit
+              ? `radial-gradient(280px 180px at 92% 8%, ${t.accent}1f, transparent 66%), radial-gradient(220px 160px at 8% 92%, ${t.accent2}1a, transparent 64%), linear-gradient(180deg, ${solidSurfaceHex} 0%, #ede8dc 100%)`
+              : `radial-gradient(320px 210px at 88% 12%, ${t.accent}2b, transparent 68%), radial-gradient(260px 180px at 10% 88%, ${t.accent2}22, transparent 66%), repeating-linear-gradient(-45deg, rgba(255,255,255,0.018) 0 1px, transparent 1px 14px), linear-gradient(180deg, ${solidSurfaceHex} 0%, #050811 100%)`,
           }}
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: isSquare ? 3 : 6, minHeight: 0, overflow: 'hidden' }}>
@@ -2720,7 +2720,8 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
           width: '100%',
           height: '100%',
           overflow: 'hidden',
-          background: `linear-gradient(160deg, ${diagSurface} 0%, #050811 100%)`,
+          backgroundImage: `radial-gradient(380px 260px at 86% 62%, ${t.accent2}30, transparent 68%), radial-gradient(300px 220px at 12% 90%, ${t.accent}2c, transparent 65%), radial-gradient(rgba(255,255,255,0.06) 1px, transparent 1px), linear-gradient(160deg, ${diagSurface} 0%, #050811 100%)`,
+          backgroundSize: '100% 100%, 100% 100%, 18px 18px, 100% 100%',
         }}
       >
         {/* Fotografía con corte diagonal real (clip-path poligonal) */}
@@ -3538,6 +3539,9 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
           justifyContent: 'space-between',
           gap: isSquare ? 6 : 10,
           overflow: 'hidden',
+          backgroundImage: isLightBg
+            ? `radial-gradient(320px 240px at 90% 12%, ${t.accent2}24, transparent 68%), radial-gradient(280px 220px at 10% 88%, ${t.accent}1f, transparent 66%), linear-gradient(165deg, #fbfaf7 0%, #eef2f7 100%)`
+            : `radial-gradient(360px 250px at 88% 14%, ${t.accent2}2e, transparent 66%), radial-gradient(300px 240px at 12% 86%, ${t.accent}28, transparent 65%), linear-gradient(165deg, ${dominantDark} 0%, #040711 100%)`,
         }}
       >
         {/* Cabecera minimalista de estudio */}

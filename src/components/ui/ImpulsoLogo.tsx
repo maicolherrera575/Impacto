@@ -61,7 +61,7 @@ export function ImpulsoLogo({ subtitle, size = 'md', hideTextOnMobile = false, c
   const gradId = `imp-word-grad-${uid}`;
 
   const height = size === 'sm' ? 24 : size === 'lg' ? 34 : 28;
-  const svgWidth = Math.round(height * (172 / 34));
+  const svgWidth = Math.round(height * (152 / 36));
 
   return (
     <div className={cx('inline-flex items-center select-none', className)}>
@@ -69,49 +69,46 @@ export function ImpulsoLogo({ subtitle, size = 'md', hideTextOnMobile = false, c
         <svg
           width={svgWidth}
           height={height}
-          viewBox="0 0 172 34"
+          viewBox="0 0 152 36"
           fill="none"
           xmlns="http://www.w3.org/2000/svg"
           role="img"
           aria-label="IMPULSO"
-          className={cx('block shrink-0', hideTextOnMobile ? 'h-6 w-auto sm:h-7' : 'w-auto')}
+          className={cx('block shrink-0 overflow-visible', hideTextOnMobile ? 'h-6 w-auto sm:h-7' : 'w-auto')}
         >
           <defs>
-            <linearGradient id={gradId} x1="2" y1="4" x2="170" y2="30" gradientUnits="userSpaceOnUse">
+            <linearGradient id={gradId} x1="6" y1="4" x2="148" y2="32" gradientUnits="userSpaceOnUse">
               <stop offset="0" stopColor="#10B981" />
               <stop offset="0.55" stopColor="#34D399" />
               <stop offset="1" stopColor="#22D3EE" />
             </linearGradient>
           </defs>
 
-          {/* Pulso radar sutil y elegante integrado sobre la "I" oficial de IMPULSO */}
+          {/* Pulso radar sutil y centrado con margen limpio sobre la "I" oficial de IMPULSO */}
           <circle
-            cx="5.2"
-            cy="7.7"
-            r="3.4"
+            cx="9.2"
+            cy="9.2"
+            r="3.6"
             stroke={`url(#${gradId})`}
-            strokeWidth="1.2"
+            strokeWidth="1.25"
             className="imp-logo-radar-ring"
           />
-          {/* Letra I geométrica autoritaria con punto/cabezal integrado en degradado Esmeralda -> Cian */}
-          <rect x="2" y="5" width="6.4" height="5.4" rx="1.4" fill={`url(#${gradId})`} />
-          <rect x="2" y="12.2" width="6.4" height="16.8" rx="1.4" fill="#F8FAFC" />
+          {/* Letra I geométrica autoritaria con cabezal radar en degradado Esmeralda -> Cian */}
+          <rect x="6" y="6.5" width="6.4" height="5.4" rx="1.5" fill={`url(#${gradId})`} />
+          <rect x="6" y="13.8" width="6.4" height="16.7" rx="1.5" fill="#F8FAFC" />
 
-          {/* Tipografía pesada MPULSO alineada exactamente en línea base */}
+          {/* Tipografía pesada MPULSO con kerning óptico limpio y alineación exacta en línea base */}
           <text
-            x="13"
-            y="29"
+            x="17"
+            y="30.4"
             fill="#F8FAFC"
             fontFamily="'Montserrat', 'Space Grotesk', system-ui, -apple-system, sans-serif"
-            fontSize="26"
+            fontSize="25.5"
             fontWeight="900"
-            letterSpacing="1.8"
+            letterSpacing="1.35"
           >
             MPULSO
           </text>
-
-          {/* Acento sutil integrado en el cierre */}
-          <circle cx="166.5" cy="25.5" r="2.7" fill={`url(#${gradId})`} />
         </svg>
         {subtitle && (
           <p className="mt-0.5 hidden pl-0.5 text-[10px] font-medium tracking-wide text-slate-400 md:block">

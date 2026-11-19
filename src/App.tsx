@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, ShieldCheck } from 'lucide-react';
 
 import type { ClientPreferences, Offer, Profile, QuickRequest, Ticket } from './types';
@@ -185,20 +185,50 @@ export default function App() {
     return () => sub.subscription.unsubscribe();
   }, [loadProfile]);
 
-  // ── Radar de ofertas (fetch Edge-cacheado + Realtime debounced 1.5s) ─────
-  const refetchOffers = useCallback(async (forceFresh = false) => {
-    try {
-      setOffers(await fetchActiveOffers(municipality, { forceFresh }));
-    } catch (err) {
-      console.warn('[Impulso] ofertas:', friendlyError(err));
+  // ── Radar de ofertas (Edge CDN adaptativo 15s→30s→60s + Realtime debounced 1.5s) ──
+  const offersSigRef = useRef('');
+  const lastOffersSyncAtRef = useRef(0);
+  const lastUserActivityAtRef = useRef(Date.now());
+  const syncInFlightRef = useRef(false);
+
+  const applyOffersIfChanged = useCallback((next: Offer[]) => {
+    const sig = next
+      .map((o) => `${o.id}:${o.available_quota}:${o.promo_price}:${o.status}:${o.expires_at}:${o.title}`)
+      .join('|');
+    if (sig !== offersSigRef.current) {
+      offersSigRef.current = sig;
+      setOffers(next);
     }
-  }, [municipality]);
+  }, []);
+
+  const refetchOffers = useCallback(
+    async (forceFresh = false, opts?: { bypassClientCache?: boolean; edgeOnly?: boolean }) => {
+      if (syncInFlightRef.current && !forceFresh) return;
+      syncInFlightRef.current = true;
+      try {
+        const next = await fetchActiveOffers(municipality, {
+          forceFresh,
+          bypassClientCache: opts?.bypassClientCache,
+          edgeOnly: opts?.edgeOnly,
+        });
+        lastOffersSyncAtRef.current = Date.now();
+        applyOffersIfChanged(next);
+      } catch (err) {
+        console.warn('[Impulso] ofertas:', friendlyError(err));
+      } finally {
+        syncInFlightRef.current = false;
+      }
+    },
+    [municipality, applyOffersIfChanged],
+  );
 
   useEffect(() => {
+    offersSigRef.current = '';
     void refetchOffers(false);
     // Debounce de 1.5s (V36 Free Tier Resilience): agrupa ráfagas de Realtime
     // (vistas, apartados simultáneos) para no saturar consultas ni provocar re-renders.
     let timer: number | null = null;
+    let pollTimer: number | null = null;
     const clearTimers: number[] = [];
     const scheduleRefetch = (payload?: { eventType?: string; new?: Record<string, unknown> }) => {
       if (payload?.eventType === 'INSERT' && payload.new && typeof payload.new.id === 'string') {
@@ -228,9 +258,52 @@ export default function App() {
         scheduleRefetch(payload as { eventType?: string; new?: Record<string, unknown> }),
       )
       .subscribe();
+
+    // ⚡ V39.0 · Auto-Sync Adaptativo vía Edge CDN (15s activo -> 30s tibio -> 60s inactivo -> 0s oculto):
+    // garantiza que ofertas nuevas o [DEMO] aparezcan en celulares sin recargar y sin saturar Supabase Free.
+    const markActivity = () => {
+      lastUserActivityAtRef.current = Date.now();
+    };
+    const computeNextIntervalMs = (): number => {
+      const idleMs = Date.now() - lastUserActivityAtRef.current;
+      const base = idleMs < 120_000 ? 15_000 : idleMs < 300_000 ? 30_000 : 60_000;
+      const jitter = Math.floor(Math.random() * 2_500);
+      return base + jitter;
+    };
+    const scheduleNextPoll = () => {
+      if (pollTimer != null) window.clearTimeout(pollTimer);
+      pollTimer = window.setTimeout(() => {
+        if (document.visibilityState === 'visible' && navigator.onLine !== false) {
+          void refetchOffers(false, { bypassClientCache: true, edgeOnly: true });
+        }
+        scheduleNextPoll();
+      }, computeNextIntervalMs());
+    };
+    const handleResumeSync = () => {
+      if (document.visibilityState === 'visible') {
+        markActivity();
+        if (Date.now() - lastOffersSyncAtRef.current >= 10_000) {
+          void refetchOffers(false, { bypassClientCache: true, edgeOnly: true });
+        }
+      }
+    };
+
+    scheduleNextPoll();
+    window.addEventListener('pointerdown', markActivity, { passive: true });
+    window.addEventListener('keydown', markActivity, { passive: true });
+    window.addEventListener('scroll', markActivity, { passive: true });
+    window.addEventListener('online', handleResumeSync);
+    document.addEventListener('visibilitychange', handleResumeSync);
+
     return () => {
       if (timer != null) window.clearTimeout(timer);
+      if (pollTimer != null) window.clearTimeout(pollTimer);
       clearTimers.forEach((t) => window.clearTimeout(t));
+      window.removeEventListener('pointerdown', markActivity);
+      window.removeEventListener('keydown', markActivity);
+      window.removeEventListener('scroll', markActivity);
+      window.removeEventListener('online', handleResumeSync);
+      document.removeEventListener('visibilitychange', handleResumeSync);
       void supabase.removeChannel(channel);
     };
   }, [refetchOffers, municipality, toast]);

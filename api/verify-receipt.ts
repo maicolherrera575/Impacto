@@ -423,10 +423,13 @@ async function analyzeReceiptWithGeminiServer(
   const dest10 = last10Digits(dest ?? '');
   const admin10 = last10Digits(adminPhone || OFFICIAL_ADMIN_NEQUI);
   const keyClean = adminKey.replace(/[^a-zA-Z0-9@]/g, '').toLowerCase();
+  const keyBare = keyClean.replace(/^@+/, '');
+  const destClean = (dest ?? '').replace(/[^a-zA-Z0-9@]/g, '').toLowerCase();
   const isValidDestination = Boolean(
     dest &&
       ((dest10.length === 10 && (dest10 === admin10 || dest10 === OFFICIAL_ADMIN_NEQUI || (davi10.length === 10 && dest10 === davi10))) ||
-        (keyClean && dest.toLowerCase().includes(keyClean))),
+        (keyClean && destClean.includes(keyClean)) ||
+        (keyBare.length >= 6 && destClean.includes(keyBare))),
   );
 
   return {

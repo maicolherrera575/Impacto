@@ -160,6 +160,7 @@ export function SupportConcierge({
         userRole,
         municipality,
         intent: localMatch.intent,
+        isInformationalOnly: localMatch.isInformationalOnly,
         matchedOffersSummary: compactSummary,
         isNearMatch: localMatch.isNearMatch,
         parsedBudget: localMatch.parsedBudget,
@@ -183,7 +184,7 @@ export function SupportConcierge({
       setMessages(updatedConversation);
       scrollToBottom();
 
-      if (assessment.isTechnicalIssue) {
+      if (assessment.isTechnicalIssue && !localMatch.isInformationalOnly) {
         const transcriptForDb: SupportChatMessage[] = updatedConversation.map((m) => ({
           role: m.role,
           text: m.content,

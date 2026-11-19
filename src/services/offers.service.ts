@@ -36,22 +36,32 @@ const OFFER_PUBLIC_SELECT = [
 const MERCHANT_HISTORY_SELECT =
   'id, merchant_id, category, title, description, emoji_icon, original_price, promo_price, total_quota, available_quota, municipality, lat, lng, expires_at, status, views_count, image_thumb, delivery_type, reports_count, created_at';
 
-/** ⚡ Caché en memoria (TTL 30s) para proteger el Free Tier de Supabase bajo ráfagas. */
-const FEED_CACHE_TTL_MS = 30_000;
+/** ⚡ V39.0 · Caché cliente 12s + Edge CDN 15s: frescura rápida sin golpear Supabase Free. */
+const FEED_CACHE_TTL_MS = 12_000;
 const feedCache = new Map<string, { at: number; data: Offer[] }>();
 
 export function invalidateOffersFeedCache(): void {
   feedCache.clear();
 }
 
-/** Ofertas activas y vigentes (Edge CDN cacheado 30s + caché cliente 30s + fallback directo Supabase). */
-export async function fetchActiveOffers(municipality?: string, opts?: { forceFresh?: boolean }): Promise<Offer[]> {
+/**
+ * Ofertas activas y vigentes:
+ *  - Modo normal / auto-sync (`edgeFirst`): consulta `/api/public-offers` (absorbido por Edge CDN 15s),
+ *    protegiendo Supabase Free incluso con cientos/miles de usuarios sincronizando cada 15-30s.
+ *  - Modo `forceFresh`: va directo a Supabase tras evento Realtime o acción local del usuario.
+ */
+export async function fetchActiveOffers(
+  municipality?: string,
+  opts?: { forceFresh?: boolean; bypassClientCache?: boolean; edgeOnly?: boolean },
+): Promise<Offer[]> {
   const cacheKey = (municipality ?? '__ALL__').trim();
   const now = Date.now();
   if (!opts?.forceFresh) {
-    const cached = feedCache.get(cacheKey);
-    if (cached && now - cached.at < FEED_CACHE_TTL_MS) {
-      return cached.data;
+    if (!opts?.bypassClientCache) {
+      const cached = feedCache.get(cacheKey);
+      if (cached && now - cached.at < FEED_CACHE_TTL_MS) {
+        return cached.data;
+      }
     }
 
     // 1) Intentar primero el endpoint público Edge-cacheado (/api/public-offers)
@@ -63,6 +73,7 @@ export async function fetchActiveOffers(municipality?: string, opts?: { forceFre
         const res = await fetch(`/api/public-offers${qs}`, {
           method: 'GET',
           headers: { Accept: 'application/json' },
+          cache: opts?.bypassClientCache ? 'no-cache' : 'default',
           signal: ctrl?.signal,
         });
         if (res.ok) {
@@ -76,7 +87,10 @@ export async function fetchActiveOffers(municipality?: string, opts?: { forceFre
         if (timer != null) window.clearTimeout(timer);
       }
     } catch {
-      /* fallback instantáneo a Supabase directo */
+      /* si es polling silencioso solo-Edge, evitar golpear Supabase si /api falla temporalmente */
+      if (opts?.edgeOnly) {
+        return feedCache.get(cacheKey)?.data ?? [];
+      }
     }
   }
 

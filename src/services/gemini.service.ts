@@ -2141,9 +2141,50 @@ export function synthesizeCampaign(input: CampaignInput, art: ArtDirection): Mar
   const ctaPool = isService ? focusRule.serviceCtas : focusRule.ctas;
   const subPrefix = isService ? focusRule.serviceSubPrefix : focusRule.subPrefix;
   const resolvedBadge = stripPictographics(rotate(badgePool, seed) || art.dynamicTagline).toUpperCase() || art.categoryLabel.toUpperCase();
-  const briefSentence = input.slogan.trim() || input.brief.trim().split(/[.!?\n]+/)[0]?.trim() || '';
-  const compactBriefSub = briefSentence.length >= 16 && briefSentence.length <= 108 ? briefSentence : '';
+  const briefFirstSentence = input.brief.trim().split(/[.!?\n]+/)[0]?.trim() || '';
+  const sloganClean = input.slogan.trim();
+  // V39.0 · Prioriza el brief real sobre categorías heredadas genéricas ("Comida y Bebidas · Gachetá")
+  const sloganLooksGenericProfile = /^(comida y bebidas|transporte|agro|servicios)\s*·/i.test(sloganClean);
+  const briefSentence =
+    (briefFirstSentence.length >= 16 ? briefFirstSentence : '') ||
+    (!sloganLooksGenericProfile ? sloganClean : '');
+  const compactBriefSub =
+    briefSentence.length >= 16
+      ? (briefSentence.length <= 108 ? briefSentence : `${briefSentence.slice(0, 102).trim()}…`)
+      : '';
   const resolvedSub = compactBriefSub || `${subPrefix} ${rotate(niche.subs, Math.floor(seed / 5))}`;
+
+  const b0Clean = b0.replace(/^[^\p{L}\p{N}]+/u, '');
+  const b1Clean = b1.replace(/^[^\p{L}\p{N}]+/u, '');
+  const b2Clean = b2.replace(/^[^\p{L}\p{N}]+/u, '');
+  const hookSentence = compactBriefSub || `${hook.charAt(0).toUpperCase()}${hook.slice(1)}`;
+  const focusCloseWa = isService
+    ? input.focus === 'prestigio'
+      ? `👉 *Escríbenos por WhatsApp* y agenda tu asesoría personalizada con _${brand}_`
+      : input.focus === 'confianza'
+        ? `👉 *Conversa directo por WhatsApp* y recibe tu propuesta clara sin compromiso`
+        : input.focus === 'viral'
+          ? `👉 *Toca WhatsApp ahora* y descubre cómo hacer despegar tu negocio en _${place}_`
+          : `👉 *Escríbenos HOY por WhatsApp* y separa tu espacio de agenda esta semana`
+    : input.focus === 'prestigio'
+      ? `👉 *Escríbenos por WhatsApp* y reserva tu pedido exclusivo en _${brand}_`
+      : `👉 *Escríbenos HOY a WhatsApp* y asegura tu cupo antes del cierre`;
+
+  const focusCloseSocial = isService
+    ? `📲 Agenda tu diagnóstico o cotización directa por WhatsApp`
+    : `📲 Reserva tu cupo HOY por WhatsApp (pago directo al recibir)`;
+
+  const reelHook = isService
+    ? `[0-3s Gancho visual: pantalla mostrando el antes y después real de ${product.toLowerCase()} en movimiento] Texto en pantalla: "¿TU NEGOCIO EN ${place.toUpperCase()} SE VE ASÍ?" | Voz: "¡Ojo a esto! Si tienes negocio en ${place} y quieres atraer más clientes reales, mira lo que hace ${brand}…"`
+    : `[0-3s Gancho visual: plano cerrado en movimiento entrando directo a ${product.toLowerCase()} recién listo] Texto en pantalla: "¿EN ${place.toUpperCase()} Y SIN PROBAR ESTO?" | Voz: "¡Espera un segundo! Si estás en ${place}, mira lo que acaba de sacar ${brand}…"`;
+
+  const reelMid = isService
+    ? `[3-12s Demostración/Valor: 3 tomas ágiles de piezas reales, estrategia y resultados en pantalla] Texto en pantalla: "${b0Clean.toUpperCase()}" | Voz: "Con ${brand} tienes ${b0Clean.toLowerCase()} y ${b2Clean.toLowerCase()} — sin improvisar."`
+    : `[3-12s Demostración/Valor: 3 cortes rápidos mostrando textura, uso real y entrega] Texto en pantalla: "${b0Clean.toUpperCase()}" | Voz: "Tienes ${b0Clean.toLowerCase()} y ${b2Clean.toLowerCase()}${price}."`;
+
+  const reelClose = isService
+    ? `[12-20s Prueba + Cierre: equipo/portafolio y QR en pantalla] Texto en pantalla: "ESCANEA Y COTIZA HOY · ${brand.toUpperCase()}" | Voz: "${plain} ${highlight}. Escríbenos hoy mismo por WhatsApp y arrancamos tu proyecto en ${place}."`
+    : `[12-20s Prueba + Cierre: fachada del local en ${addr} y QR de Impulso en mano] Texto en pantalla: "ESCANEA O APARTA HOY · ${addr.toUpperCase()}" | Voz: "${plain} ${highlight}. Pásate por ${addr} o escríbenos ya al WhatsApp antes que se agoten los cupos."`;
 
   return {
     industryType: art.industryType,
@@ -2165,39 +2206,47 @@ export function synthesizeCampaign(input: CampaignInput, art: ArtDirection): Mar
     visualHooks: {
       slide1_hook: `${product}${price ? ' con oferta de hoy' : ''}: ${hook.charAt(0).toUpperCase()}${hook.slice(1)}`,
       slide1_sub: `Conoce por qué en ${place} ya lo están eligiendo`,
-      slide2_headline: `${b0.replace(/^[^\p{L}\p{N}]+/u, '')} y ${b1.replace(/^[^\p{L}\p{N}]+/u, '').toLowerCase()}`,
+      slide2_headline: `${b0Clean} y ${b1Clean.toLowerCase()}`,
       slide2_bullets: [stripPictographics(b0), stripPictographics(b1), stripPictographics(b2)],
-      slide3_cta: `Últimos cupos de hoy 👉 Escríbenos al WhatsApp de ${brand}`,
+      slide3_cta: isService ? `Agenda abierta · Escanea y escríbenos en ${brand}` : `Últimos cupos de hoy · Escanea el QR de ${brand}`,
     },
     whatsappStatusSequence: {
-      status1: `🔥 *HOY en ${brand} (${place}):* ${product}${price}.\n_${hook.charAt(0).toUpperCase()}${hook.slice(1)}._\n📲 Escríbenos ahora y pregunta por tu cupo`,
-      status2: `*${plain.toUpperCase()} ${highlight.toUpperCase()}*${price}${normalTxt}\n\n✅ *${b0.replace(/^[^\p{L}\p{N}]+/u, '')}*\n✅ *${b2.replace(/^[^\p{L}\p{N}]+/u, '')}*\n\n📍 _${addr}_`,
-      status3: `⏳ *Últimas horas hoy en ${brand}* (${place}).\n_${b1.replace(/^[^\p{L}\p{N}]+/u, '')}_ — escribe ya antes que se acabe 📲`,
+      status1: isService
+        ? `🚀 *${brand} en ${place}:* ${product}.\n_${hookSentence}._\n📲 Escríbenos ahora y te mostramos cómo empezar`
+        : `🔥 *HOY en ${brand} (${place}):* ${product}${price}.\n_${hookSentence}._\n📲 Escríbenos ahora y pregunta por tu cupo`,
+      status2: `*${plain.toUpperCase()} ${highlight.toUpperCase()}*${price}${normalTxt}\n\n✅ *${b0Clean}*\n✅ *${b2Clean}*\n\n📍 _${addr}_`,
+      status3: isService
+        ? `✨ *Agenda de la semana en ${brand}* (${place}).\n_${b1Clean}_ — envíanos un mensaje y diseñamos tu plan a medida 📲`
+        : `⏳ *Últimas horas hoy en ${brand}* (${place}).\n_${b1Clean}_ — escribe ya antes del cierre 📲`,
     },
     socialMediaCopy: {
-      pas: `✨ ${plain} ${highlight}${price}${normalTxt}\n\n${hook.charAt(0).toUpperCase()}${hook.slice(1)} en ${brand}.\n\n✅ ${b0.replace(/^[^\p{L}\p{N}]+/u, '')}\n✅ ${b1.replace(/^[^\p{L}\p{N}]+/u, '')}\n✅ ${b2.replace(/^[^\p{L}\p{N}]+/u, '')}\n\n📍 ${addr} · ${place}\n📲 ${isService ? 'Cotiza hoy sin costo por WhatsApp' : 'Aparta el tuyo HOY por WhatsApp'}\n\n${hashtags}`,
-      aida: `⚡ *${plain.toUpperCase()} ${highlight.toUpperCase()}*${price}${normalTxt}\n\n_${hook.charAt(0).toUpperCase()}${hook.slice(1)}._\n✅ *${b0.replace(/^[^\p{L}\p{N}]+/u, '')}*\n✅ *${b1.replace(/^[^\p{L}\p{N}]+/u, '')}*\n\n📍 _${addr}_\n👉 *Escríbenos AHORA a WhatsApp* y aparta hoy mismo`,
+      pas: `✨ ${plain} ${highlight}${price}${normalTxt}\n\n${hookSentence}.\n\n✅ ${b0Clean}\n✅ ${b1Clean}\n✅ ${b2Clean}\n\n📍 ${addr} · ${place}\n${focusCloseSocial}\n\n${hashtags}`,
+      aida: `✨ *${plain.toUpperCase()} ${highlight.toUpperCase()}*${price}${normalTxt}\n\n_${hookSentence}._\n\n✅ *${b0Clean}*\n✅ *${b1Clean}*\n✅ *${b2Clean}*\n\n📍 _${addr} · ${place}_\n${focusCloseWa}`,
     },
     videoReelScript: {
-      t0_3: `[0-3s Gancho visual: plano cerrado en movimiento entrando directo a ${product.toLowerCase()} recién listo] Texto en pantalla: "¿EN ${place.toUpperCase()} Y SIN PROBAR ESTO?" | Voz: "¡Espera un segundo! Si estás en ${place}, mira lo que acaba de sacar ${brand}…"`,
-      t3_10: `[3-12s Demostración/Valor: 3 cortes rápidos mostrando textura, uso real y entrega] Texto en pantalla: "${b0.replace(/^[^\p{L}\p{N}]+/u, '').toUpperCase()}" | Voz: "Tienes ${b0.replace(/^[^\p{L}\p{N}]+/u, '').toLowerCase()} y ${b2.replace(/^[^\p{L}\p{N}]+/u, '').toLowerCase()}${price}."`,
-      t10_15: `[12-20s Prueba + Cierre: fachada del local en ${addr} y QR de Impulso en mano] Texto en pantalla: "ESCANEA O APARTA HOY · ${addr.toUpperCase()}" | Voz: "${plain} ${highlight}. Pásate por ${addr} o escríbenos ya al WhatsApp antes que se agoten los cupos."`,
+      t0_3: reelHook,
+      t3_10: reelMid,
+      t10_15: reelClose,
     },
     salesClosingTemplates: {
       priceReply: isService
-        ? `¡Hola! 😊 La cotización depende de lo que necesites. ${product}: ${b0.replace(/^[^\p{L}\p{N}]+/u, '').toLowerCase()}. Cuéntame tu caso y te envío el presupuesto hoy mismo 👉`
+        ? `¡Hola! 😊 Qué gusto saludarte. En ${brand} adaptamos ${product.toLowerCase()} a tu necesidad: ${b0Clean.toLowerCase()}. Cuéntame brevemente tu objetivo y te comparto una propuesta clara hoy mismo 👉`
         : `¡Hola! 😊 ${product} queda en $${(input.promoPrice ?? 0).toLocaleString('es-CO')}${normalTxt}. Con domicilio disponible en ${place} 🛵 ¿Te lo aparto?`,
-      hesitantReply: `Te entiendo 👌 Por eso te cuento: ${b2.replace(/^[^\p{L}\p{N}]+/u, '')} y si no te convence, conversamos sin compromiso. Hoy tenemos cupos limitados, ¿te guardo uno?`,
-      dispatchUpsell: `¡Perfecto, confirmado! 🧾 Tu ${product.toLowerCase()} queda apartado y llega a ${addr}. Si necesitas algo más, escríbeme por aquí y como cliente fiel te doy precio especial 😉`,
+      hesitantReply: isService
+        ? `Te entiendo perfecto 👌 Por eso trabajamos con ${b2Clean.toLowerCase()} y te mostramos ejemplos reales antes de decidir. ¿Te comparto un diagnóstico rápido sin costo?`
+        : `Te entiendo 👌 Por eso te cuento: ${b2Clean} y pagas directo al recibir. Hoy tenemos cupos limitados, ¿te guardo uno?`,
+      dispatchUpsell: isService
+        ? `¡Confirmado! 🙌 Ya quedó agendado tu proyecto de ${product.toLowerCase()} con ${brand}. Seguimos en contacto directo por este chat para cada avance.`
+        : `¡Perfecto, confirmado! 🧾 Tu ${product.toLowerCase()} queda apartado y llega a ${addr}. Cualquier detalle adicional nos escribes por aquí con toda confianza.`,
     },
     waLine1Msg: niche.wa[0],
     waLine2Msg: niche.wa[1],
     waLine3Msg: niche.wa[2],
     dispatchVersions: [
-      `*${plain} ${highlight}*${price}${normalTxt}\n_${hook.charAt(0).toUpperCase()}${hook.slice(1)} en ${brand}._\n✅ ${b0}\n✅ ${b2}\n📍 ${addr} · *Pide por WhatsApp*`,
-      `🚀 *${product}*${price} en _${place}_.\n${b1}\n${b2}\n⏳ *Cupos limitados hoy* — escribe YA 👉 WhatsApp`,
-      `👀 ¿Ya conociste *${brand}*?\n_${b0.replace(/^[^\p{L}\p{N}]+/u, '')}_ y atención de primera.\n📍 ${addr} · 👉 *Escríbenos*`,
-      `🔥 *RECOMENDADO EN ${place.toUpperCase()}:* ${product}${price}${normalTxt}.\n_${b2}_\n📍 ${addr} · 👉 *WhatsApp directo*`,
+      `*${plain} ${highlight}*${price}${normalTxt}\n_${hookSentence}._\n✅ ${b0Clean}\n✅ ${b2Clean}\n📍 ${addr} · *${isService ? 'Cotiza por WhatsApp' : 'Pide por WhatsApp'}*`,
+      `🚀 *${product}*${price} en _${place}_.\n• ${b1Clean}\n• ${b2Clean}\n${focusCloseWa}`,
+      `👀 ¿Ya conoces *${brand}* en _${place}_?\n_${b0Clean}_ con atención cercana y resultados reales.\n📍 ${addr} · 👉 *Escríbenos hoy*`,
+      `✨ *DESTACADO EN ${place.toUpperCase()}:* ${product}${price}${normalTxt}.\n_${b2Clean}_\n📍 ${addr} · 👉 *WhatsApp directo*`,
     ],
   };
 }
@@ -2274,6 +2323,8 @@ Conocimiento operativo real de Impulso:
 
 REGLAS CONVERSACIONALES CRÍTICAS:
 - Lee TODO el historial antes de responder. Si el usuario escribe algo corto o de seguimiento como "qué es esto", "cómo así", "no entendí", "y más barato?", "dónde queda?", responde directamente a lo que acababan de hablar con naturalidad y claridad.
+- PROHIBIDO marcar "is_technical_issue": true ante dudas informativas generales sobre qué es Impulso, cómo funciona, garantías anti-estafas ("qué me garantiza que no me estafarán", "es seguro?"), insignias (Nuevo / Verificado / Súper Comercio) o precios. Responde explicando con calidez y deja "is_technical_issue": false.
+- SOLO marca "is_technical_issue": true cuando el usuario reporte un fallo técnico concreto, un caso real de fraude ya ocurrido, un cobro con problema o pida explícitamente hablar con soporte humano / el administrador.
 - Si el contexto trae [OFERTAS_ACTIVAS_COINCIDENTES], ya mostramos las tarjetas interactivas con "Apartar ahora" y "Ver en mapa" justo debajo de tu respuesta: resalta 1–3 mejores opciones con precio/comercio y guíalo a tocarlas.
 - Si NO encontró una oferta exacta, dilo con empatía y menciónale qué categorías sí hay activas hoy o sugiérele la pestaña "Pedir".
 - Respuesta concisa (2 a 4 frases), natural, cero relleno corporativo y cero tecnicismos internos (jamás nombres modelos, API keys ni hashes).
@@ -2324,25 +2375,45 @@ function synthesizeLocalSupportFallback(params: {
   const cats = liveCatalogDigest?.categoriesLabel ?? '';
   const cheapest = liveCatalogDigest?.cheapestLabel ?? '';
 
+  const pickVariant = <T,>(items: readonly T[]): T =>
+    items[(message.length + history.length) % items.length];
+
   if (intent === 'safety_trust') {
+    const alsoAskedWhatIs = /qu[eé]\s+es|c[oó]mo\s+funciona|para\s+qu[eé]\s+sirve/i.test(m);
+    const intro = alsoAskedWhatIs
+      ? `¡Con gusto te explico! Impulso es el radar local en vivo donde los comercios de ${municipality} publican ofertas por tiempo limitado. `
+      : '¡Excelente pregunta y súper válido cuidarte! 🛡️ ';
+    const livePulse =
+      activeCount > 0
+        ? ` Hoy hay ${activeCount} oferta${activeCount === 1 ? '' : 's'} activa${activeCount === 1 ? '' : 's'} en ${municipality} para que explores sin compromiso.`
+        : '';
+    const variants = [
+      `${intro}Tu principal garantía es que aquí NO pagas por adelantado ni retenemos tu dinero: apartas gratis con tu WhatsApp y le pagas directo al comercio cuando recibes tu producto en el local o contraentrega. Además, mostramos insignias claras (🆕 Nuevo, ✅ Verificado con identidad auditada y 👑 Súper Comercio con pedidos cumplidos) junto con filtros anti-estafas y botón de reporte inmediato.${livePulse}`,
+      `${intro}En Impulso jamás te pedimos tarjeta ni giros previos para apartar una oferta: reservas gratis, recibes tu código y pagas cara a cara al comercio al recibir. Para darte más tranquilidad, cada negocio muestra su nivel de confianza (Nuevo, ✅ Verificado o 👑 Súper Comercio) y cualquier publicación sospechosa se bloquea o se reporta en un toque.${livePulse}`,
+    ] as const;
     return {
       isTechnicalIssue: false,
       severity: 'low',
       category: 'usage',
-      summary: 'Consulta de confianza y seguridad anti-estafas',
-      aiAnalysis: 'Usuario preguntó cómo saber que Impulso es seguro.',
-      reply: `Qué buena pregunta 🛡️ En Impulso NUNCA te pedimos tarjetas ni dinero por adelantado: apartas gratis con tu WhatsApp y pagas directo al comercio cuando recibes tu producto. Además, puedes ver la insignia azul de ✅ Verificado o 👑 Súper Comercio en los locales auditados y reportar cualquier irregularidad en 1 toque.`,
+      summary: 'Consulta informativa sobre funcionamiento y garantías',
+      aiAnalysis: 'Duda general de confianza resuelta sin abrir ticket.',
+      reply: pickVariant(variants),
     };
   }
 
+  const isActualFraudIncident =
+    /(ya\s+me\s+estaf|me\s+estafaron|fui\s+estafad|me\s+robaron|me\s+enga[ñn]aron|reportar\s+(una?\s+)?(estafa|fraude)|denunciar\s+(una?\s+)?(estafa|fraude)|cobraron\s+y\s+no\s+(entregaron|dieron))/i.test(
+      m,
+    );
   const looksTechnical =
     intent === 'support' ||
-    /error|no\s+(funciona|carga|abre|sirve|deja|llega)|fall[ao]|bug|roto|blanco|congel|bloque|duplicad|cobr[oó]|descont[oó]|no\s+se\s+reflej|problema\s+t[eé]cnico|me\s+estaf|fui\s+estaf|hablar\s+con\s+(un\s+)?(humano|admin|administrador|soporte)|reclamo|disputa/i.test(
+    isActualFraudIncident ||
+    /error|no\s+(funciona|carga|abre|sirve|deja|llega)|fall[ao]|bug|roto|blanco|congel|bloque|duplicad|cobr[oó]|descont[oó]|no\s+se\s+reflej|problema\s+t[eé]cnico|hablar\s+con\s+(un\s+)?(humano|admin|administrador|soporte)|reclamo|disputa/i.test(
       m,
     );
 
   if (looksTechnical) {
-    const isFraud = /estafa|fraude|enga[ñn]|robo|falso/i.test(m);
+    const isFraud = isActualFraudIncident || /estafa|fraude|enga[ñn]|robo|falso/i.test(m);
     const isBillingOrCritical = isFraud || /cobr|pago|cr[eé]dito|nequi|daviplata|bloque/i.test(m);
     return {
       isTechnicalIssue: true,
@@ -2535,6 +2606,7 @@ export async function askSupportConcierge(input: {
   userRole: 'client' | 'merchant' | 'admin';
   municipality: string;
   intent?: string;
+  isInformationalOnly?: boolean;
   matchedOffersSummary?: RadarMatchedOfferContext[];
   isNearMatch?: boolean;
   parsedBudget?: number | null;
@@ -2627,7 +2699,8 @@ export async function askSupportConcierge(input: {
     }
 
     const parsed = parseAiJson<ParsedSupport>(raw);
-    const isTechnical = parsed.is_technical_issue === true;
+    // 🛡️ V39.0 · Blindaje anti-falsos-tickets: consultas informativas o de confianza JAMÁS abren ticket
+    const isTechnical = input.isInformationalOnly ? false : parsed.is_technical_issue === true;
     const severity: SupportConciergeAssessment['severity'] =
       parsed.severity === 'critical' || parsed.severity === 'high' || parsed.severity === 'medium' || parsed.severity === 'low'
         ? parsed.severity

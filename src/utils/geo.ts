@@ -67,9 +67,15 @@ export function useGeolocation() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<number | null>(null);
   const [requestSeq, setRequestSeq] = useState(0);
+  const posRef = useRef<LatLng | null>(null);
   const watchIdRef = useRef<number | null>(null);
   const recalWatchRef = useRef<number | null>(null);
   const recalTimerRef = useRef<number | null>(null);
+
+  const setValidPos = useCallback((next: LatLng | null) => {
+    posRef.current = next;
+    setPos(next);
+  }, []);
 
   const stop = useCallback(() => {
     if (recalTimerRef.current != null) {
@@ -87,16 +93,24 @@ export function useGeolocation() {
     setRecalibrating(false);
   }, []);
 
-  /** Regla de oro: solo adoptamos lecturas con accuracy <= 1500 m. */
+  /** Regla de oro: solo adoptamos lecturas con accuracy <= 1500 m.
+   *  V39.0: si ya había una ubicación válida activa en la sesión, una lectura
+   *  inexacta transitoria NO apaga el GPS del usuario (solo se apaga al pulsar "Apagar" o revocar permiso). */
   const adoptFix = useCallback(
     (p: GeolocationPosition) => {
       setLocating(false);
       setErrorCode(null);
       const acc = Math.round(p.coords.accuracy);
-      setAccuracy(acc);
 
       if (p.coords.accuracy > ACCURACY_LIMIT_M) {
-        setPos(null);
+        if (posRef.current) {
+          // Conserva la ubicación efímera válida ya activa en memoria de sesión
+          setStatus('active');
+          setErrorMessage(null);
+          return;
+        }
+        setAccuracy(acc);
+        setValidPos(null);
         setStatus('inexact');
         setErrorMessage(EXACT_GPS_WARNING);
         setRequestSeq((n) => n + 1);
@@ -104,11 +118,12 @@ export function useGeolocation() {
         return;
       }
 
-      setPos({ lat: p.coords.latitude, lng: p.coords.longitude });
+      setAccuracy(acc);
+      setValidPos({ lat: p.coords.latitude, lng: p.coords.longitude });
       setStatus('active');
       setErrorMessage(null);
     },
-    [stop],
+    [setValidPos, stop],
   );
 
   const startWatch = useCallback(() => {
@@ -117,7 +132,7 @@ export function useGeolocation() {
       (p) => {
         if (p.coords.accuracy <= ACCURACY_LIMIT_M) {
           setAccuracy(Math.round(p.coords.accuracy));
-          setPos({ lat: p.coords.latitude, lng: p.coords.longitude });
+          setValidPos({ lat: p.coords.latitude, lng: p.coords.longitude });
           setStatus('active');
           setErrorMessage(null);
           setErrorCode(null);
@@ -127,25 +142,30 @@ export function useGeolocation() {
         if (err.code === 1) {
           setStatus('denied');
           setErrorCode(1);
-          setPos(null);
+          setValidPos(null);
           stop();
         }
       },
       EXACT_GPS_OPTIONS,
     );
-  }, [stop]);
+  }, [setValidPos, stop]);
 
   const onError = useCallback(
     (err: GeolocationPositionError) => {
       setLocating(false);
       setErrorCode(err.code);
       if (err.code === 1) {
-        setPos(null);
+        setValidPos(null);
         setStatus('denied');
         setErrorMessage(
           'Para calcular distancias, requerimos tu ubicación. Si la bloqueaste antes, toca el candado en la barra de direcciones para habilitarla.',
         );
         stop();
+      } else if (posRef.current) {
+        // Conserva la última lectura válida de la sesión ante un timeout temporal
+        setStatus('active');
+        setErrorMessage(null);
+        return;
       } else if (err.code === 2) {
         setErrorMessage(
           'No pudimos obtener señal GPS del dispositivo. Verifica que el GPS / Ubicación del celular esté encendido e intenta de nuevo.',
@@ -157,7 +177,7 @@ export function useGeolocation() {
       }
       setRequestSeq((n) => n + 1);
     },
-    [stop],
+    [setValidPos, stop],
   );
 
   /**
@@ -254,7 +274,7 @@ export function useGeolocation() {
         }
         if (p.coords.accuracy <= ACCURACY_LIMIT_M) {
           setAccuracy(Math.round(p.coords.accuracy));
-          setPos({ lat: p.coords.latitude, lng: p.coords.longitude });
+          setValidPos({ lat: p.coords.latitude, lng: p.coords.longitude });
           setStatus('active');
         }
       },
@@ -269,19 +289,19 @@ export function useGeolocation() {
     );
 
     recalTimerRef.current = window.setTimeout(finish, 4500);
-  }, [adoptFix, onError, startWatch, stop]);
+  }, [adoptFix, onError, setValidPos, startWatch, stop]);
 
-  /** Revoca el uso efímero del GPS (Ley 1581 de 2012). */
+  /** Revoca el uso efímero del GPS (Ley 1581 de 2012 · botón "Apagar"). */
   const revoke = useCallback(() => {
     stop();
-    setPos(null);
+    setValidPos(null);
     setAccuracy(null);
     setStatus('idle');
     setLocating(false);
     setRecalibrating(false);
     setErrorMessage(null);
     setErrorCode(null);
-  }, [stop]);
+  }, [setValidPos, stop]);
 
   useEffect(() => stop, [stop]);
 
