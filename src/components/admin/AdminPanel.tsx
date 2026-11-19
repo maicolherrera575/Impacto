@@ -118,11 +118,14 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
   const [resolvingId, setResolvingId] = useState<string | null>(null);
   /** Ficha forense abierta (inspector de IP/GPS). */
   const [inspecting, setInspecting] = useState<ForensicData | null>(null);
-  /** 📱 V18 · Config de recaudo (Nequi 3158942112 / Llave / QR / auto-aprobar). */
+  /** 📱 V37 · Config multicanal de recaudo (Nequi / Daviplata / Llave + QR oficial por canal). */
   const [paymentContact, setPaymentContact] = useState('');
+  const [daviplataContact, setDaviplataContact] = useState('');
   const [llaveInput, setLlaveInput] = useState('');
   const [holderInput, setHolderInput] = useState('');
   const [qrThumb, setQrThumb] = useState('');
+  const [daviplataQrThumb, setDaviplataQrThumb] = useState('');
+  const [llaveQrThumb, setLlaveQrThumb] = useState('');
   const [autoApprove, setAutoApprove] = useState(false);
   const [qrBusy, setQrBusy] = useState(false);
   const [contactBusy, setContactBusy] = useState(false);
@@ -137,9 +140,12 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
       setStats(s);
       if (config) {
         setPaymentContact(config.nequiPhone || '');
+        setDaviplataContact(config.daviplataPhone || '');
         setLlaveInput(config.llave || '');
         setHolderInput(config.holderName || '');
         setQrThumb(config.qrThumb || '');
+        setDaviplataQrThumb(config.daviplataQrThumb || '');
+        setLlaveQrThumb(config.llaveQrThumb || '');
         setAutoApprove(config.autoApprove);
       }
       // 🪪 V20 · Expedientes KYB pendientes (silencioso: si la tabla aún no
@@ -292,23 +298,31 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
     }
   }
 
-  /** 💳 V18 · Guarda toda la configuración de recaudo (Nequi/Llave/titular/QR/auto). */
+  /** 💳 V37 · Guarda toda la configuración multicanal de recaudo (Nequi / Daviplata / Llave + QR por canal). */
   async function savePaymentContact() {
     if (paymentContact.replace(/\D/g, '').length < 10) {
-      toast.error('Escribe el número completo (ej: 3158942112)');
+      toast.error('Escribe el número Nequi completo (ej: 3158942112)');
+      return;
+    }
+    const cleanDavi = daviplataContact.replace(/\D/g, '');
+    if (cleanDavi.length > 0 && cleanDavi.length < 10) {
+      toast.error('Si ingresas un número Daviplata distinto, escribe los 10 dígitos');
       return;
     }
     setContactBusy(true);
     try {
       const saved = await setPaymentConfig({
         nequiPhone: paymentContact,
+        daviplataPhone: cleanDavi,
         llave: llaveInput.trim() || null,
         holderName: holderInput.trim() || null,
-        qrThumb: qrThumb, // '' limpia; dataURL lo asigna; undefined no lo toca
+        qrThumb: qrThumb,
+        daviplataQrThumb: daviplataQrThumb,
+        llaveQrThumb: llaveQrThumb,
         autoApprove: autoApprove ? 'on' : 'off',
       });
       setPaymentContact(saved.nequiPhone);
-      toast.success('💳 Configuración de cobros guardada: los comercios ya ven tu Nequi, Llave y QR');
+      toast.success('💳 Configuración de cobros guardada: Nequi, Daviplata, Llave y QRs actualizados');
     } catch (err) {
       toast.error(friendlyError(err));
     } finally {
@@ -316,14 +330,17 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
     }
   }
 
-  /** 🖼️ Sube el QR oficial de Nequi/Daviplata en formato nítido PNG/WebP para 100% compatibilidad bancaria. */
-  async function pickAdminQr(file: File | undefined) {
+  /** 🖼️ Sube el QR oficial bancario por canal (Nequi / Daviplata / Llave) con 100% nitidez. */
+  async function pickAdminQr(file: File | undefined, channel: 'nequi' | 'daviplata' | 'llave' = 'nequi') {
     if (!file) return;
     setQrBusy(true);
     try {
       const crisp = await prepareCrispQrImage(file);
-      setQrThumb(crisp);
-      toast.success(`✅ QR oficial listo (${Math.round((crisp.length * 0.75) / 1024)} KB) — guarda para publicar`);
+      if (channel === 'daviplata') setDaviplataQrThumb(crisp);
+      else if (channel === 'llave') setLlaveQrThumb(crisp);
+      else setQrThumb(crisp);
+      const label = channel === 'daviplata' ? 'Daviplata' : channel === 'llave' ? 'Llave Bre-B' : 'Nequi';
+      toast.success(`✅ QR oficial ${label} listo (${Math.round((crisp.length * 0.75) / 1024)} KB) — guarda para publicar`);
     } catch (err) {
       toast.error(friendlyError(err));
     } finally {
@@ -1261,11 +1278,22 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
               </p>
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 <div>
-                  <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Número Nequi / Daviplata</p>
+                  <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Número Nequi oficial *</p>
                   <input
                     value={paymentContact}
                     onChange={(e) => setPaymentContact(e.target.value.replace(/\D/g, ''))}
                     placeholder="3158942112"
+                    inputMode="tel"
+                    maxLength={13}
+                    className="mt-1 w-full rounded-xl border border-white/10 bg-slate-950/50 px-3 py-2.5 font-mono text-sm font-bold tracking-wider text-white placeholder:text-slate-600 outline-none focus:border-impulso-emerald/60"
+                  />
+                </div>
+                <div>
+                  <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Número Daviplata (opcional)</p>
+                  <input
+                    value={daviplataContact}
+                    onChange={(e) => setDaviplataContact(e.target.value.replace(/\D/g, ''))}
+                    placeholder="Si es distinto al Nequi"
                     inputMode="tel"
                     maxLength={13}
                     className="mt-1 w-full rounded-xl border border-white/10 bg-slate-950/50 px-3 py-2.5 font-mono text-sm font-bold tracking-wider text-white placeholder:text-slate-600 outline-none focus:border-impulso-emerald/60"
@@ -1280,8 +1308,8 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
                     className="mt-1 w-full rounded-xl border border-white/10 bg-slate-950/50 px-3 py-2.5 font-mono text-sm font-bold text-white placeholder:text-slate-600 outline-none focus:border-impulso-emerald/60"
                   />
                 </div>
-                <div className="sm:col-span-2">
-                  <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Titular de la cuenta</p>
+                <div>
+                  <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Titular de las cuentas</p>
                   <input
                     value={holderInput}
                     onChange={(e) => setHolderInput(e.target.value.slice(0, 60))}
@@ -1289,45 +1317,55 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
                     className="mt-1 w-full rounded-xl border border-white/10 bg-slate-950/50 px-3 py-2.5 text-sm font-bold text-white placeholder:text-slate-600 outline-none focus:border-impulso-emerald/60"
                   />
                 </div>
+                {/* QRs oficiales independientes por canal (Nequi · Daviplata · Llave) */}
                 <div className="sm:col-span-2">
                   <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">
-                    Tu Código QR oficial de Nequi / Daviplata (PNG o JPG)
+                    Códigos QR oficiales por canal (PNG o JPG descargado de tu app bancaria)
                   </p>
-                  <div className="mt-1.5 flex items-center gap-3">
-                    {qrThumb ? (
-                      <img
-                        src={qrThumb}
-                        alt="QR oficial de recaudo"
-                        className="h-20 w-20 shrink-0 rounded-xl border border-impulso-emerald/35 bg-white object-contain p-1"
-                      />
-                    ) : (
-                      <div className="grid h-20 w-20 shrink-0 place-items-center rounded-xl border border-dashed border-white/20 bg-slate-950/50 text-2xl">
-                        📷
+                  <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                    {(
+                      [
+                        { id: 'nequi' as const, label: '💜 QR Nequi', thumb: qrThumb, clear: () => setQrThumb('') },
+                        { id: 'daviplata' as const, label: '❤️ QR Daviplata', thumb: daviplataQrThumb, clear: () => setDaviplataQrThumb('') },
+                        { id: 'llave' as const, label: '🔑 QR Llave Bre-B', thumb: llaveQrThumb, clear: () => setLlaveQrThumb('') },
+                      ]
+                    ).map((ch) => (
+                      <div key={ch.id} className="flex flex-col items-center gap-2 rounded-2xl border border-white/10 bg-slate-950/50 p-2.5">
+                        <p className="text-[11px] font-extrabold text-white">{ch.label}</p>
+                        {ch.thumb ? (
+                          <img
+                            src={ch.thumb}
+                            alt={ch.label}
+                            className="h-20 w-20 rounded-xl border border-impulso-emerald/35 bg-white object-contain p-1"
+                          />
+                        ) : (
+                          <div className="grid h-20 w-20 place-items-center rounded-xl border border-dashed border-white/20 bg-slate-900 text-xl">
+                            📷
+                          </div>
+                        )}
+                        <div className="flex w-full gap-1">
+                          <label className="pressable flex flex-1 cursor-pointer items-center justify-center gap-1 rounded-xl border border-impulso-emerald/40 bg-impulso-emerald/10 py-1.5 text-[10px] font-extrabold text-impulso-mint">
+                            {qrBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : '📤'} Subir
+                            <input
+                              type="file"
+                              accept="image/png,image/jpeg,image/webp,image/*"
+                              className="hidden"
+                              onChange={(e) => void pickAdminQr(e.target.files?.[0], ch.id)}
+                            />
+                          </label>
+                          {ch.thumb && (
+                            <button
+                              type="button"
+                              onClick={ch.clear}
+                              title="Quitar QR"
+                              className="pressable rounded-xl border border-white/10 bg-slate-900 px-2 py-1.5 text-[10px] font-bold text-slate-400 hover:text-impulso-rose"
+                            >
+                              🗑️
+                            </button>
+                          )}
+                        </div>
                       </div>
-                    )}
-                    <div className="flex flex-1 flex-wrap gap-1.5">
-                      <label className="pressable flex cursor-pointer items-center gap-1.5 rounded-xl border border-impulso-emerald/40 bg-impulso-emerald/10 px-3 py-2 text-[11px] font-extrabold text-impulso-mint">
-                        {qrBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : '📤'} Subir QR oficial (PNG/JPG)
-                        <input
-                          type="file"
-                          accept="image/png,image/jpeg,image/webp,image/*"
-                          className="hidden"
-                          onChange={(e) => void pickAdminQr(e.target.files?.[0])}
-                        />
-                      </label>
-                      {qrThumb && (
-                        <button
-                          onClick={() => setQrThumb('')}
-                          className="pressable rounded-xl border border-white/10 bg-slate-950/40 px-3 py-2 text-[11px] font-bold text-slate-400"
-                        >
-                          🗑️ Quitar
-                        </button>
-                      )}
-                      <p className="w-full text-[10px] font-semibold leading-relaxed text-slate-400">
-                        Sube la imagen descargada directamente desde tu app Nequi o Daviplata para garantizar 100% de
-                        lectura en los pagos de tus comercios.
-                      </p>
-                    </div>
+                    ))}
                   </div>
                 </div>
                 {/* ⚡ Switch de aprobación automática */}

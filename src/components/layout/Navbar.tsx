@@ -1,4 +1,4 @@
-import { LogOut, MapPin, Radar, ShieldCheck, Store } from 'lucide-react';
+import { Heart, LogOut, MapPin, Radar, ShieldCheck, Store } from 'lucide-react';
 import { ImpulsoLogo } from '../ui/ImpulsoLogo';
 import { MUNICIPIOS, categoryMeta } from '../../types';
 import type { Profile } from '../../types';
@@ -11,8 +11,10 @@ interface NavbarProps {
   geoStatus: GeoStatus;
   onGeoRequest: () => void;
   profile: Profile | null;
+  favoritesCount?: number;
   onOpenAuth: () => void;
   onOpenDashboard: () => void;
+  onOpenClientProfile: () => void;
   onOpenAdmin: () => void;
   onSignOut: () => void;
 }
@@ -28,8 +30,10 @@ export function Navbar({
   geoStatus,
   onGeoRequest,
   profile,
+  favoritesCount = 0,
   onOpenAuth,
   onOpenDashboard,
+  onOpenClientProfile,
   onOpenAdmin,
   onSignOut,
 }: NavbarProps) {
@@ -115,14 +119,14 @@ export function Navbar({
                   </button>
                 )}
 
-                {/* Píldora de identidad: quién está en sesión */}
+                {/* Píldora de identidad: separa visualmente Cliente (sky) vs Comercio (emerald) */}
                 <button
-                  onClick={isClient ? undefined : onOpenDashboard}
+                  onClick={isClient ? onOpenClientProfile : onOpenDashboard}
                   type="button"
-                  title={isClient ? `${profile.business_name} — Modo Cliente` : `${profile.business_name} — abrir mi panel`}
+                  title={isClient ? `${profile.business_name} — Mi Perfil de Comprador y Favoritos` : `${profile.business_name} — abrir Mi Panel de Comercio`}
                   className={cx(
-                    'flex shrink-0 items-center gap-2 rounded-full border border-white/10 bg-impulso-panel py-1 pl-1 pr-2.5',
-                    !isClient && 'pressable',
+                    'pressable flex shrink-0 items-center gap-2 rounded-full border bg-impulso-panel py-1 pl-1 pr-2.5',
+                    isClient ? 'border-sky-400/35 hover:border-sky-400/65' : 'border-white/10',
                   )}
                 >
                   {profile.logo_thumb ? (
@@ -185,12 +189,28 @@ export function Navbar({
                 </button>
               </div>
             ) : (
-              <button
-                onClick={onOpenAuth}
-                className="pressable shrink-0 rounded-full bg-gradient-to-r from-impulso-emerald to-teal-600 px-3.5 py-2 text-xs font-bold text-white shadow-glow"
-              >
-                Entrar
-              </button>
+              <div className="flex shrink-0 items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={onOpenClientProfile}
+                  title="Mis favoritos y preferencias de Radar"
+                  aria-label="Mis favoritos y preferencias"
+                  className="pressable relative grid h-9 w-9 shrink-0 place-items-center rounded-full border border-white/10 bg-impulso-panel text-slate-300 transition hover:border-impulso-rose/45 hover:text-impulso-rose"
+                >
+                  <Heart className={cx('h-4 w-4', favoritesCount > 0 && 'fill-impulso-rose text-impulso-rose')} />
+                  {favoritesCount > 0 && (
+                    <span className="absolute -right-1 -top-1 grid h-4 min-w-[16px] place-items-center rounded-full bg-impulso-rose px-1 text-[9px] font-extrabold text-white">
+                      {favoritesCount}
+                    </span>
+                  )}
+                </button>
+                <button
+                  onClick={onOpenAuth}
+                  className="pressable shrink-0 rounded-full bg-gradient-to-r from-impulso-emerald to-teal-600 px-3.5 py-2 text-xs font-bold text-white shadow-glow"
+                >
+                  Entrar
+                </button>
+              </div>
             )}
           </div>
         </div>

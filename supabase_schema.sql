@@ -4406,3 +4406,472 @@ NOTIFY pgrst, 'reload schema';
 
 
 
+
+
+-- ============================================================================
+-- 16. V37.0 · CUENTAS CLIENTE VS COMERCIO, PREFERENCIAS COMPACTAS (ZERO-BLOAT),
+--     PAGOS MULTICANAL (NEQUI/DAVIPLATA/LLAVE + QR) Y UNICIDAD ATÓMICA DE RECIBOS
+-- ============================================================================
+
+-- 16.1 Columna compacta JSONB para preferencias ligeras de Comprador (0 tablas extra)
+alter table public.profiles
+  add column if not exists client_preferences jsonb default null;
+
+-- 16.2 Trigger de registro diferenciado: respeta account_type='client' vs 'merchant'
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_account_type text;
+  v_role         text;
+  v_credits      integer;
+  v_name         text;
+begin
+  v_account_type := lower(coalesce(new.raw_user_meta_data ->> 'account_type', 'merchant'));
+  if v_account_type = 'client' then
+    v_role := 'client';
+    v_credits := 0;
+    v_name := coalesce(
+      nullif(btrim(new.raw_user_meta_data ->> 'full_name'), ''),
+      nullif(btrim(new.raw_user_meta_data ->> 'business_name'), ''),
+      'Cliente Impulso'
+    );
+  else
+    v_role := 'merchant';
+    v_credits := 3;
+    v_name := coalesce(nullif(btrim(new.raw_user_meta_data ->> 'business_name'), ''), 'Mi Negocio');
+  end if;
+
+  insert into public.profiles (id, role, credits, business_name, category, whatsapp, municipality)
+  values (
+    new.id,
+    v_role,
+    v_credits,
+    left(v_name, 80),
+    coalesce(nullif(btrim(new.raw_user_meta_data ->> 'category'), ''), 'comida'),
+    coalesce(nullif(btrim(new.raw_user_meta_data ->> 'whatsapp'), ''), '3000000000'),
+    coalesce(nullif(btrim(new.raw_user_meta_data ->> 'municipality'), ''), 'Gachetá')
+  )
+  on conflict (id) do nothing;
+  return new;
+end;
+$$;
+
+-- 16.3 Guardado ultra-ligero de preferencias del comprador (tope estricto <= 2KB)
+create or replace function public.save_client_preferences_rpc(p_preferences jsonb)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_clean jsonb;
+begin
+  if auth.uid() is null then
+    raise exception 'Debes iniciar sesión para sincronizar tus preferencias';
+  end if;
+  if p_preferences is null or jsonb_typeof(p_preferences) <> 'object' then
+    raise exception 'Preferencias inválidas';
+  end if;
+  if octet_length(p_preferences::text) > 2048 then
+    raise exception 'El tamaño de preferencias excede el límite compacto permitido (2 KB)';
+  end if;
+
+  v_clean := jsonb_build_object(
+    'favoriteCategories', coalesce(p_preferences -> 'favoriteCategories', '[]'::jsonb),
+    'maxBudgetCop', case
+      when jsonb_typeof(p_preferences -> 'maxBudgetCop') = 'number' then p_preferences -> 'maxBudgetCop'
+      else 'null'::jsonb
+    end,
+    'favoriteOfferIds', coalesce(p_preferences -> 'favoriteOfferIds', '[]'::jsonb),
+    'updatedAt', extract(epoch from now())::bigint * 1000
+  );
+
+  update public.profiles
+     set client_preferences = v_clean
+   where id = auth.uid();
+
+  return v_clean;
+end;
+$$;
+grant execute on function public.save_client_preferences_rpc(jsonb) to authenticated;
+
+-- 16.4 Conversión explícita opcional de cuenta Cliente -> Comercio (otorga 3 créditos una sola vez)
+create or replace function public.upgrade_client_to_merchant_rpc(
+  p_business_name text,
+  p_category      text,
+  p_whatsapp      text,
+  p_municipality  text default 'Gachetá'
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_profile public.profiles;
+  v_wa      text;
+begin
+  if auth.uid() is null then
+    raise exception 'Debes iniciar sesión primero';
+  end if;
+  select * into v_profile from public.profiles where id = auth.uid() for update;
+  if not found then
+    raise exception 'Perfil no encontrado';
+  end if;
+  if v_profile.role <> 'client' then
+    return to_jsonb(v_profile);
+  end if;
+
+  v_wa := regexp_replace(coalesce(p_whatsapp, ''), '\D', '', 'g');
+  if char_length(btrim(coalesce(p_business_name, ''))) < 2 then
+    raise exception 'Escribe el nombre de tu negocio (mínimo 2 caracteres)';
+  end if;
+  if char_length(v_wa) < 10 or char_length(v_wa) > 15 then
+    raise exception 'Escribe un WhatsApp comercial válido (10 a 15 dígitos)';
+  end if;
+
+  update public.profiles
+     set role = 'merchant',
+         credits = greatest(credits, 3),
+         business_name = left(btrim(p_business_name), 80),
+         category = coalesce(nullif(btrim(p_category), ''), 'comida'),
+         whatsapp = v_wa,
+         municipality = coalesce(nullif(btrim(p_municipality), ''), 'Gachetá')
+   where id = auth.uid()
+  returning * into v_profile;
+
+  return to_jsonb(v_profile);
+end;
+$$;
+grant execute on function public.upgrade_client_to_merchant_rpc(text, text, text, text) to authenticated;
+
+-- 16.5 Canales adicionales de recaudo (Daviplata + QRs por canal) blindados contra manipulación
+insert into public.app_settings (key, value)
+values
+  ('daviplata_phone', ''),
+  ('payment_qr_daviplata', ''),
+  ('payment_qr_llave', '')
+on conflict (key) do nothing;
+
+create or replace function public.guard_app_settings_anti_tamper_fn()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_caller_role text;
+begin
+  if tg_op in ('INSERT', 'UPDATE', 'DELETE') then
+    if coalesce(new.key, old.key) in (
+      'nequi_phone',
+      'daviplata_phone',
+      'payment_whatsapp',
+      'payment_llave',
+      'payment_holder_name',
+      'payment_qr_thumb',
+      'payment_qr_daviplata',
+      'payment_qr_llave',
+      'auto_approve_credits',
+      'credit_package_prices'
+    ) then
+      if auth.uid() is not null then
+        select role into v_caller_role from public.profiles where id = auth.uid();
+        if coalesce(v_caller_role, '') <> 'admin' then
+          raise exception 'SECURITY_VIOLATION: solo el administrador puede modificar configuración financiera oficial';
+        end if;
+      end if;
+    end if;
+  end if;
+  if tg_op = 'DELETE' then
+    return old;
+  end if;
+  return new;
+end;
+$$;
+
+create or replace function public.get_payment_config_rpc()
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_value jsonb;
+begin
+  if auth.uid() is null then
+    return null;
+  end if;
+  select jsonb_build_object(
+    'nequiPhone', coalesce((select value from public.app_settings where key = 'nequi_phone'), (select value from public.app_settings where key = 'payment_whatsapp'), '3158942112'),
+    'daviplataPhone', coalesce((select value from public.app_settings where key = 'daviplata_phone'), ''),
+    'llave', coalesce((select value from public.app_settings where key = 'payment_llave'), '@impulso3158942112'),
+    'holderName', coalesce((select value from public.app_settings where key = 'payment_holder_name'), 'Administrador Impulso'),
+    'qrThumb', coalesce((select value from public.app_settings where key = 'payment_qr_thumb'), ''),
+    'daviplataQrThumb', coalesce((select value from public.app_settings where key = 'payment_qr_daviplata'), ''),
+    'llaveQrThumb', coalesce((select value from public.app_settings where key = 'payment_qr_llave'), ''),
+    'autoApprove', coalesce((select value from public.app_settings where key = 'auto_approve_credits'), 'off') = 'on'
+  ) into v_value;
+  return v_value;
+end;
+$$;
+
+drop function if exists public.admin_set_payment_contact_rpc(text, text, text, text, text);
+drop function if exists public.admin_set_payment_contact_rpc(text, text, text, text, text, text, text, text);
+create or replace function public.admin_set_payment_contact_rpc(
+  p_nequi_phone        text,
+  p_payment_llave      text default null,
+  p_holder_name        text default null,
+  p_qr_thumb           text default null,
+  p_auto_approve       text default null,
+  p_daviplata_phone    text default null,
+  p_daviplata_qr_thumb text default null,
+  p_llave_qr_thumb     text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_digits      text;
+  v_davi_digits text;
+  v_qr          text;
+begin
+  if not public.is_admin() then
+    raise exception 'SOLO_ADMIN: esta acción está reservada al administrador';
+  end if;
+  v_digits := coalesce(regexp_replace(p_nequi_phone, '\D', '', 'g'), '');
+  if char_length(v_digits) < 10 or char_length(v_digits) > 13 then
+    raise exception 'Escribe un número Nequi válido (entre 10 y 13 dígitos, ej: 3158942112)';
+  end if;
+
+  insert into public.app_settings (key, value, updated_at)
+  values ('nequi_phone', v_digits, now())
+  on conflict (key) do update set value = excluded.value, updated_at = now();
+
+  if p_daviplata_phone is not null then
+    v_davi_digits := coalesce(regexp_replace(p_daviplata_phone, '\D', '', 'g'), '');
+    if v_davi_digits <> '' and (char_length(v_davi_digits) < 10 or char_length(v_davi_digits) > 13) then
+      raise exception 'Si agregas un número Daviplata distinto, escribe entre 10 y 13 dígitos';
+    end if;
+    insert into public.app_settings (key, value, updated_at)
+    values ('daviplata_phone', v_davi_digits, now())
+    on conflict (key) do update set value = excluded.value, updated_at = now();
+  end if;
+
+  if p_payment_llave is not null then
+    insert into public.app_settings (key, value, updated_at)
+    values ('payment_llave', btrim(p_payment_llave), now())
+    on conflict (key) do update set value = excluded.value, updated_at = now();
+  end if;
+
+  if p_holder_name is not null then
+    insert into public.app_settings (key, value, updated_at)
+    values ('payment_holder_name', btrim(p_holder_name), now())
+    on conflict (key) do update set value = excluded.value, updated_at = now();
+  end if;
+
+  if p_qr_thumb is not null then
+    v_qr := nullif(btrim(p_qr_thumb), '');
+    if v_qr is not null and char_length(v_qr) > 180000 then
+      raise exception 'El QR de Nequi es demasiado pesado. Súbelo de nuevo';
+    end if;
+    insert into public.app_settings (key, value, updated_at)
+    values ('payment_qr_thumb', coalesce(v_qr, ''), now())
+    on conflict (key) do update set value = excluded.value, updated_at = now();
+  end if;
+
+  if p_daviplata_qr_thumb is not null then
+    v_qr := nullif(btrim(p_daviplata_qr_thumb), '');
+    if v_qr is not null and char_length(v_qr) > 180000 then
+      raise exception 'El QR de Daviplata es demasiado pesado. Súbelo de nuevo';
+    end if;
+    insert into public.app_settings (key, value, updated_at)
+    values ('payment_qr_daviplata', coalesce(v_qr, ''), now())
+    on conflict (key) do update set value = excluded.value, updated_at = now();
+  end if;
+
+  if p_llave_qr_thumb is not null then
+    v_qr := nullif(btrim(p_llave_qr_thumb), '');
+    if v_qr is not null and char_length(v_qr) > 180000 then
+      raise exception 'El QR de Llave es demasiado pesado. Súbelo de nuevo';
+    end if;
+    insert into public.app_settings (key, value, updated_at)
+    values ('payment_qr_llave', coalesce(v_qr, ''), now())
+    on conflict (key) do update set value = excluded.value, updated_at = now();
+  end if;
+
+  if p_auto_approve in ('on', 'off') then
+    insert into public.app_settings (key, value, updated_at)
+    values ('auto_approve_credits', p_auto_approve, now())
+    on conflict (key) do update set value = excluded.value, updated_at = now();
+  end if;
+
+  return jsonb_build_object(
+    'nequiPhone', v_digits,
+    'autoApprove', coalesce((select value from public.app_settings where key = 'auto_approve_credits'), 'off') = 'on'
+  );
+end;
+$$;
+grant execute on function public.admin_set_payment_contact_rpc(text, text, text, text, text, text, text, text) to authenticated;
+
+-- 16.6 Unicidad ATÓMICA en BD para comprobantes y hashes (inmune a envíos simultáneos)
+create unique index if not exists uidx_credit_orders_active_ref
+  on public.credit_orders (upper(reference_code))
+  where status in ('pending', 'approved');
+
+create unique index if not exists uidx_credit_orders_active_hash
+  on public.credit_orders (receipt_hash)
+  where receipt_hash is not null and status in ('pending', 'approved');
+
+-- 16.7 Refuerzo de submit_credit_order_rpc: valida rol comercio + Nequi/Daviplata/Llave + captura carrera unique_violation
+create or replace function public.submit_credit_order_rpc(
+  p_package_name         text,
+  p_credits_requested    integer,
+  p_amount_cop           numeric,
+  p_reference_code       text,
+  p_payment_method       text default 'Nequi',
+  p_receipt_thumb        text default null,
+  p_ai_note              text default null,
+  p_receipt_hash         text default null,
+  p_destination_detected text default null,
+  p_qr_payload           text default null,
+  p_ia_status_ok         boolean default false
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_order         public.credit_orders;
+  v_role          text;
+  v_code          text;
+  v_nequi         text;
+  v_davi          text;
+  v_llave         text;
+  v_dest          text;
+  v_dest_digits   text;
+  v_nequi_digits  text;
+  v_davi_digits   text;
+  v_llave_digits  text;
+begin
+  if auth.uid() is null then
+    raise exception 'Debes iniciar sesión';
+  end if;
+
+  select role into v_role from public.profiles where id = auth.uid();
+  if coalesce(v_role, 'client') = 'client' then
+    raise exception 'SOLO_COMERCIOS: las cuentas de Cliente no pueden recargar créditos comerciales.';
+  end if;
+
+  if not (
+       (p_credits_requested = 5  and p_amount_cop = 10000)
+    or (p_credits_requested = 15 and p_amount_cop = 24000)
+    or (p_credits_requested = 35 and p_amount_cop = 45000)
+  ) then
+    raise exception 'PAQUETE_INVALIDO: el paquete y valor no coinciden con las tarifas oficiales de Impulso.';
+  end if;
+  if p_payment_method not in ('Nequi', 'Daviplata', 'Bancolombia', 'Llave') then
+    raise exception 'Método de pago inválido';
+  end if;
+  if p_receipt_thumb is null or left(p_receipt_thumb, 11) <> 'data:image/' then
+    raise exception 'ADJUNTA_LA_CAPTURA: para validar tu recarga envía la captura original del pago.';
+  end if;
+  if char_length(p_receipt_thumb) > 35000 then
+    raise exception 'El comprobante es demasiado pesado. Intenta con otra captura';
+  end if;
+  if coalesce(p_receipt_hash, '') !~ '^[0-9a-f]{64}$' then
+    raise exception 'Huella del comprobante inválida o ausente. Vuelve a subir la captura';
+  end if;
+
+  v_code := upper(btrim(coalesce(p_reference_code, '')));
+  if char_length(v_code) < 4 or char_length(v_code) > 40 then
+    raise exception 'Escribe o escanea el código del comprobante (entre 4 y 40 caracteres)';
+  end if;
+  if v_code !~ '^[A-Z0-9\.\-]+$' then
+    raise exception 'CÓDIGO_INVALIDO: el código solo puede tener letras, números, puntos o guiones.';
+  end if;
+  if v_code ~ '^3[0-9]{9}$' then
+    raise exception 'Escribiste un NÚMERO de celular, no el código del comprobante.';
+  end if;
+
+  if (
+    select count(*) from public.credit_orders c
+     where c.merchant_id = auth.uid()
+       and c.created_at > now() - interval '15 minutes'
+  ) >= 5 then
+    raise exception 'ESPERA: ya enviaste 5 comprobantes en los últimos 15 minutos. Espera un momento.';
+  end if;
+
+  if exists (
+    select 1 from public.credit_orders c
+     where upper(c.reference_code) = v_code
+       and c.status in ('pending', 'approved')
+  ) then
+    raise exception 'YA_CANJEADO: 🚫 CÓDIGO O COMPROBANTE YA UTILIZADO (Ref: %). Cada pago solo puede canjearse una única vez.', v_code;
+  end if;
+
+  if exists (
+    select 1 from public.credit_orders c
+     where c.receipt_hash = p_receipt_hash
+       and c.status in ('pending', 'approved')
+  ) then
+    raise exception 'YA_CANJEADO: 🚫 ESTE COMPROBANTE YA FUE UTILIZADO. Cada captura de pago solo puede canjearse una única vez.';
+  end if;
+
+  if exists (
+    select 1 from public.credit_orders c
+     where upper(c.reference_code) = v_code
+       and c.status = 'rejected'
+       and c.merchant_id <> auth.uid()
+  ) then
+    raise exception 'CODIGO_INVALIDADO: ese comprobante ya fue revisado y rechazado por otra cuenta.';
+  end if;
+
+  select coalesce(nullif(btrim((select value from public.app_settings where key = 'nequi_phone')), ''), '3158942112'),
+         coalesce(nullif(btrim((select value from public.app_settings where key = 'daviplata_phone')), ''), ''),
+         coalesce(nullif(btrim((select value from public.app_settings where key = 'payment_llave')), ''), '@impulso3158942112')
+    into v_nequi, v_davi, v_llave;
+
+  v_nequi_digits := right(coalesce(regexp_replace(v_nequi, '\D', '', 'g'), '3158942112'), 10);
+  v_davi_digits  := right(coalesce(regexp_replace(v_davi, '\D', '', 'g'), ''), 10);
+  v_llave_digits := right(coalesce(regexp_replace(v_llave, '\D', '', 'g'), ''), 10);
+
+  v_dest        := upper(btrim(coalesce(p_destination_detected, '')));
+  v_dest_digits := right(coalesce(regexp_replace(v_dest, '\D', '', 'g'), ''), 10);
+  if v_dest <> '' then
+    if (v_dest_digits = '' or (
+          v_dest_digits <> v_nequi_digits
+          and (v_davi_digits = '' or v_dest_digits <> v_davi_digits)
+          and (v_llave_digits = '' or v_dest_digits <> v_llave_digits)
+        ))
+       and position(upper(btrim(v_llave)) in v_dest) = 0 then
+      raise exception 'DESTINO_INVALIDO: el comprobante indica un destino distinto a las cuentas oficiales autorizadas de Impulso (%).', v_nequi_digits;
+    end if;
+  end if;
+
+  begin
+    insert into public.credit_orders (
+      merchant_id, package_name, credits_requested, amount_cop,
+      payment_method, reference_code, receipt_thumb, ai_verification_note, status,
+      receipt_hash, destination_detected, qr_payload, ia_status_ok
+    ) values (
+      auth.uid(), trim(p_package_name), p_credits_requested, p_amount_cop,
+      p_payment_method, v_code, p_receipt_thumb, p_ai_note, 'pending',
+      nullif(btrim(coalesce(p_receipt_hash, '')), ''), nullif(btrim(coalesce(p_destination_detected, '')), ''),
+      nullif(btrim(coalesce(p_qr_payload, '')), ''), p_ia_status_ok = true
+    )
+    returning * into v_order;
+  exception when unique_violation then
+    raise exception 'YA_CANJEADO: 🚫 ESTE COMPROBANTE O REFERENCIA YA FUE REGISTRADO. Cada pago solo puede canjearse una única vez.';
+  end;
+
+  return to_jsonb(v_order);
+end;
+$$;

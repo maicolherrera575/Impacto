@@ -21,7 +21,7 @@ import type { RadarMatchedOfferContext } from '../../services/gemini.service';
 import { submitSupportTicket } from '../../services/support.service';
 import type { SupportChatMessage, SupportRole } from '../../services/support.service';
 import { useSpeechRecognition } from '../../hooks/useSpeechRecognition';
-import { matchLiveOffersForRadar } from '../../utils/radarMatcher';
+import { buildLiveOffersDigest, matchLiveOffersForRadar } from '../../utils/radarMatcher';
 import { distanceText } from '../../utils/geo';
 import type { LatLng } from '../../utils/geo';
 import { cx, formatCOP } from '../../utils/format';
@@ -129,8 +129,9 @@ export function SupportConcierge({
     setBusy(true);
     scrollToBottom();
 
-    // ⚡ Fase local determinista (<5ms, 0 tokens): busca ofertas activas coincidentes
+    // ⚡ Fase local determinista (<5ms, 0 tokens): busca ofertas activas + pulso del municipio
     const localMatch = matchLiveOffersForRadar(clean, offers, geoPos, 4);
+    const liveDigest = buildLiveOffersDigest(offers);
     const matchedCards: RecommendedCardItem[] = localMatch.matches.map((m) => ({
       offer: m.offer,
       distanceMeters: m.distanceMeters,
@@ -151,9 +152,17 @@ export function SupportConcierge({
         latestMessage: clean,
         userRole,
         municipality,
+        intent: localMatch.intent,
         matchedOffersSummary: compactSummary,
         parsedBudget: localMatch.parsedBudget,
         isShoppingIntent: localMatch.isShoppingIntent,
+        liveCatalogDigest: {
+          activeCount: liveDigest.activeCount,
+          categoriesLabel: liveDigest.categoriesLabel,
+          cheapestLabel: liveDigest.cheapest
+            ? `${liveDigest.cheapest.title} (${formatCOP(liveDigest.cheapest.promo_price)})`
+            : null,
+        },
       });
 
       const assistantMsg: ConciergeMessage = {
@@ -365,7 +374,10 @@ export function SupportConcierge({
                               type="button"
                               onClick={() => {
                                 setOpen(false);
-                                onFocusOfferOnMap?.(offer);
+                                // Ejecutamos tras cerrar el modal para que el mapa reciba foco, haga flyTo y scroll suave
+                                window.setTimeout(() => {
+                                  onFocusOfferOnMap?.(offer);
+                                }, 60);
                               }}
                               className="pressable flex items-center justify-center gap-1.5 rounded-xl border border-white/15 bg-slate-950/70 py-2 text-[11px] font-bold text-slate-200 transition hover:border-impulso-mint/40 hover:text-impulso-mint"
                             >

@@ -23,6 +23,20 @@ export interface PasskeyDevice {
 export type WebAuthnServerMode = 'admin-otp' | 'sealed-vault' | 'unconfigured';
 
 const VAULT_STORAGE_PREFIX = 'impulso_pk_vault_v1:';
+const WEBAUTHN_CEREMONY_TIMEOUT_MS = 180_000;
+
+/** 🔒 V37.0 · Mutexes de ceremonia: impiden llamadas solapadas que abortan caBLE en Android. */
+let activeLoginPromise: Promise<void> | null = null;
+let activeRegisterPromise: Promise<{ id: string; credentialId: string; deviceLabel: string }> | null = null;
+
+async function hasActiveSupabaseSession(): Promise<boolean> {
+  try {
+    const { data } = await supabase.auth.getSession();
+    return Boolean(data.session?.user?.id);
+  } catch {
+    return false;
+  }
+}
 
 // ── Utilidades Base64 / Base64URL ──────────────────────────────────────────
 
@@ -320,6 +334,18 @@ export async function completePreparedPasskeyEnrollment(
   prepared: PreparedPasskeyEnrollment,
   options?: { deviceLabel?: string },
 ): Promise<{ id: string; credentialId: string; deviceLabel: string }> {
+  if (activeRegisterPromise) return activeRegisterPromise;
+  const run = completePreparedPasskeyEnrollmentInternal(prepared, options).finally(() => {
+    activeRegisterPromise = null;
+  });
+  activeRegisterPromise = run;
+  return run;
+}
+
+async function completePreparedPasskeyEnrollmentInternal(
+  prepared: PreparedPasskeyEnrollment,
+  options?: { deviceLabel?: string },
+): Promise<{ id: string; credentialId: string; deviceLabel: string }> {
   const { begin, accessToken, vaultPassword } = prepared;
   const rpId = window.location.hostname;
   const stableUserId = begin.userId.trim().toLowerCase();
@@ -352,7 +378,7 @@ export async function completePreparedPasskeyEnrollment(
           requireResidentKey: true,
           userVerification: 'required',
         },
-        timeout: 60_000,
+        timeout: WEBAUTHN_CEREMONY_TIMEOUT_MS,
         attestation: 'none',
         excludeCredentials: (begin.excludeCredentialIds ?? []).map((id) => ({
           type: 'public-key' as const,
@@ -511,6 +537,19 @@ export async function syncPasskeyVaultsOnPasswordLogin(email: string, password: 
 // ── Inicio de Sesión criptográfico (navigator.credentials.get) ─────────────
 
 export async function authenticateWithPasskey(email?: string): Promise<void> {
+  // Si ya hay sesión activa (ej: ceremonia recién completada o sincronizada), salir en éxito silencioso
+  if (await hasActiveSupabaseSession()) return;
+  // Evita ceremonias duplicadas simultáneas (causa raíz del error caBLE en Android tras entrar)
+  if (activeLoginPromise) return activeLoginPromise;
+
+  const run = authenticateWithPasskeyInternal(email).finally(() => {
+    activeLoginPromise = null;
+  });
+  activeLoginPromise = run;
+  return run;
+}
+
+async function authenticateWithPasskeyInternal(email?: string): Promise<void> {
   if (!isWebAuthnSupported()) {
     throw new Error('Este navegador o conexión no soporta desbloqueo biométrico seguro (requiere conexión cifrada HTTPS).');
   }
@@ -544,14 +583,14 @@ export async function authenticateWithPasskey(email?: string): Promise<void> {
 
   const rpId = window.location.hostname;
 
-  // 2. Firma criptográfica hardware del reto (sin restringir transports para soportar local + synced/hybrid)
+  // 2. Firma criptográfica hardware del reto (timeout amplio de 180s para flujo cross-device QR/Bluetooth)
   let assertion: Credential | null;
   try {
     const publicKeyOptions: PublicKeyCredentialRequestOptions = {
       challenge: toArrayBuffer(base64UrlToUint8Array(normalizeBase64Url(begin.challenge))),
       rpId,
       userVerification: 'required',
-      timeout: 60_000,
+      timeout: WEBAUTHN_CEREMONY_TIMEOUT_MS,
     };
     if (hasValidEmail && begin.allowCredentials.length > 0) {
       publicKeyOptions.allowCredentials = begin.allowCredentials.map((c) => ({
@@ -561,6 +600,8 @@ export async function authenticateWithPasskey(email?: string): Promise<void> {
     }
     assertion = await navigator.credentials.get({ publicKey: publicKeyOptions });
   } catch (err) {
+    // Si la sesión ya quedó autenticada en paralelo, JAMÁS mostrar error contradictorio
+    if (await hasActiveSupabaseSession()) return;
     if (err instanceof DOMException) {
       if (err.name === 'NotAllowedError') {
         throw new Error('Verificación biométrica cancelada o sin llave registrada en este equipo.');
@@ -571,6 +612,7 @@ export async function authenticateWithPasskey(email?: string): Promise<void> {
   }
 
   if (!(assertion instanceof PublicKeyCredential)) {
+    if (await hasActiveSupabaseSession()) return;
     throw new Error(WEBAUTHN_CROSS_DEVICE_MSG);
   }
 
@@ -615,6 +657,7 @@ export async function authenticateWithPasskey(email?: string): Promise<void> {
   } | null;
 
   if (!verifyRes.ok || !payload?.ok) {
+    if (await hasActiveSupabaseSession()) return;
     throw new Error(payload?.error?.message || 'No se pudo validar tu huella. Inicia sesión con tu contraseña.');
   }
 
@@ -632,7 +675,10 @@ export async function authenticateWithPasskey(email?: string): Promise<void> {
       token_hash: payload.tokenHash,
       type: 'magiclink',
     });
-    if (otpErr) throw otpErr;
+    if (otpErr) {
+      if (await hasActiveSupabaseSession()) return;
+      throw otpErr;
+    }
     return;
   }
 
@@ -641,9 +687,13 @@ export async function authenticateWithPasskey(email?: string): Promise<void> {
       access_token: payload.accessToken,
       refresh_token: payload.refreshToken,
     });
-    if (sessErr) throw sessErr;
+    if (sessErr) {
+      if (await hasActiveSupabaseSession()) return;
+      throw sessErr;
+    }
     return;
   }
 
+  if (await hasActiveSupabaseSession()) return;
   throw new Error('No se pudo establecer la sesión biométrica. Intenta de nuevo o entra con tu contraseña.');
 }

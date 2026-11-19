@@ -101,6 +101,15 @@ export interface MerchantSummary {
   rating_count: number;
 }
 
+/** Preferencias ultra-ligeras del comprador (JSONB compacto ≤ 2KB · 0 tablas extra en Supabase Free). */
+export interface ClientPreferences {
+  favoriteCategories: Category[];
+  maxBudgetCop: number | null;
+  favoriteOfferIds: string[];
+  municipality?: string;
+  updatedAt: number;
+}
+
 export interface Profile {
   id: string;
   role: UserRole;
@@ -128,6 +137,8 @@ export interface Profile {
   /** 💰 Acumuladores históricos eternos: sobreviven a la purga de la BD. */
   lifetime_sales_cop: number;
   lifetime_orders_count: number;
+  /** 🛍️ V37 · Preferencias compactas de comprador (categorías, presupuesto, máx 20 favoritos). */
+  client_preferences?: ClientPreferences | null;
   accepted_terms_at: string;
   created_at: string;
 }
@@ -322,12 +333,15 @@ export interface CreditOrder {
   created_at: string;
 }
 
-/** 💳 V18 · Configuración de recaudo del administrador (Nequi/Llave/QR). */
+/** 💳 V37 · Configuración multicanal de recaudo del administrador (Nequi / Daviplata / Llave + QR por canal). */
 export interface PaymentConfig {
   nequiPhone: string;
+  daviplataPhone?: string;
   llave: string;
   holderName: string;
   qrThumb: string;
+  daviplataQrThumb?: string;
+  llaveQrThumb?: string;
   autoApprove: boolean;
 }
 

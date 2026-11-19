@@ -1,4 +1,4 @@
-import { BadgeCheck, Crown, MessageSquareShare, Share2, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { BadgeCheck, Crown, Heart, MessageSquareShare, Share2, ShieldAlert, ShieldCheck } from 'lucide-react';
 import type { Offer } from '../../types';
 import { categoryMeta, resolveTrustLevel } from '../../types';
 import { countdownText, cx, formatCOP, ratingAvg } from '../../utils/format';
@@ -17,6 +17,9 @@ interface OfferCardProps {
   onReport: () => void;
   /** Este dispositivo ya reportó la oferta: el botón queda deshabilitado. */
   reported?: boolean;
+  /** ❤️ V37.0 · Oferta guardada en favoritos del comprador. */
+  isFavorite?: boolean;
+  onToggleFavorite?: () => void;
   /** V32.0 · Oferta recién publicada vía Realtime (resaltado suave). */
   isNew?: boolean;
   /** V13 · Abre el Perfil Público del comercio (?comercio=UUID). */
@@ -27,7 +30,19 @@ interface OfferCardProps {
  * Tarjeta de alta conversión: insignia de verificado, estrellas, distancia,
  * reloj dinámico inteligente, precios tachados y barra de stock en vivo.
  */
-export function OfferCard({ offer, distance, onOpen, onShare, onStatus, onReport, reported = false, isNew = false, onOpenMerchant }: OfferCardProps) {
+export function OfferCard({
+  offer,
+  distance,
+  onOpen,
+  onShare,
+  onStatus,
+  onReport,
+  reported = false,
+  isFavorite = false,
+  onToggleFavorite,
+  isNew = false,
+  onOpenMerchant,
+}: OfferCardProps) {
   const now = useTick(1000);
   const countdown = countdownText(offer.expires_at, now);
   const merchant = offer.merchant;
@@ -71,6 +86,25 @@ export function OfferCard({ offer, distance, onOpen, onShare, onStatus, onReport
         <span className="ml-auto rounded-full bg-white/5 px-2.5 py-1 text-[11px] font-semibold text-slate-400">
           {cat.emoji} {cat.label}
         </span>
+        {onToggleFavorite && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleFavorite();
+            }}
+            aria-label={isFavorite ? 'Quitar de favoritos' : 'Guardar en favoritos'}
+            title={isFavorite ? 'Guardado en tus favoritos' : 'Guardar en tus favoritos'}
+            className={cx(
+              'pressable grid h-7 w-7 shrink-0 place-items-center rounded-full border transition',
+              isFavorite
+                ? 'border-impulso-rose/50 bg-impulso-rose/15 text-impulso-rose'
+                : 'border-white/10 bg-slate-950/50 text-slate-400 hover:border-impulso-rose/40 hover:text-impulso-rose',
+            )}
+          >
+            <Heart className={cx('h-3.5 w-3.5', isFavorite && 'fill-current')} />
+          </button>
+        )}
       </div>
 
       {/* Foto micro-WebP (opcional): nítida, ultra liviana, con badges flotantes */}

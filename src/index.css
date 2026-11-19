@@ -113,15 +113,40 @@ input[type='number'] {
   z-index: 10 !important;
 }
 
-.imp-map .leaflet-tile-pane {
-  filter: invert(1) hue-rotate(190deg) brightness(0.86) contrast(0.92) saturate(0.55);
+/* V37.0 · Capas nativas HD (CARTO Voyager / Esri Satélite / CARTO Dark Matter):
+   sin filtro CSS invert destructivo para nitidez nivel Google Maps */
+.imp-map[data-style='osm-dark'] .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(190deg) brightness(0.88) contrast(0.94) saturate(0.6);
 }
 .imp-map {
   background: #0d1526;
   font-family: inherit;
 }
+.imp-map[data-style='streets'] {
+  background: #e8eef4;
+}
 .imp-map .leaflet-container {
-  background: #0d1526;
+  background: inherit;
+}
+.imp-pin-focused .imp-pin-bubble {
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 6px rgba(16, 185, 129, 0.35), 0 0 24px rgba(245, 158, 11, 0.75);
+  transform: scale(1.16);
+}
+.imp-pin-focused .imp-pin-price {
+  background: #10b981;
+  color: #020617;
+  border-color: #fef08a;
+}
+.imp-pin-pulse {
+  position: absolute;
+  top: -5px;
+  width: 48px;
+  height: 48px;
+  border-radius: 999px;
+  background: rgba(16, 185, 129, 0.35);
+  animation: imp-you-ping 1.4s ease-out infinite;
+  pointer-events: none;
 }
 .imp-map .leaflet-control-attribution {
   background: rgba(11, 18, 32, 0.75) !important;

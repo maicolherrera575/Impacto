@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
-import { AlertTriangle, Loader2, RefreshCw, Search, ShieldCheck } from 'lucide-react';
-import type { Category, Offer } from '../../types';
+import { useEffect, useMemo, useState } from 'react';
+import { AlertTriangle, Loader2, RefreshCw, Search, ShieldCheck, SlidersHorizontal } from 'lucide-react';
+import type { Category, ClientPreferences, Offer } from '../../types';
 import { CATEGORIES } from '../../types';
 import { LiveMap } from './LiveMap';
 import { OfferCard } from '../offers/OfferCard';
@@ -32,7 +32,14 @@ interface RadarTabProps {
   onOpenGpsGuide?: () => void;
   /** Token para forzar el recentrado del mapa (cambio de municipio). */
   recenterToken: number;
+  /** V37.0 · True cuando hay foco explícito en un comercio/oferta (evita que GPS pise el vuelo). */
+  hasExplicitFocus?: boolean;
+  /** V37.0 · Oferta enfocada desde Radar ("Ver en mapa") + token de vuelo. */
+  focusedOffer?: Offer | null;
+  focusToken?: number;
+  onClearFocus?: () => void;
   onSelectOffer: (offer: Offer) => void;
+  onQuickReserve?: (offer: Offer) => void;
   onShareOffer: (offer: Offer) => void;
   /** 📲 Texto para el Estado de WhatsApp en 1 clic. */
   onStatusOffer: (offer: Offer) => void;
@@ -40,6 +47,12 @@ interface RadarTabProps {
   onReportOffer: (offer: Offer) => void;
   /** Ofertas ya reportadas desde este dispositivo (botón deshabilitado). */
   reportedIds: Set<string>;
+  /** ❤️ V37.0 · Preferencias ligeras y favoritos del comprador. */
+  clientPrefs?: ClientPreferences;
+  onToggleFavorite?: (offerId: string) => void;
+  onOpenPreferences?: () => void;
+  /** Token que activa el filtro "✨ Para ti" al guardar gustos. */
+  forYouTriggerSeq?: number;
   /** V32.0 · IDs recién insertados por Realtime para destacar visualmente. */
   freshOfferIds?: Set<string>;
   /** V13 · Abre el Perfil Público del comercio desde la tarjeta. */
@@ -50,7 +63,7 @@ interface RadarTabProps {
   onGoToRequests?: () => void;
 }
 
-type QuickFilter = 'none' | 'flash' | 'under20k' | 'verified';
+type QuickFilter = 'none' | 'foryou' | 'favorites' | 'flash' | 'under20k' | 'verified';
 
 /** Pestaña 1: Radar de ofertas en vivo (mapa + filtros + tarjetas). */
 export function RadarTab({
@@ -67,11 +80,20 @@ export function RadarTab({
   onGeoRevoke,
   onOpenGpsGuide,
   recenterToken,
+  hasExplicitFocus = false,
+  focusedOffer = null,
+  focusToken = 0,
+  onClearFocus,
   onSelectOffer,
+  onQuickReserve,
   onShareOffer,
   onStatusOffer,
   onReportOffer,
   reportedIds,
+  clientPrefs,
+  onToggleFavorite,
+  onOpenPreferences,
+  forYouTriggerSeq = 0,
   freshOfferIds,
   onOpenMerchant,
   onAskRadar,
@@ -81,6 +103,18 @@ export function RadarTab({
   const [category, setCategory] = useState<Category | 'all'>('all');
   const [quickFilter, setQuickFilter] = useState<QuickFilter>('none');
   const [gpsDeniedLocal, setGpsDeniedLocal] = useState(false);
+
+  const favIdSet = useMemo(() => new Set(clientPrefs?.favoriteOfferIds ?? []), [clientPrefs?.favoriteOfferIds]);
+  const hasSavedPrefs = Boolean(
+    (clientPrefs?.favoriteCategories?.length ?? 0) > 0 || clientPrefs?.maxBudgetCop != null,
+  );
+
+  useEffect(() => {
+    if (forYouTriggerSeq > 0) {
+      setCategory('all');
+      setQuickFilter('foryou');
+    }
+  }, [forYouTriggerSeq]);
 
   /** Activa el GPS exacto directamente dentro del gesto de clic del usuario. */
   function grantGpsConsent(): void {
@@ -99,7 +133,19 @@ export function RadarTab({
     const now = Date.now();
     const filtered = offers.filter((o) => {
       if (category !== 'all' && o.category !== category) return false;
-      if (quickFilter === 'flash') {
+      if (quickFilter === 'foryou' && clientPrefs) {
+        if (
+          clientPrefs.favoriteCategories.length > 0 &&
+          !clientPrefs.favoriteCategories.includes(o.category)
+        ) {
+          return false;
+        }
+        if (clientPrefs.maxBudgetCop != null && Number(o.promo_price) > clientPrefs.maxBudgetCop) {
+          return false;
+        }
+      } else if (quickFilter === 'favorites') {
+        if (!favIdSet.has(o.id)) return false;
+      } else if (quickFilter === 'flash') {
         const hrsLeft = (new Date(o.expires_at).getTime() - now) / 3_600_000;
         if (hrsLeft > 4) return false;
       } else if (quickFilter === 'under20k') {
@@ -118,7 +164,7 @@ export function RadarTab({
       );
     }
     return filtered;
-  }, [offers, search, category, quickFilter, geoPos]);
+  }, [offers, search, category, quickFilter, geoPos, clientPrefs, favIdSet]);
 
   const pulseMetrics = useMemo(() => {
     const totalQuotas = offers.reduce((acc, o) => acc + Math.max(0, o.available_quota), 0);
@@ -140,7 +186,13 @@ export function RadarTab({
           locating={geoLocating}
           onGeoRequest={grantGpsConsent}
           recenterToken={recenterToken}
+          hasExplicitFocus={hasExplicitFocus}
+          focusedOffer={focusedOffer}
+          focusToken={focusToken}
+          onClearFocus={onClearFocus}
           onSelect={onSelectOffer}
+          onQuickReserve={onQuickReserve}
+          onOpenMerchant={onOpenMerchant}
         />
 
         {/* Advertencia clara cuando el navegador solo concede ubicación aproximada o bloqueada */}
@@ -318,19 +370,32 @@ export function RadarTab({
                 {pulseMetrics.totalDeals} oferta{pulseMetrics.totalDeals === 1 ? '' : 's'} en vivo
                 <span className="font-semibold text-slate-400">· {pulseMetrics.totalQuotas} cupos hoy</span>
               </p>
-              {pulseMetrics.verifiedDeals > 0 && (
-                <span className="rounded-full bg-sky-500/15 px-2 py-0.5 text-[10px] font-extrabold text-sky-300">
-                  ✓ {pulseMetrics.verifiedDeals} verificadas
-                </span>
-              )}
+              <div className="flex items-center gap-1.5">
+                {pulseMetrics.verifiedDeals > 0 && (
+                  <span className="rounded-full bg-sky-500/15 px-2 py-0.5 text-[10px] font-extrabold text-sky-300">
+                    ✓ {pulseMetrics.verifiedDeals} verificadas
+                  </span>
+                )}
+                {onOpenPreferences && (
+                  <button
+                    type="button"
+                    onClick={onOpenPreferences}
+                    className="pressable inline-flex items-center gap-1 rounded-full border border-sky-400/30 bg-sky-500/10 px-2.5 py-0.5 text-[10px] font-extrabold text-sky-300 transition hover:bg-sky-500/20"
+                  >
+                    <SlidersHorizontal className="h-3 w-3" /> Gustos
+                  </button>
+                )}
+              </div>
             </div>
             <div className="mt-2 flex flex-wrap gap-1.5">
               {(
                 [
-                  { id: 'flash', label: '⚡ Relámpago (<4h)' },
-                  { id: 'under20k', label: '💰 Hasta $20.000' },
-                  { id: 'verified', label: '✅ Solo Verificados' },
-                ] as const
+                  ...(hasSavedPrefs ? [{ id: 'foryou' as const, label: '✨ Para ti' }] : []),
+                  ...(favIdSet.size > 0 ? [{ id: 'favorites' as const, label: `❤️ Favoritos (${favIdSet.size})` }] : []),
+                  { id: 'flash' as const, label: '⚡ Relámpago (<4h)' },
+                  { id: 'under20k' as const, label: '💰 Hasta $20.000' },
+                  { id: 'verified' as const, label: '✅ Solo Verificados' },
+                ]
               ).map((chip) => {
                 const active = quickFilter === chip.id;
                 return (
@@ -341,7 +406,11 @@ export function RadarTab({
                     className={cx(
                       'pressable rounded-full border px-2.5 py-1 text-[10px] font-extrabold transition',
                       active
-                        ? 'border-impulso-gold/60 bg-impulso-gold/15 text-impulso-gold'
+                        ? chip.id === 'foryou'
+                          ? 'border-sky-400/70 bg-sky-500/20 text-sky-200'
+                          : chip.id === 'favorites'
+                            ? 'border-impulso-rose/70 bg-impulso-rose/20 text-rose-200'
+                            : 'border-impulso-gold/60 bg-impulso-gold/15 text-impulso-gold'
                         : 'border-white/10 bg-slate-950/50 text-slate-400 hover:text-white',
                     )}
                   >
@@ -401,6 +470,8 @@ export function RadarTab({
               onStatus={() => onStatusOffer(offer)}
               onReport={() => onReportOffer(offer)}
               reported={reportedIds.has(offer.id)}
+              isFavorite={favIdSet.has(offer.id)}
+              onToggleFavorite={onToggleFavorite ? () => onToggleFavorite(offer.id) : undefined}
               isNew={Boolean(freshOfferIds?.has(offer.id))}
               onOpenMerchant={onOpenMerchant}
             />

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Loader2, ShieldCheck } from 'lucide-react';
 
-import type { Offer, Profile, QuickRequest, Ticket } from './types';
+import type { ClientPreferences, Offer, Profile, QuickRequest, Ticket } from './types';
 import { MUNICIPIOS, municipioCenter } from './types';
 import type { Tab } from './types/navigation';
 
@@ -16,6 +16,13 @@ import {
 import { fetchActiveRequests } from './services/requests.service';
 import { cancelMyReservation, fetchTicketStatuses } from './services/reservations.service';
 import { fetchMyProfile, ensureMyProfile, fetchPublicProfileById, signOut } from './services/profile.service';
+import {
+  loadLocalClientPreferences,
+  mergeClientPreferences,
+  persistClientPreferencesNow,
+  saveLocalClientPreferences,
+  scheduleSyncClientPreferences,
+} from './services/preferences.service';
 
 import { useGeolocation } from './utils/geo';
 import type { LatLng } from './utils/geo';
@@ -34,6 +41,7 @@ import { OfferDetailModal } from './components/offers/OfferDetailModal';
 import { ReportModal } from './components/offers/ReportModal';
 import { MerchantProfileModal } from './components/radar/MerchantProfileModal';
 import { SupportConcierge } from './components/support/SupportConcierge';
+import { ClientProfileModal } from './components/client/ClientProfileModal';
 import { AuthModal } from './components/auth/AuthModal';
 import { LegalModal } from './components/legal/LegalModal';
 import { AdminPanel } from './components/admin/AdminPanel';
@@ -70,8 +78,14 @@ export default function App() {
   /** V13 · Perfil Público del comercio (?comercio=UUID) + su catálogo vivo. */
   const [selectedMerchant, setSelectedMerchant] = useState<Profile | null>(null);
   const [merchantOffers, setMerchantOffers] = useState<Offer[]>([]);
-  /** V13 · Enfoque del mapa: coordenadas de un comercio (botón "Ver en el Mapa"). */
+  /** V13/V37 · Enfoque del mapa: coordenadas + oferta exacta ("Ver en mapa"). */
   const [mapFocus, setMapFocus] = useState<LatLng | null>(null);
+  const [focusedOffer, setFocusedOffer] = useState<Offer | null>(null);
+  const [focusToken, setFocusToken] = useState(0);
+  /** 🛍️ V37 · Preferencias ligeras y modal exclusivo de Comprador (separado del Comercio). */
+  const [clientPrefs, setClientPrefs] = useState<ClientPreferences>(() => loadLocalClientPreferences());
+  const [clientProfileOpen, setClientProfileOpen] = useState(false);
+  const [forYouTriggerSeq, setForYouTriggerSeq] = useState(0);
   const [authOpen, setAuthOpen] = useState(false);
   const [legalOpen, setLegalOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
@@ -139,6 +153,16 @@ export default function App() {
       if (p) {
         setProfile(p);
         setProfileError(null);
+        // Si la sesión ya quedó autenticada (ej. Passkey/biometría), cerramos AuthModal limpio sin errores
+        setAuthOpen(false);
+        // Si es cuenta de Comprador, jamás dejarlo atrapado en la vista del Panel Comercial
+        if (p.role === 'client') {
+          setView('radar');
+        }
+        // Fusionar preferencias ligeras del comprador (0 lecturas extra: ya vienen en profiles)
+        if (p.client_preferences) {
+          setClientPrefs((prev) => saveLocalClientPreferences(mergeClientPreferences(prev, p.client_preferences)));
+        }
       } else {
         setProfileError(
           'Tu cuenta existe, pero no encontramos tu perfil comercial todavía. Intenta nuevamente o contacta al equipo de soporte.'
@@ -466,6 +490,7 @@ export default function App() {
   const handleMunicipality = useCallback((name: string) => {
     setMunicipality(name);
     setMapFocus(null);
+    setFocusedOffer(null);
     setRecenterToken((t) => t + 1);
   }, []);
 
@@ -495,31 +520,73 @@ export default function App() {
   }, [toast]);
 
   /**
-   * V13 · "Ver en el Mapa Radar": cierra el perfil, salta a la pestaña de
+   * V13/V37 · "Ver en el Mapa Radar": cierra el perfil, salta a la pestaña de
    * ofertas y centra el radar en las coordenadas exactas del comercio.
    */
   const handleFocusMerchantMap = useCallback(() => {
     const m = selectedMerchant;
+    const firstOffer = merchantOffers[0] ?? null;
     setSelectedMerchant(null);
     setView('radar');
     setTab('ofertas');
     if (m?.lat != null && m?.lng != null) setMapFocus({ lat: m.lat, lng: m.lng });
+    if (firstOffer) {
+      setFocusedOffer(firstOffer);
+      setFocusToken((t) => t + 1);
+    }
     if (m && MUNICIPIOS.some((x) => x.name === m.municipality)) setMunicipality(m.municipality);
     setRecenterToken((t) => t + 1);
-  }, [selectedMerchant]);
+  }, [selectedMerchant, merchantOffers]);
 
+  /**
+   * 🎯 V37.0 · Salto real "Ver en mapa" desde Radar / Favoritos:
+   *  1) Vuelve al radar principal y a la pestaña 'ofertas'.
+   *  2) Fija coordenadas + oferta exacta (`focusedOffer` + `focusToken`) para hacer `flyTo`,
+   *     resaltar el pin con halo pulsante y abrir la tarjeta flotante en el mapa.
+   */
   const handleFocusOfferOnMap = useCallback((offer: Offer) => {
     setView('radar');
     setTab('ofertas');
     if (offer.lat != null && offer.lng != null) {
       setMapFocus({ lat: offer.lat, lng: offer.lng });
     }
+    setFocusedOffer(offer);
+    setFocusToken((t) => t + 1);
     if (offer.municipality && MUNICIPIOS.some((x) => x.name === offer.municipality)) {
       setMunicipality(offer.municipality);
     }
     setRecenterToken((t) => t + 1);
     toast.info(`📍 Mapa centrado en ${offer.merchant?.business_name ?? offer.title}`);
   }, [toast]);
+
+  const handleToggleFavorite = useCallback(
+    (offerId: string) => {
+      setClientPrefs((prev) => {
+        const exists = prev.favoriteOfferIds.includes(offerId);
+        const nextIds = exists
+          ? prev.favoriteOfferIds.filter((id) => id !== offerId)
+          : [offerId, ...prev.favoriteOfferIds].slice(0, 20);
+        const saved = saveLocalClientPreferences({ ...prev, favoriteOfferIds: nextIds });
+        scheduleSyncClientPreferences(saved, Boolean(profile?.id));
+        toast.info(exists ? '💔 Quitada de tus favoritos' : '❤️ Guardada en tus favoritos');
+        return saved;
+      });
+    },
+    [profile?.id, toast],
+  );
+
+  const handleSaveClientPreferences = useCallback(
+    async (next: ClientPreferences, applyFilterNow = false) => {
+      const saved = await persistClientPreferencesNow(next, Boolean(profile?.id));
+      setClientPrefs(saved);
+      if (applyFilterNow) {
+        setView('radar');
+        setTab('ofertas');
+        setForYouTriggerSeq((s) => s + 1);
+      }
+    },
+    [profile?.id],
+  );
 
   const handleOpenOfferQuickReserve = useCallback((offer: Offer) => {
     setOfferModalInitialStep('form');
@@ -552,11 +619,13 @@ export default function App() {
             geoStatus={geo.status}
             onGeoRequest={handleGeoRequest}
             profile={profile}
+            favoritesCount={clientPrefs.favoriteOfferIds.length}
             onOpenAuth={() => setAuthOpen(true)}
+            onOpenClientProfile={() => setClientProfileOpen(true)}
             onOpenDashboard={() => {
               if (profile?.role === 'client') {
                 setView('radar');
-                toast.info('Tu cuenta de Cliente está pensada para explorar ofertas y apartados en el radar.');
+                setClientProfileOpen(true);
               } else if (profile) {
                 setView('dashboard');
               } else {
@@ -585,14 +654,26 @@ export default function App() {
                 onGeoRevoke={geo.revoke}
                 onOpenGpsGuide={() => setGpsGuideOpen(true)}
                 recenterToken={recenterToken}
+                hasExplicitFocus={Boolean(mapFocus || focusedOffer)}
+                focusedOffer={focusedOffer}
+                focusToken={focusToken}
+                onClearFocus={() => {
+                  setFocusedOffer(null);
+                  setMapFocus(null);
+                }}
                 onSelectOffer={(o) => {
                   setOfferModalInitialStep('detail');
                   setSelectedOffer(o);
                 }}
+                onQuickReserve={handleOpenOfferQuickReserve}
                 onShareOffer={(o) => void shareOffer(o)}
                 onStatusOffer={(o) => void handleStatusShare(o)}
                 onReportOffer={setReporting}
                 reportedIds={reportedIds}
+                clientPrefs={clientPrefs}
+                onToggleFavorite={handleToggleFavorite}
+                onOpenPreferences={() => setClientProfileOpen(true)}
+                forYouTriggerSeq={forYouTriggerSeq}
                 freshOfferIds={freshOfferIds}
                 onOpenMerchant={(id) => void openMerchantProfile(id)}
                 onAskRadar={handleAskRadarFromSearch}
@@ -721,8 +802,45 @@ export default function App() {
       <AuthModal
         open={authOpen}
         onClose={() => setAuthOpen(false)}
-        onAuthed={() => setView('dashboard')}
+        onAuthed={(hintRole) => {
+          if (hintRole === 'client') {
+            setView('radar');
+            setClientProfileOpen(true);
+            return;
+          }
+          if (hintRole === 'merchant') {
+            setView('dashboard');
+            return;
+          }
+          // Login de cuenta existente: resolvemos el rol real sin dejar atrapado a un Cliente en dashboard
+          void supabase.auth.getUser().then(async ({ data }) => {
+            if (!data.user) return;
+            const p = await fetchMyProfile(data.user.id).catch(() => null);
+            if (p) {
+              setProfile(p);
+              setView(p.role === 'client' ? 'radar' : 'dashboard');
+            }
+          });
+        }}
         onOpenLegal={() => setLegalOpen(true)}
+      />
+      <ClientProfileModal
+        open={clientProfileOpen}
+        onClose={() => setClientProfileOpen(false)}
+        profile={profile?.role === 'client' ? profile : null}
+        preferences={clientPrefs}
+        offers={offers}
+        tickets={tickets}
+        onSavePreferences={handleSaveClientPreferences}
+        onToggleFavorite={handleToggleFavorite}
+        onReserveOffer={handleOpenOfferQuickReserve}
+        onFocusOfferOnMap={handleFocusOfferOnMap}
+        onOpenAuth={() => setAuthOpen(true)}
+        onSignOut={handleSignOut}
+        onUpgradedToMerchant={(newProfile) => {
+          setProfile(newProfile);
+          setView('dashboard');
+        }}
       />
       <LegalModal open={legalOpen} onClose={() => setLegalOpen(false)} />
       <GpsGuideModal

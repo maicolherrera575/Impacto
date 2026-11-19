@@ -133,15 +133,31 @@ export interface SignUpMerchantInput {
   municipality: string;
 }
 
-/** Registro del comerciante: el trigger de Supabase crea su perfil automáticamente. */
+export interface SignUpClientInput {
+  email: string;
+  password: string;
+  fullName: string;
+  whatsapp?: string;
+  municipality: string;
+  favoriteCategory?: Category;
+}
+
+function resolvePublicRedirectUrl(): string {
+  if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+    return `${window.location.origin}/`;
+  }
+  return 'https://tuimpulso.vercel.app/';
+}
+
+/** Registro del comerciante: el trigger de Supabase crea su perfil con role='merchant' y 3 créditos. */
 export async function signUpMerchant(input: SignUpMerchantInput): Promise<boolean> {
   const { data, error } = await supabase.auth.signUp({
     email: input.email,
     password: input.password,
     options: {
-      // V19: la redirección SIEMPRE al dominio real en producción (jamás localhost:3000)
-      emailRedirectTo: 'https://impacto-tawny.vercel.app/',
+      emailRedirectTo: resolvePublicRedirectUrl(),
       data: {
+        account_type: 'merchant',
         business_name: input.businessName,
         category: input.category,
         whatsapp: input.whatsapp,
@@ -150,9 +166,46 @@ export async function signUpMerchant(input: SignUpMerchantInput): Promise<boolea
     },
   });
   if (error) throw error;
-  // Si Supabase exige confirmación de correo, la sesión llega null:
-  // la app debe avisarle al usuario en lugar de quedarse en blanco.
   return Boolean(data.session);
+}
+
+/** 🛍️ V37.0 · Registro dedicado para Clientes/Compradores (role='client', 0 créditos, jamás confundido con comercio). */
+export async function signUpClient(input: SignUpClientInput): Promise<boolean> {
+  const cleanWa = (input.whatsapp ?? '').replace(/\D/g, '').slice(0, 15);
+  const { data, error } = await supabase.auth.signUp({
+    email: input.email,
+    password: input.password,
+    options: {
+      emailRedirectTo: resolvePublicRedirectUrl(),
+      data: {
+        account_type: 'client',
+        full_name: input.fullName.trim(),
+        business_name: input.fullName.trim(),
+        category: input.favoriteCategory ?? 'comida',
+        whatsapp: cleanWa || '3000000000',
+        municipality: input.municipality,
+      },
+    },
+  });
+  if (error) throw error;
+  return Boolean(data.session);
+}
+
+/** 🏪 Conversión explícita (opcional) si un Cliente abre un negocio real y solicita pasar a cuenta Comercio. */
+export async function upgradeClientToMerchant(input: {
+  businessName: string;
+  category: Category;
+  whatsapp: string;
+  municipality: string;
+}): Promise<Profile> {
+  const { data, error } = await supabase.rpc('upgrade_client_to_merchant_rpc', {
+    p_business_name: input.businessName.trim(),
+    p_category: input.category,
+    p_whatsapp: input.whatsapp.replace(/\D/g, ''),
+    p_municipality: input.municipality,
+  });
+  if (error) throw error;
+  return data as unknown as Profile;
 }
 
 /**

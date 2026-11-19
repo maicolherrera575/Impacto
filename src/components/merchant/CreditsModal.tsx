@@ -80,23 +80,38 @@ export function CreditsModal({ open, onClose, profile, onCreditsApproved }: Cred
   const nequiDigits = ((payConfig?.nequiPhone || ADMIN_WHATSAPP) || '3158942112').replace(/\D/g, '');
   const nequiLocal = nequiDigits.startsWith('57') ? nequiDigits.slice(2) : nequiDigits;
   const nequiPretty = `${nequiLocal.slice(0, 3)} ${nequiLocal.slice(3, 6)} ${nequiLocal.slice(6)}`;
+
+  const daviDigitsRaw = (payConfig?.daviplataPhone || '').replace(/\D/g, '');
+  const daviLocal = daviDigitsRaw.length >= 10
+    ? (daviDigitsRaw.startsWith('57') ? daviDigitsRaw.slice(2) : daviDigitsRaw)
+    : nequiLocal;
+  const daviPretty = `${daviLocal.slice(0, 3)} ${daviLocal.slice(3, 6)} ${daviLocal.slice(6)}`;
+
   const llave = payConfig?.llave?.trim() || '@impulso3158942112';
   const holderName = payConfig?.holderName?.trim() || 'Administrador Impulso';
-  const adminQr = payConfig?.qrThumb?.trim() || '';
   const autoApproveOn = payConfig?.autoApprove === true;
 
-  const hasOfficialQr = Boolean(adminQr);
-  const displayedQr = adminQr || generatedQr;
+  // QR oficial del canal elegido (Nequi / Daviplata / Llave)
+  const channelQr =
+    method === 'Daviplata'
+      ? (payConfig?.daviplataQrThumb?.trim() || payConfig?.qrThumb?.trim() || '')
+      : method === 'Llave'
+        ? (payConfig?.llaveQrThumb?.trim() || payConfig?.qrThumb?.trim() || '')
+        : (payConfig?.qrThumb?.trim() || '');
+  const hasOfficialQr = Boolean(channelQr);
+  const displayedQr = channelQr || generatedQr;
+  const activeCopyValue = method === 'Daviplata' ? daviLocal : method === 'Llave' ? llave : nequiLocal;
+  const activePrettyLabel = method === 'Daviplata' ? daviPretty : method === 'Llave' ? llave : nequiPretty;
 
-  /** QR genérico de respaldo únicamente si el Admin aún no ha subido su imagen oficial. */
+  /** QR genérico de respaldo únicamente si el Admin aún no ha subido su imagen oficial para el canal. */
   useEffect(() => {
-    if (!open || adminQr) {
+    if (!open || channelQr) {
       setGeneratedQr(null);
       return;
     }
     let cancelled = false;
     QRCode.toDataURL(
-      `PAGO IMPULSO | Nequi ${nequiLocal} | ${holderName} | ${method}`,
+      `PAGO IMPULSO | ${method} ${activeCopyValue} | ${holderName}`,
       { width: 480, margin: 2, errorCorrectionLevel: 'M' },
     )
       .then((url) => {
@@ -106,7 +121,7 @@ export function CreditsModal({ open, onClose, profile, onCreditsApproved }: Cred
     return () => {
       cancelled = true;
     };
-  }, [open, adminQr, nequiLocal, holderName, method]);
+  }, [open, channelQr, activeCopyValue, holderName, method]);
 
   /** 🔍 Decodifica un QR dentro de una imagen subida (jsQR sobre canvas). */
   async function decodeQrFromImage(dataUrl: string): Promise<string | null> {
@@ -297,7 +312,11 @@ export function CreditsModal({ open, onClose, profile, onCreditsApproved }: Cred
         return;
       }
 
-      setSuccessMsg('✅ Validación de pago completada con Verificación de Seguridad Asegurada: el administrador lo confirmará en minutos.');
+      setSuccessMsg(
+        srv.reviewReason
+          ? `✅ Comprobante recibido: ${srv.reviewReason}`
+          : '✅ Comprobante recibido con verificación de seguridad: el administrador confirmará tus créditos en minutos.',
+      );
       openWhatsApp(
         nequiDigits,
         `Hola! Soy ${profile.business_name} (${profile.municipality}). Envié el comprobante ${method} por ${formatCOP(plan.priceCop)} — ${plan.name} (${plan.credits} créditos), código ${reference.trim()}. ¡Quedo atento a la activación! 🙌`,
@@ -354,85 +373,102 @@ export function CreditsModal({ open, onClose, profile, onCreditsApproved }: Cred
           ))}
         </div>
 
-        {/* 💳 V18 · Las 3 opciones de pago hacia el Admin */}
-        <div className="mt-4 space-y-2 rounded-2xl border border-impulso-emerald/25 bg-impulso-emerald/5 p-3.5">
+        {/* 💳 V37 · Selector limpio de canal oficial (Nequi / Daviplata / Llave) + QR específico del canal */}
+        <div className="mt-4 space-y-2.5 rounded-2xl border border-impulso-emerald/25 bg-impulso-emerald/5 p-3.5">
           <p className="flex items-center gap-1.5 text-xs font-bold text-impulso-mint">
-            <ShieldCheck className="h-4 w-4" /> Paga {formatCOP(plan.priceCop)} a {holderName}:
+            <ShieldCheck className="h-4 w-4" /> Elige tu canal y paga {formatCOP(plan.priceCop)} a {holderName}:
           </p>
-          {/* Opción 1: Nequi / Daviplata */}
-          <div className="rounded-xl border border-white/10 bg-slate-950/40 p-2.5">
-            <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Opción 1 · Número Nequi / Daviplata</p>
+
+          <div className="grid grid-cols-3 gap-1.5">
+            {(
+              [
+                { id: 'Nequi' as const, label: '💜 Nequi' },
+                { id: 'Daviplata' as const, label: '❤️ Daviplata' },
+                { id: 'Llave' as const, label: '🔑 Llave' },
+              ]
+            ).map((ch) => (
+              <button
+                key={ch.id}
+                type="button"
+                onClick={() => setMethod(ch.id)}
+                className={cx(
+                  'pressable rounded-xl border py-2 text-xs font-extrabold transition',
+                  method === ch.id
+                    ? 'border-impulso-emerald/60 bg-impulso-emerald/20 text-white shadow-sm'
+                    : 'border-white/10 bg-slate-950/50 text-slate-400 hover:text-white',
+                )}
+              >
+                {ch.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Dato oficial del canal seleccionado */}
+          <div className="rounded-xl border border-white/10 bg-slate-950/45 p-2.5">
+            <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">
+              {method === 'Daviplata'
+                ? 'Cuenta oficial Daviplata'
+                : method === 'Llave'
+                  ? 'Llave oficial Bre-B / Transfiya'
+                  : 'Cuenta oficial Nequi'}
+            </p>
             <div className="mt-1 flex items-center gap-2">
-              <p className="flex-1 font-mono text-2xl font-extrabold tracking-[0.1em] text-white tabular-nums">
-                {nequiPretty}
+              <p className="min-w-0 flex-1 truncate font-mono text-xl font-extrabold tracking-[0.06em] text-white tabular-nums">
+                {activePrettyLabel}
               </p>
               <button
+                type="button"
                 onClick={() => {
                   navigator.clipboard
-                    .writeText(nequiLocal)
-                    .then(() => toast.success('📋 Número Nequi copiado'))
+                    .writeText(activeCopyValue)
+                    .then(() => toast.success(`📋 ${method} copiado al portapapeles`))
                     .catch(() => toast.error('No se pudo copiar: escríbelo manualmente'));
                 }}
-                className="pressable flex items-center gap-1.5 rounded-xl bg-impulso-emerald px-3 py-2.5 text-xs font-extrabold text-slate-950"
+                className="pressable flex shrink-0 items-center gap-1.5 rounded-xl bg-impulso-emerald px-3 py-2 text-xs font-extrabold text-slate-950"
               >
-                <Copy className="h-4 w-4" /> Copiar número
+                <Copy className="h-4 w-4" /> Copiar
               </button>
             </div>
             <button
+              type="button"
               onClick={openPaymentApp}
               className="pressable mt-1.5 flex w-full items-center justify-center gap-2 rounded-xl border border-impulso-emerald/40 bg-impulso-emerald/10 py-2 text-[11px] font-extrabold text-impulso-mint"
             >
-              <ExternalLink className="h-3.5 w-3.5" /> 📲 Ya copié: abrir {method === 'Llave' ? 'Nequi' : method} para recargar
+              <ExternalLink className="h-3.5 w-3.5" /> 📲 Abrir {method === 'Llave' ? 'mi app bancaria' : method} para pagar
             </button>
           </div>
-          {/* Opción 2: Llave Bre-B / Transfiya */}
-          <div className="rounded-xl border border-white/10 bg-slate-950/40 p-2.5">
-            <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Opción 2 · Llave Bancaria (Bre-B / Transfiya)</p>
-            <div className="mt-1 flex items-center gap-2">
-              <p className="min-w-0 flex-1 truncate font-mono text-lg font-extrabold text-white">{llave}</p>
-              <button
-                onClick={() => {
-                  navigator.clipboard
-                    .writeText(llave)
-                    .then(() => toast.success('🔑 Llave copiada: pégala en tu app bancaria'))
-                    .catch(() => toast.error('No se pudo copiar la Llave'));
-                }}
-                className="pressable flex shrink-0 items-center gap-1.5 rounded-xl border border-impulso-gold/40 bg-impulso-gold/15 px-3 py-2.5 text-xs font-extrabold text-impulso-gold"
-              >
-                <Copy className="h-4 w-4" /> Copiar Llave
-              </button>
-            </div>
-          </div>
-          {/* Opción 3: QR oficial bancario del administrador (o respaldo genérico con advertencia) */}
+
+          {/* QR oficial del canal elegido */}
           {displayedQr && (
-            <div className="rounded-xl border border-white/10 bg-slate-950/40 p-2.5">
+            <div className="rounded-xl border border-white/10 bg-slate-950/45 p-2.5">
               <div className="flex items-center justify-between gap-2">
                 <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">
-                  Opción 3 · Código QR de pago
+                  Código QR oficial · {method}
                 </p>
                 {hasOfficialQr ? (
                   <span className="rounded-full bg-impulso-emerald/15 px-2 py-0.5 text-[9px] font-extrabold text-impulso-mint">
-                    ✅ Oficial Nequi / Daviplata
+                    ✅ QR Oficial Verificado
                   </span>
                 ) : (
                   <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[9px] font-extrabold text-amber-300">
-                    ⚠️ QR genérico
+                    ℹ️ Usa el número o Llave arriba
                   </span>
                 )}
               </div>
               <div className="mt-1.5 flex items-center gap-3">
                 <img
                   src={displayedQr}
-                  alt={hasOfficialQr ? 'QR oficial Nequi / Daviplata del administrador' : 'QR de respaldo'}
+                  alt={`QR oficial ${method} del administrador`}
                   className="h-28 w-28 shrink-0 rounded-xl bg-white object-contain p-1"
                 />
                 <div className="min-w-0 flex-1 space-y-1.5">
                   <p className="text-[11px] font-semibold leading-relaxed text-slate-300">
                     {hasOfficialQr
-                      ? 'Escanea este QR oficial directamente desde Nequi, Daviplata o tu app bancaria, o descárgalo.'
-                      : '⚠️ QR genérico de respaldo: el administrador aún no ha subido su imagen oficial; podría no ser compatible con todas las apps bancarias (usa preferiblemente el número Nequi o Llave).'}
+                      ? `Escanea este QR oficial directamente desde ${method === 'Llave' ? 'tu app bancaria' : method}, o descárgalo para abrirlo en tu galería.`
+                      : 'El administrador aún no ha subido el QR de este canal. Te recomendamos copiar el número o Llave de arriba.'}
                   </p>
                   <button
+                    type="button"
                     onClick={downloadQr}
                     className="pressable flex items-center gap-1.5 rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-[11px] font-extrabold text-slate-200"
                   >

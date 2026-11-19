@@ -312,6 +312,7 @@ async function analyzeReceiptWithGeminiServer(
   image: { mimeType: string; base64: string },
   adminPhone: string,
   adminKey: string,
+  daviplataPhone?: string,
 ): Promise<ServerReceiptAudit> {
   const keyPool = getGeminiKeyPool();
   const effectivePool = keyPool.length > 0 ? keyPool : geminiKey ? [geminiKey] : [];
@@ -319,7 +320,9 @@ async function analyzeReceiptWithGeminiServer(
     throw new Error('El servidor no tiene configurada GEMINI_API_KEY.');
   }
 
-  const prompt = `${RECEIPT_VISION_PROMPT}\nLa cuenta oficial autorizada de recaudo es el Nequi ${adminPhone} (principal oficial: ${OFFICIAL_ADMIN_NEQUI}) o la Llave ${adminKey}.`;
+  const davi10 = last10Digits(daviplataPhone || '');
+  const daviNote = davi10.length === 10 && davi10 !== adminPhone ? `, Daviplata oficial ${davi10}` : '';
+  const prompt = `${RECEIPT_VISION_PROMPT}\nLas cuentas oficiales autorizadas de recaudo son: Nequi ${adminPhone} (principal: ${OFFICIAL_ADMIN_NEQUI})${daviNote} o la Llave ${adminKey}.`;
   const payload = {
     contents: [
       {
@@ -422,7 +425,7 @@ async function analyzeReceiptWithGeminiServer(
   const keyClean = adminKey.replace(/[^a-zA-Z0-9@]/g, '').toLowerCase();
   const isValidDestination = Boolean(
     dest &&
-      ((dest10.length === 10 && (dest10 === admin10 || dest10 === OFFICIAL_ADMIN_NEQUI)) ||
+      ((dest10.length === 10 && (dest10 === admin10 || dest10 === OFFICIAL_ADMIN_NEQUI || (davi10.length === 10 && dest10 === davi10))) ||
         (keyClean && dest.toLowerCase().includes(keyClean))),
   );
 
@@ -486,17 +489,19 @@ export default async function handler(req: IncomingMessage, res: VercelRes): Pro
 
     const cfgRaw = (await callSupabaseRpc(env.supabaseUrl, env.anonKey, userJwt, 'get_payment_config_rpc')) as {
       nequiPhone?: string;
+      daviplataPhone?: string;
       llave?: string;
       autoApprove?: boolean;
     } | null;
 
     const adminPhone = last10Digits(cfgRaw?.nequiPhone || OFFICIAL_ADMIN_NEQUI) || OFFICIAL_ADMIN_NEQUI;
+    const daviplataPhone = last10Digits(cfgRaw?.daviplataPhone || '') || adminPhone;
     const adminKey = cfgRaw?.llave?.trim() || OFFICIAL_ADMIN_LLAVE;
     const autoApproveOn = cfgRaw?.autoApprove === true;
 
     let audit: ServerReceiptAudit | null = null;
     try {
-      audit = await analyzeReceiptWithGeminiServer(env.geminiKey, image, adminPhone, adminKey);
+      audit = await analyzeReceiptWithGeminiServer(env.geminiKey, image, adminPhone, adminKey, daviplataPhone);
     } catch (aiErr) {
       if (action === 'verify') {
         throw aiErr;
@@ -563,7 +568,16 @@ export default async function handler(req: IncomingMessage, res: VercelRes): Pro
     if (audit && audit.destinationDetected && !audit.isValidDestination) {
       sendJson(res, 400, {
         error: {
-          message: `🚨 El comprobante indica destino ${audit.destinationDetected}, distinto a la cuenta oficial ${adminPhone}.`,
+          message: `🚨 El comprobante indica destino ${audit.destinationDetected}, distinto a las cuentas oficiales autorizadas de Impulso (${adminPhone}${daviplataPhone !== adminPhone ? ` / ${daviplataPhone}` : ''}).`,
+        },
+      });
+      return;
+    }
+
+    if (audit && audit.amountCop != null && audit.amountCop > 0 && audit.amountCop !== pkg.priceCop) {
+      sendJson(res, 400, {
+        error: {
+          message: `⚠️ El valor del comprobante ($${audit.amountCop.toLocaleString('es-CO')}) no coincide con el paquete elegido ($${pkg.priceCop.toLocaleString('es-CO')}). Selecciona el plan exacto que pagaste.`,
         },
       });
       return;
@@ -578,13 +592,25 @@ export default async function handler(req: IncomingMessage, res: VercelRes): Pro
         audit.amountCop === pkg.priceCop,
     );
 
+    let reviewReason: string | null = null;
+    if (!iaStatusOk) {
+      if (!audit) reviewReason = 'Revisión manual del administrador (lectura automática no disponible).';
+      else if (audit.suspicious) reviewReason = 'Requiere verificación manual prioritaria por el administrador.';
+      else if (!audit.statusOk) reviewReason = 'Pendiente de confirmación de estado exitoso por el administrador.';
+      else if (!audit.isValidDestination) reviewReason = 'Pendiente de confirmar cuenta destino en revisión manual.';
+      else if (audit.amountCop == null) reviewReason = 'Monto poco legible en la imagen: pasó a verificación manual.';
+      else reviewReason = 'Tu pago pasó a verificación manual del administrador.';
+    } else if (!autoApproveOn) {
+      reviewReason = 'Comprobante validado. El administrador confirmará y activará tus créditos en minutos.';
+    }
+
     const note = audit
       ? [
           audit.looksReal ? 'Comprobante válido (servidor)' : 'IA no lo reconoce',
           audit.suspicious ? '🚨 POSIBLE FRAUDE (captura editada/pendiente)' : '',
           audit.amountCop ? `monto leído ${audit.amountCop}` : 'monto no legible',
           audit.destinationDetected ? `destino ${audit.destinationDetected}` : 'destino no legible',
-          audit.isValidDestination ? `✅ destino oficial ${adminPhone} confirmado` : '⚠️ destino no confirmado',
+          audit.isValidDestination ? `✅ destino oficial confirmado (${paymentMethod})` : '⚠️ destino no confirmado',
           audit.statusOk ? '✅ pago exitoso' : '⚠️ estado no confirmado',
           audit.dateDetected ? `fecha ${audit.dateDetected}` : '',
           audit.note,
@@ -621,6 +647,7 @@ export default async function handler(req: IncomingMessage, res: VercelRes): Pro
       if (autoRes?.approved === true) {
         autoApproved = true;
         approvedCredits = Number(autoRes.credits ?? pkg.credits);
+        reviewReason = null;
       }
     }
 
@@ -631,6 +658,7 @@ export default async function handler(req: IncomingMessage, res: VercelRes): Pro
       iaStatusOk,
       autoApproved,
       approvedCredits,
+      reviewReason,
       verification: audit,
     });
   } catch (err) {

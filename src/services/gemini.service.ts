@@ -2182,44 +2182,67 @@ export interface RadarMatchedOfferContext {
   distanceLabel?: string | null;
 }
 
-const SUPPORT_SYSTEM_PROMPT = `Eres Radar, el asistente de élite de la plataforma Impulso (fundada por Michael Herrera en Gachetá). Eres empático, astuto y resolutivo. Hablas de forma cálida, natural y colombiana (profesional, cercana y sin sonar a robot enlatado). Tienes memoria de la conversación.
+const SUPPORT_SYSTEM_PROMPT = `Eres Radar, el asistente cercano, astuto y amable de Impulso (plataforma local creada por Michael Herrera en Gachetá, Cundinamarca). Hablas en español colombiano natural, cálido y directo — como un vecino piloso que conoce cada local del pueblo. JAMÁS repitas frases robóticas ni plantillas enlatadas.
 
 Conocimiento operativo real de Impulso:
-- Compradores NO necesitan crear cuenta ni pagar en la app: apartan con nombre y WhatsApp, reciben código único y pagan directo al comercio al recibir.
-- Impulso es un portal de contacto: no retiene dinero ni ejecuta transferencias entre usuarios. Para comercios nuevos (Nivel 1), recomendamos siempre pagar contra-entrega al recibir el producto o servicio.
-- Comercios publican ofertas usando créditos (3 gratis al registrarse). Para recargar créditos van a Mi Panel → Recargar créditos (Nequi / Daviplata / Llave / QR oficial del administrador) y suben su comprobante para validación.
-- Acceso biométrico (huella/FaceID): se vincula en Mi Panel; si se requiere resincronizar, basta iniciar sesión una vez con contraseña y se actualiza automáticamente.
-- GPS: 100% voluntario (Ley 1581). Si el usuario lo activa, calculamos distancias en su pantalla sin guardar coordenadas ocultas.
+- Compradores pueden apartar sin crear cuenta, o crear su cuenta gratuita de "Cliente / Comprador" (para guardar favoritos y preferencias; completamente distinta a la cuenta de Comercio).
+- Impulso es un portal de contacto: NO retiene dinero ni cobra comisión a compradores. El pago se acuerda y se hace directo con el comercio al recibir el producto.
+- Comercios tienen su cuenta aparte ("Soy Comercio") con 3 créditos gratis, Estudio Publicitario con IA y recarga por Nequi / Daviplata / Llave / QR oficial del administrador.
+- GPS: 100% voluntario (Ley 1581 de 2012). Si el usuario lo activa, las distancias se calculan solo en su pantalla.
 
-REGLAS DE OFERTAS EN VIVO:
-- Si el contexto incluye [OFERTAS_ACTIVAS_COINCIDENTES], ya le estamos mostrando al usuario las tarjetas interactivas con botones "Apartar ahora" y "Ver en mapa" justo debajo de tu respuesta.
-- Menciona de forma breve, cálida y concreta las 1–3 mejores opciones encontradas (con su precio y comercio), respeta su presupuesto/urgencia e invítalo a tocar "Apartar ahora" o "Ver en mapa" en la tarjeta de abajo.
-- Si buscó un producto que NO tiene ofertas activas ahora, dile con empatía que hoy no hay una oferta publicada exactamente de eso y sugiérele usar la pestaña "Pedir" para que los comercios del municipio le escriban al instante.
+REGLAS CONVERSACIONALES CRÍTICAS:
+- Lee TODO el historial antes de responder. Si el usuario escribe algo corto o de seguimiento como "qué es esto", "cómo así", "no entendí", "y más barato?", "dónde queda?", responde directamente a lo que acababan de hablar con naturalidad y claridad.
+- Si el contexto trae [OFERTAS_ACTIVAS_COINCIDENTES], ya mostramos las tarjetas interactivas con "Apartar ahora" y "Ver en mapa" justo debajo de tu respuesta: resalta 1–3 mejores opciones con precio/comercio y guíalo a tocarlas.
+- Si NO encontró una oferta exacta, dilo con empatía y menciónale qué categorías sí hay activas hoy o sugiérele la pestaña "Pedir".
+- Respuesta concisa (2 a 4 frases), natural, cero relleno corporativo y cero tecnicismos internos (jamás nombres modelos, API keys ni hashes).
 
-Lee TODO el historial y devuelve ÚNICAMENTE este JSON válido:
+Devuelve ÚNICAMENTE este JSON válido:
 {
   "is_technical_issue": true|false,
   "severity": "low"|"medium"|"high"|"critical",
   "category": "usage"|"technical"|"bug"|"billing"|"abuse",
-  "summary": "resumen corto del tema actual (máx 120 caracteres)",
-  "ai_analysis": "diagnóstico breve para el administrador si aplica (máx 300 caracteres)",
-  "reply": "respuesta conversacional breve (máx 2-4 frases), cálida, resolutiva y humana"
-}
-Reglas estrictas:
-- Si reporta fallo técnico grave, cobro no reflejado o fraude/estafa, pon "is_technical_issue": true, asigna severidad "high" o "critical", tranquilízalo con calidez y asegúrale que Michael Herrera y el equipo de seguridad de Impulso ya fueron alertados con prioridad máxima.
-- Jamás menciones detalles internos como SHA-256, claves API o nombres de modelos.`;
+  "summary": "resumen corto (máx 120 chars)",
+  "ai_analysis": "diagnóstico breve para el admin si aplica (máx 300 chars)",
+  "reply": "respuesta conversacional cálida, humana y precisa"
+}`;
 
-function synthesizeLocalSupportFallback(
-  message: string,
-  userRole: 'client' | 'merchant' | 'admin',
-  turnCount: number,
-  matchedOffers?: RadarMatchedOfferContext[],
-  parsedBudget?: number | null,
-  isShoppingIntent?: boolean,
-): SupportConciergeAssessment {
-  const m = message.toLowerCase();
-  const isFollowUp = turnCount > 2;
+const RADAR_FAST_DEADLINE_MS = 2_700;
+
+function raceWithTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('RADAR_FAST_TIMEOUT')), ms);
+    promise
+      .then((val) => {
+        clearTimeout(timer);
+        resolve(val);
+      })
+      .catch((err: unknown) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+  });
+}
+
+function synthesizeLocalSupportFallback(params: {
+  message: string;
+  userRole: 'client' | 'merchant' | 'admin';
+  municipality: string;
+  history: Array<{ role: 'user' | 'assistant'; content: string }>;
+  intent?: string;
+  matchedOffers?: RadarMatchedOfferContext[];
+  parsedBudget?: number | null;
+  isShoppingIntent?: boolean;
+  liveCatalogDigest?: { activeCount: number; categoriesLabel: string; cheapestLabel?: string | null };
+}): SupportConciergeAssessment {
+  const { message, userRole, municipality, history, intent, matchedOffers, parsedBudget, isShoppingIntent, liveCatalogDigest } = params;
+  const m = message.toLowerCase().trim();
+  const prevAssistant = [...history].reverse().find((h) => h.role === 'assistant')?.content ?? '';
+  const activeCount = liveCatalogDigest?.activeCount ?? 0;
+  const cats = liveCatalogDigest?.categoriesLabel ?? '';
+  const cheapest = liveCatalogDigest?.cheapestLabel ?? '';
+
   const looksTechnical =
+    intent === 'support' ||
     /error|no\s+(funciona|carga|abre|sirve|deja|llega)|fall[ao]|bug|roto|blanco|congel|bloque|duplicad|cobr[oó]|descont[oó]|no\s+se\s+reflej|problema\s+t[eé]cnico|estafa|fraude/i.test(
       m,
     );
@@ -2234,97 +2257,217 @@ function synthesizeLocalSupportFallback(
       summary: message.trim().slice(0, 120) || 'Reporte técnico del usuario',
       aiAnalysis: `Incidencia reportada a Radar por ${userRole === 'merchant' ? 'comercio' : 'cliente'}: "${message.trim().slice(0, 220)}".`,
       reply: isFraud
-        ? 'Tranquilo, estás respaldado. Soy Radar y acabo de escalar este reporte con prioridad crítica: Michael Herrera y el equipo de seguridad de Impulso ya están al tanto para auditar y bloquear el dispositivo infractor. No hagas giros anticipados y cuéntame si tienes el nombre del local o de la oferta.'
+        ? 'Tranquilo, estás respaldado. Acabo de escalar este reporte con prioridad máxima al equipo de seguridad de Impulso para auditar y bloquear al infractor. Nunca hagas giros anticipados y cuéntame si tienes el nombre del local o de la oferta.'
         : isBillingOrCritical
-          ? 'Te entiendo perfectamente. Ya registré un ticket prioritario para que Michael y el equipo de soporte revisen tu pago o cuenta. Mientras lo validan, verifica que el comprobante sea al Nequi oficial o déjame el número de referencia aquí mismo.'
-          : 'Gracias por avisarme. Ya dejé un ticket prioritario con el equipo técnico de Impulso; mientras lo revisamos, intenta recargar la página o volver a abrir el módulo donde ocurrió.',
+          ? 'Te entiendo perfecto. Ya registré un reporte prioritario para que el administrador revise tu pago o cuenta de una vez. Si tienes la referencia del comprobante, déjamela por aquí para agilizarlo.'
+          : 'Gracias por avisarme. Ya dejé el reporte en la cola técnica de Impulso para revisarlo rápido; mientras tanto, cuéntame en qué pantalla pasó para ayudarte a resolverlo ya mismo.',
     };
   }
 
-  // Recomendación en vivo instantánea (0ms) si hay ofertas coincidentes
+  // 1. Ofertas activas encontradas en memoria (<5ms)
   if (matchedOffers && matchedOffers.length > 0) {
     const top = matchedOffers[0];
     const extraCount = matchedOffers.length - 1;
-    const budgetText = parsedBudget ? ` dentro de tu presupuesto de $${parsedBudget.toLocaleString('es-CO')}` : '';
+    const budgetText = parsedBudget ? ` dentro de tus $${parsedBudget.toLocaleString('es-CO')}` : '';
     const extraText = extraCount > 0 ? ` y ${extraCount} opción${extraCount === 1 ? '' : 'es'} más` : '';
+    const dist = top.distanceLabel ? ` (${top.distanceLabel})` : '';
     return {
       isTechnicalIssue: false,
       severity: 'low',
       category: 'usage',
       summary: `Búsqueda en vivo: ${message.trim().slice(0, 90)}`,
       aiAnalysis: `Radar recomendó ${matchedOffers.length} ofertas activas localmente.`,
-      reply: `¡Mira lo que encontré activo ahora mismo${budgetText}! Destaca "${top.title}" en ${top.merchant} por $${top.priceCop.toLocaleString('es-CO')} (quedan ${top.quota} cupos)${extraText}. Toca "Apartar ahora" en cualquier tarjeta de abajo para reservar sin registro o "Ver en mapa" para ubicar el local.`,
+      reply: `¡Aquí tienes lo mejor que encontré en ${municipality}${budgetText}! Te recomiendo "${top.title}" en ${top.merchant} por $${top.priceCop.toLocaleString('es-CO')}${dist} (quedan ${top.quota} cupos)${extraText}. Toca "Apartar ahora" abajo para asegurar tu cupo o "Ver en mapa" para ubicar el local.`,
+    };
+  }
+
+  // 2. Conversación natural y humana para saludos, preguntas cortas y seguimientos
+  if (intent === 'greeting') {
+    const pulse =
+      activeCount > 0
+        ? `Hoy tenemos ${activeCount} oferta${activeCount === 1 ? '' : 's'} activa${activeCount === 1 ? '' : 's'} en ${municipality}${cats ? ` (${cats})` : ''}.`
+        : `Estoy pendiente del radar comercial de ${municipality}.`;
+    return {
+      isTechnicalIssue: false,
+      severity: 'low',
+      category: 'usage',
+      summary: 'Saludo inicial',
+      aiAnalysis: 'Conversación natural resuelta.',
+      reply: `¡Hola! Qué gusto saludarte 😊 Soy Radar. ${pulse} Cuéntame qué necesitas hoy —por ejemplo "almuerzo menos de $15.000" o "algo para el campo"— y te lo busco al instante.`,
+    };
+  }
+
+  if (intent === 'what_is_this') {
+    const liveNote =
+      activeCount > 0
+        ? ` Ahora mismo hay ${activeCount} promo${activeCount === 1 ? '' : 's'} vigente${activeCount === 1 ? '' : 's'} en ${municipality}${cheapest ? `, desde ${cheapest}` : ''}.`
+        : '';
+    return {
+      isTechnicalIssue: false,
+      severity: 'low',
+      category: 'usage',
+      summary: 'Explicación de Impulso',
+      aiAnalysis: 'Onboarding conversacional.',
+      reply: `Impulso es el radar de ofertas en vivo de ${municipality} y la región del Guavio 🛰️. Los comercios locales publican promos por tiempo limitado y tú puedes apartar gratis con tu WhatsApp y pagar directo en el local al recibir.${liveNote} ¿Quieres que te muestre qué hay disponible hoy?`,
+    };
+  }
+
+  if (intent === 'clarify_followup') {
+    const referredToOffers = /oferta|apartar|cupo|promo/i.test(prevAssistant);
+    return {
+      isTechnicalIssue: false,
+      severity: 'low',
+      category: 'usage',
+      summary: 'Aclaración de seguimiento',
+      aiAnalysis: 'Aclaración conversacional basada en turno previo.',
+      reply: referredToOffers
+        ? `Mira, te lo explico sencillo: aquí no tienes que pagar nada por adelantado ni meter tarjetas. Solo eliges una oferta, tocas "Apartar ahora", recibes tu código y pasas al local (o coordinas por WhatsApp) para pagar al recibir. ¿Buscabas algo en especial hoy en ${municipality}?`
+        : `¡Claro, te explico mejor! Soy tu buscador inteligente dentro de Impulso: me dices con tus palabras qué necesitas (o me lo dictas con el micrófono 🎙️) y yo te encuentro las ofertas reales más cercanas y baratas de ${municipality}. ¿Qué te gustaría encontrar ahorita?`,
+    };
+  }
+
+  if (intent === 'how_to_reserve' || /c[oó]mo\s+apart|apartar|reservar/i.test(m)) {
+    return {
+      isTechnicalIssue: false,
+      severity: 'low',
+      category: 'usage',
+      summary: 'Cómo apartar oferta',
+      aiAnalysis: 'Guía rápida de apartado.',
+      reply: `Es súper fácil y rápido: tocas la oferta que te guste, pulsas "Apartar ahora", pones tu nombre y WhatsApp y al instante te sale tu código único. No pagas nada en la app: le pagas directo al comercio cuando recibas tu pedido.`,
+    };
+  }
+
+  if (intent === 'is_free_payment') {
+    return {
+      isTechnicalIssue: false,
+      severity: 'low',
+      category: 'usage',
+      summary: 'Consulta gratuidad y pagos',
+      aiAnalysis: 'Explicación de modelo gratuito para compradores.',
+      reply: `Para los compradores Impulso es 100% gratis 🙌. No te pedimos tarjeta ni retenemos dinero: apartas tu cupo gratis y le pagas directo al comercio en efectivo o Nequi cuando te entreguen el producto.`,
+    };
+  }
+
+  if (intent === 'account_question') {
+    return {
+      isTechnicalIssue: false,
+      severity: 'low',
+      category: 'usage',
+      summary: 'Diferencia cuenta cliente vs comercio',
+      aiAnalysis: 'Orientación sobre roles de cuenta.',
+      reply: `¡Súper buena pregunta! En Impulso hay dos tipos de cuenta bien separados: si eres comprador puedes usar la app sin cuenta o crear tu perfil gratuito de "Cliente" para guardar favoritos y preferencias; si tienes un negocio, creas cuenta de "Comercio" para publicar ofertas (arrancas con 3 créditos gratis).`,
+    };
+  }
+
+  if (intent === 'where_followup') {
+    return {
+      isTechnicalIssue: false,
+      severity: 'low',
+      category: 'usage',
+      summary: 'Ubicación en el mapa',
+      aiAnalysis: 'Guía de mapa.',
+      reply: `Cada oferta tiene su ubicación exacta en el mapa principal de ${municipality}. Si tocas "Ver en mapa" en cualquier tarjeta, te llevo derechito al pin del local e incluso te abro la ruta en Google Maps para llegar fácil.`,
+    };
+  }
+
+  if (intent === 'thanks') {
+    return {
+      isTechnicalIssue: false,
+      severity: 'low',
+      category: 'usage',
+      summary: 'Cierre cordial',
+      aiAnalysis: 'Despedida amigable.',
+      reply: `¡Con mucho gusto! 🙌 Aquí quedo pendiente por si necesitas buscar otra oferta, comparar precios o ubicar un local en ${municipality}.`,
     };
   }
 
   if (isShoppingIntent) {
+    const altHint = cats ? ` Ahorita tenemos promos activas en ${cats}.` : '';
     return {
       isTechnicalIssue: false,
       severity: 'low',
       category: 'usage',
       summary: `Sin coincidencias: ${message.trim().slice(0, 90)}`,
-      aiAnalysis: 'Búsqueda de cliente sin oferta activa coincidente.',
-      reply: `Por el momento no veo una oferta activa exactamente para "${message.trim().slice(0, 55)}" en este municipio. ¡Pero no te quedes sin conseguirlo! Entra a la pestaña "Pedir" en la barra inferior y publica lo que necesitas: los comercios locales te escriben directo a tu WhatsApp.`,
+      aiAnalysis: 'Búsqueda sin oferta exacta activa.',
+      reply: `Revisé el radar de ${municipality} y por ahora no hay una oferta publicada exactamente de "${message.trim().slice(0, 50)}".${altHint} Si quieres, entra a la pestaña "Pedir" abajo y cuéntale al pueblo qué buscas: los comercios que sí lo tengan te escriben directo a tu WhatsApp.`,
     };
   }
 
-  // Respuestas FAQ instantáneas Zero-Token
-  if (/c[oó]mo\s+apart|apartar|reservar/i.test(m)) {
-    return {
-      isTechnicalIssue: false,
-      severity: 'low',
-      category: 'usage',
-      summary: 'Consulta cómo apartar oferta',
-      aiAnalysis: 'FAQ resuelta localmente.',
-      reply: 'Apartar en Impulso es facilísimo y sin crear cuenta: toca la oferta que te guste, pulsa "Apartar el mío YA", escribe tu nombre y WhatsApp, y al instante recibes tu código único. Pagas directo al comercio cuando recibas tu pedido.',
-    };
-  }
   if (/recarg|cr[eé]dito/i.test(m)) {
     return {
       isTechnicalIssue: false,
       severity: 'low',
       category: 'usage',
-      summary: 'Consulta recarga de créditos',
-      aiAnalysis: 'FAQ resuelta localmente.',
-      reply: 'Para recargar créditos entra a Mi Panel → "Recargar créditos por Nequi", elige tu paquete, haz el envío al Nequi oficial o Llave del administrador y sube tu captura: el escáner verifica tu pago en segundos.',
+      summary: 'Recarga de créditos',
+      aiAnalysis: 'Guía de recarga.',
+      reply: `Para recargar créditos entra a Mi Panel → "Recargar créditos", elige tu paquete, paga por Nequi, Daviplata o Llave oficial y sube tu captura: el sistema valida tu pago en segundos.`,
     };
   }
 
+  const liveTail =
+    activeCount > 0
+      ? ` Hoy hay ${activeCount} oferta${activeCount === 1 ? '' : 's'} en vivo en ${municipality}${cats ? ` (${cats})` : ''}.`
+      : '';
   return {
     isTechnicalIssue: false,
     severity: 'low',
     category: 'usage',
-    summary: message.trim().slice(0, 120) || 'Consulta en plataforma',
-    aiAnalysis: 'Consulta atendida por Radar.',
-    reply: isFollowUp
-      ? `Sobre "${message.trim().slice(0, 60)}": cuéntame exactamente qué producto buscas o en qué pantalla estás (Ofertas, Pedir, Apartados o Mi Panel) para ayudarte al instante.`
-      : userRole === 'merchant'
-        ? `¡Claro! Soy Radar. Desde Mi Panel puedes crear ofertas con IA, recargar créditos por Nequi y gestionar apartados. ¿En qué paso específico te ayudo?`
-        : `¡Con gusto! Soy Radar. Dime qué estás buscando hoy (ej: "abono para el campo" o "almuerzo menos de 15 mil") y te muestro al instante las ofertas activas para apartar.`,
+    summary: message.trim().slice(0, 120) || 'Consulta conversacional',
+    aiAnalysis: 'Respuesta conversacional rápida.',
+    reply:
+      userRole === 'merchant'
+        ? `¡Te escucho! Como comercio te puedo ayudar a publicar ofertas con IA, recargar créditos, configurar tu ubicación o resolver dudas de apartados. ¿Qué necesitas hacer ahorita?`
+        : `¡Te leo!${liveTail} Dime qué se te antoja o qué buscas en ${municipality} —incluso con tu presupuesto, como "tengo $20.000"— y te muestro las mejores opciones de una vez.`,
   };
 }
 
 /**
- * 🤖 Radar 2.0 (V36.0): Asistente híbrido en tiempo real (<2s) con memoria multi-turno,
- * caché Zero-Token para FAQs y recomendaciones contextuales sobre las ofertas vivas.
+ * 🤖 Radar 2.0 (V37.0): Asistente híbrido ultra-rápido (límite estricto 2.7s),
+ * conversacional, cercano y siempre respaldado por los datos reales en memoria.
  */
 export async function askSupportConcierge(input: {
   history: Array<{ role: 'user' | 'assistant'; content: string }>;
   latestMessage?: string;
   userRole: 'client' | 'merchant' | 'admin';
   municipality: string;
+  intent?: string;
   matchedOffersSummary?: RadarMatchedOfferContext[];
   parsedBudget?: number | null;
   isShoppingIntent?: boolean;
+  liveCatalogDigest?: { activeCount: number; categoriesLabel: string; cheapestLabel?: string | null };
 }): Promise<SupportConciergeAssessment> {
   const cleanMsg =
     (input.latestMessage ?? input.history[input.history.length - 1]?.content ?? '').trim();
   const recentTurns = input.history.slice(-10);
   const matched = input.matchedOffersSummary ?? [];
+  const digest = input.liveCatalogDigest;
+
+  const fallbackParams = {
+    message: cleanMsg,
+    userRole: input.userRole,
+    municipality: input.municipality,
+    history: recentTurns,
+    intent: input.intent,
+    matchedOffers: matched,
+    parsedBudget: input.parsedBudget,
+    isShoppingIntent: input.isShoppingIntent,
+    liveCatalogDigest: digest,
+  };
+
+  // Saludos simples o agradecimientos responden en <5ms con calidez humana (0 espera, 0 tokens)
+  if (input.intent === 'greeting' || input.intent === 'thanks') {
+    return synthesizeLocalSupportFallback(fallbackParams);
+  }
+
+  const catalogPulseLine = digest
+    ? digest.activeCount > 0
+      ? `\n[RADAR_VIVO_${input.municipality.toUpperCase()}: ${digest.activeCount} ofertas activas; categorías: ${digest.categoriesLabel}${digest.cheapestLabel ? `; más económica: ${digest.cheapestLabel}` : ''}]`
+      : `\n[RADAR_VIVO_${input.municipality.toUpperCase()}: 0 ofertas activas en este instante]`
+    : '';
 
   const compactOffersBlock =
     matched.length > 0
-      ? `\n[OFERTAS_ACTIVAS_COINCIDENTES (tarjetas ya visibles debajo):\n${matched
+      ? `\n[OFERTAS_ACTIVAS_COINCIDENTES (tarjetas interactivas ya visibles debajo):\n${matched
           .slice(0, 5)
           .map(
             (o, idx) =>
@@ -2342,14 +2485,14 @@ export async function askSupportConcierge(input: {
       parts: [
         {
           text: isLastUser
-            ? `[Contexto: rol=${input.userRole}, municipio=${input.municipality}${input.parsedBudget ? `, presupuesto=$${input.parsedBudget}` : ''}]${compactOffersBlock}\nUsuario: ${m.content}`
+            ? `[Contexto: rol=${input.userRole}, municipio=${input.municipality}${input.parsedBudget ? `, presupuesto=$${input.parsedBudget}` : ''}]${catalogPulseLine}${compactOffersBlock}\nUsuario: ${m.content}`
             : m.content,
         },
       ],
     };
   });
 
-  // Caché Zero-Token solo para preguntas FAQ de 1er turno sin ofertas dinámicas adjuntas
+  // Caché Zero-Token solo para preguntas FAQ del 1er turno sin ofertas dinámicas
   const isCacheableFaq =
     recentTurns.length <= 2 &&
     matched.length === 0 &&
@@ -2357,13 +2500,16 @@ export async function askSupportConcierge(input: {
     !/estafa|fraude|cobr|error|fall/i.test(cleanMsg);
 
   try {
-    const raw = await callGemini({
-      systemInstruction: SUPPORT_SYSTEM_PROMPT,
-      prompt: cleanMsg,
-      conversationContents,
-      temperature: 0.4,
-      ...(isCacheableFaq ? { cacheKeyHint: `radar-faq:${input.userRole}:${cleanMsg.toLowerCase()}` } : {}),
-    });
+    const raw = await raceWithTimeout(
+      callGemini({
+        systemInstruction: SUPPORT_SYSTEM_PROMPT,
+        prompt: cleanMsg,
+        conversationContents,
+        temperature: 0.48,
+        ...(isCacheableFaq ? { cacheKeyHint: `radar-v37:${input.userRole}:${input.municipality}:${cleanMsg.toLowerCase()}` } : {}),
+      }),
+      RADAR_FAST_DEADLINE_MS,
+    );
 
     interface ParsedSupport {
       is_technical_issue?: boolean;
@@ -2400,25 +2546,9 @@ export async function askSupportConcierge(input: {
       category,
       summary: (parsed.summary ?? cleanMsg).trim().slice(0, 200) || 'Solicitud de soporte',
       aiAnalysis: (parsed.ai_analysis ?? cleanMsg).trim().slice(0, 600) || 'Clasificado por Radar',
-      reply:
-        dynamicReply ||
-        synthesizeLocalSupportFallback(
-          cleanMsg,
-          input.userRole,
-          recentTurns.length,
-          matched,
-          input.parsedBudget,
-          input.isShoppingIntent,
-        ).reply,
+      reply: dynamicReply || synthesizeLocalSupportFallback(fallbackParams).reply,
     };
   } catch {
-    return synthesizeLocalSupportFallback(
-      cleanMsg,
-      input.userRole,
-      recentTurns.length,
-      matched,
-      input.parsedBudget,
-      input.isShoppingIntent,
-    );
+    return synthesizeLocalSupportFallback(fallbackParams);
   }
 }

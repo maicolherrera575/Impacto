@@ -10,7 +10,22 @@ import type { LatLng } from './geo';
  * ya cargadas en memoria para devolver tarjetas interactivas reales al instante.
  */
 
+export type RadarConversationalIntent =
+  | 'greeting'
+  | 'what_is_this'
+  | 'clarify_followup'
+  | 'how_to_reserve'
+  | 'is_free_payment'
+  | 'cheaper_followup'
+  | 'where_followup'
+  | 'thanks'
+  | 'account_question'
+  | 'shopping'
+  | 'support'
+  | 'general';
+
 export interface RadarMatchResult {
+  intent: RadarConversationalIntent;
   isShoppingIntent: boolean;
   isSupportOrReport: boolean;
   parsedBudget: number | null;
@@ -64,12 +79,78 @@ const STOP_WORDS = new Set([
 ]);
 
 const SHOPPING_INTENT_RE =
-  /busco|quiero|necesito|apart|compr|recomiend|mu[eé]str|ens[eé][nñ]|oferta|promo|barat|econ[oó]mic|presupuesto|tengo\s+\$?\d|menos\s+de|que\s+hay|qu[eé]\s+hay|donde\s+consigo|hambre|comer|almuerz|abono|agro|campo|flete|pan|trucha|ferreter|droguer|hotel|caba[nñ]|descuento/i;
+  /busco|quiero|necesito|apart|compr|recomiend|mu[eé]str|ens[eé][nñ]|oferta|promo|barat|econ[oó]mic|presupuesto|tengo\s+\$?\d|menos\s+de|que\s+hay|qu[eé]\s+hay|donde\s+consigo|hambre|comer|almuerz|abono|agro|campo|flete|pan|trucha|ferreter|droguer|hotel|caba[nñ]|descuento|hoy/i;
 
 const SUPPORT_REPORT_RE =
   /error|no\s+(funciona|carga|abre|sirve|deja|llega)|fall[ao]|bug|roto|congel|bloque|duplicad|cobr[oó]|descont[oó]|estafa|fraude|enga[nñ]|robo|reportar|soporte|contrase[nñ]a|huella|biometr|recarg|cr[eé]dito|nequi\s+oficial|gps\s+no/i;
 
 const URGENCY_RE = /\bya\b|ahora|r[aá]pido|urgente|1\s*hora|una\s+hora|inmediato|pronto|cerca|ahorita|hoy\s+mismo/i;
+
+/** Clasifica intención conversacional natural (incluyendo preguntas cortas de seguimiento). */
+export function detectConversationalIntent(raw: string): RadarConversationalIntent {
+  const norm = normalizeText(raw);
+  if (!norm) return 'general';
+  if (SUPPORT_REPORT_RE.test(raw)) return 'support';
+  if (/^(hola+|buenas|buenos\s+dias|buenas\s+tardes|buenas\s+noches|hey|que\s+mas|quiubo|saludos)\b/.test(norm) && norm.length <= 28) {
+    return 'greeting';
+  }
+  if (/^(gracias|muchas\s+gracias|mil\s+gracias|vale|listo|perfecto|genial|super|bacano|ok|dale)\b/.test(norm) && norm.length <= 36) {
+    return 'thanks';
+  }
+  if (/que\s+es\s+(esto|impulso|radar|esta\s+app|esta\s+pagina)|para\s+que\s+sirve|como\s+funciona(\s+esto|\s+impulso)?|de\s+que\s+trata|quien\s+eres/.test(norm)) {
+    return 'what_is_this';
+  }
+  if (/^(como\s+asi|no\s+entendi|explicame|expliqueme|que\s+quieres\s+decir|y\s+eso|a\s+ver|y\s+como|como\s+es\s+eso|me\s+explicas)\b/.test(norm)) {
+    return 'clarify_followup';
+  }
+  if (/como\s+(aparto|apartar|reservo|reservar|compro|comprar|pido|pedir)|tengo\s+que\s+pagar\s+aqui|como\s+pago/.test(norm)) {
+    return 'how_to_reserve';
+  }
+  if (/es\s+gratis|cobran|cuanto\s+cuesta\s+(usar|entrar|apartar)|piden\s+tarjeta|pago\s+en\s+linea/.test(norm)) {
+    return 'is_free_payment';
+  }
+  if (/cuenta|registrar|perfil|comercio|soy\s+cliente|vender\s+aqui|publicar\s+mi\s+negocio/.test(norm)) {
+    return 'account_question';
+  }
+  if (/mas\s+barat|algo\s+mas\s+econom|menos\s+plata|otra\s+opcion|otras\s+opciones|que\s+mas\s+hay/.test(norm)) {
+    return 'cheaper_followup';
+  }
+  if (/donde\s+(queda|esta|quedan|estan|es|recojo)|direccion|ubicacion|en\s+el\s+mapa/.test(norm)) {
+    return 'where_followup';
+  }
+  return 'general';
+}
+
+/** Resumen ultra-compacto de ofertas vivas en memoria para contextualizar a Radar (<5ms, 0 tokens extra). */
+export function buildLiveOffersDigest(offers: Offer[]): {
+  activeCount: number;
+  cheapest: Offer | null;
+  categoriesLabel: string;
+} {
+  const now = Date.now();
+  const active = offers.filter(
+    (o) => o.status === 'active' && o.available_quota > 0 && new Date(o.expires_at).getTime() > now,
+  );
+  if (active.length === 0) {
+    return { activeCount: 0, cheapest: null, categoriesLabel: '' };
+  }
+  const sortedByPrice = [...active].sort((a, b) => Number(a.promo_price) - Number(b.promo_price));
+  const catNames: Record<Category, string> = {
+    comida: 'Comida',
+    transporte_flete: 'Transporte/Flete',
+    agro_mercado: 'Agro/Campo',
+    hoteles_turismo: 'Hoteles/Turismo',
+    salud_belleza: 'Salud/Belleza',
+    hogar_construccion: 'Hogar/Ferretería',
+    servicios_comercios: 'Servicios',
+  };
+  const uniqueCats = Array.from(new Set(active.map((o) => catNames[o.category] ?? o.category))).slice(0, 5);
+  return {
+    activeCount: active.length,
+    cheapest: sortedByPrice[0] ?? null,
+    categoriesLabel: uniqueCats.join(', '),
+  };
+}
 
 function normalizeText(raw: string): string {
   return raw
@@ -117,6 +198,7 @@ export function matchLiveOffersForRadar(
   const parsedBudget = extractBudgetCop(query);
   const isUrgent = URGENCY_RE.test(query);
   const isSupportOrReport = SUPPORT_REPORT_RE.test(query);
+  const baseIntent = detectConversationalIntent(query);
 
   // Detectar categoría explícita o por sinónimos
   let detectedCategory: Category | null = null;
@@ -137,9 +219,29 @@ export function matchLiveOffersForRadar(
     .map((w) => w.replace(/^\$+/, ''))
     .filter((w) => w.length >= 3 && !STOP_WORDS.has(w) && !/^\d+$/.test(w));
 
+  const isNonShoppingChat =
+    baseIntent === 'greeting' ||
+    baseIntent === 'what_is_this' ||
+    baseIntent === 'clarify_followup' ||
+    baseIntent === 'how_to_reserve' ||
+    baseIntent === 'is_free_payment' ||
+    baseIntent === 'thanks' ||
+    baseIntent === 'account_question' ||
+    baseIntent === 'where_followup';
+
   const isShoppingIntent =
     !isSupportOrReport &&
-    (Boolean(detectedCategory) || parsedBudget !== null || SHOPPING_INTENT_RE.test(query));
+    !isNonShoppingChat &&
+    (baseIntent === 'cheaper_followup' ||
+      Boolean(detectedCategory) ||
+      parsedBudget !== null ||
+      SHOPPING_INTENT_RE.test(query));
+
+  const intent: RadarConversationalIntent = isSupportOrReport
+    ? 'support'
+    : isShoppingIntent && baseIntent === 'general'
+      ? 'shopping'
+      : baseIntent;
 
   const now = Date.now();
   const activePool = offers.filter(
@@ -148,6 +250,7 @@ export function matchLiveOffersForRadar(
 
   if (activePool.length === 0 || !isShoppingIntent) {
     return {
+      intent,
       isShoppingIntent,
       isSupportOrReport,
       parsedBudget,
@@ -249,6 +352,7 @@ export function matchLiveOffersForRadar(
   scored.sort((a, b) => b.score - a.score || Number(a.offer.promo_price) - Number(b.offer.promo_price));
 
   return {
+    intent,
     isShoppingIntent,
     isSupportOrReport,
     parsedBudget,

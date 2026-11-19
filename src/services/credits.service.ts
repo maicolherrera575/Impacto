@@ -17,6 +17,7 @@ export interface ServerSubmitCreditResult {
   iaStatusOk: boolean;
   autoApproved: boolean;
   approvedCredits: number;
+  reviewReason?: string | null;
   verification: ReceiptVerification | null;
 }
 
@@ -108,6 +109,7 @@ export async function submitVerifiedCreditOrderOnServer(input: {
     iaStatusOk: payload.iaStatusOk === true,
     autoApproved: payload.autoApproved === true,
     approvedCredits: Number(payload.approvedCredits ?? 0),
+    reviewReason: typeof payload.reviewReason === 'string' ? payload.reviewReason : null,
     verification: payload.verification ?? null,
   };
 }
@@ -181,12 +183,15 @@ export async function fetchPaymentConfig(): Promise<PaymentConfig | null> {
   return (data as unknown as PaymentConfig) ?? null;
 }
 
-/** 👑 Solo admin: guarda Nequi, Llave, titular, QR y el switch de auto-aprobación. */
+/** 👑 Solo admin: guarda Nequi, Daviplata, Llave, titular, QRs oficiales por canal y auto-aprobación. */
 export async function setPaymentConfig(input: {
   nequiPhone: string;
+  daviplataPhone?: string | null;
   llave?: string | null;
   holderName?: string | null;
   qrThumb?: string | null;
+  daviplataQrThumb?: string | null;
+  llaveQrThumb?: string | null;
   autoApprove?: 'on' | 'off' | null;
 }): Promise<{ nequiPhone: string; autoApprove: boolean }> {
   const { data, error } = await supabase.rpc('admin_set_payment_contact_rpc', {
@@ -195,9 +200,27 @@ export async function setPaymentConfig(input: {
     p_holder_name: input.holderName ?? null,
     p_qr_thumb: input.qrThumb ?? null,
     p_auto_approve: input.autoApprove ?? null,
+    p_daviplata_phone: input.daviplataPhone ?? null,
+    p_daviplata_qr_thumb: input.daviplataQrThumb ?? null,
+    p_llave_qr_thumb: input.llaveQrThumb ?? null,
   });
-  if (error) throw error;
-  return data as unknown as { nequiPhone: string; autoApprove: boolean };
+  if (!error && data) {
+    return data as unknown as { nequiPhone: string; autoApprove: boolean };
+  }
+  // Retrocompatibilidad si el SQL V37 aún no se aplicó en Supabase
+  const code = (error as { code?: string } | null)?.code ?? '';
+  if (code === 'PGRST202' || /could not find the function/i.test(error?.message ?? '')) {
+    const fallback = await supabase.rpc('admin_set_payment_contact_rpc', {
+      p_nequi_phone: input.nequiPhone,
+      p_payment_llave: input.llave ?? null,
+      p_holder_name: input.holderName ?? null,
+      p_qr_thumb: input.qrThumb ?? null,
+      p_auto_approve: input.autoApprove ?? null,
+    });
+    if (fallback.error) throw fallback.error;
+    return fallback.data as unknown as { nequiPhone: string; autoApprove: boolean };
+  }
+  throw error;
 }
 
 /** Bandeja de cobros del administrador (últimas 50 órdenes). */

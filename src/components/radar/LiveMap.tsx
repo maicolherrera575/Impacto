@@ -1,23 +1,74 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import { MapContainer, Marker, TileLayer, useMap } from 'react-leaflet';
-import { AlertTriangle, Loader2, LocateFixed } from 'lucide-react';
+import {
+  AlertTriangle,
+  ExternalLink,
+  Loader2,
+  LocateFixed,
+  Maximize2,
+  Minimize2,
+  Navigation,
+  Ticket,
+  X,
+} from 'lucide-react';
 import 'leaflet/dist/leaflet.css';
 import type { Offer } from '../../types';
-import { formatCOP } from '../../utils/format';
-import { EXACT_GPS_OPTIONS, EXACT_GPS_WARNING, ACCURACY_LIMIT_M, haversineMeters } from '../../utils/geo';
+import { cx, formatCOP } from '../../utils/format';
+import { ACCURACY_LIMIT_M, EXACT_GPS_OPTIONS, EXACT_GPS_WARNING, distanceText, haversineMeters } from '../../utils/geo';
 import type { GeoStatus, LatLng } from '../../utils/geo';
 import { useToast } from '../ui/Toast';
 
-/** Tiles libres de OpenStreetMap — sin llaves ni costos, con estilo oscuro vía CSS. */
-const TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-const TILE_ATTRIBUTION =
-  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+type MapStyleId = 'streets' | 'satellite' | 'dark';
 
-/** Pines personalizados: emoji + precio flotante en tiempo real. */
-function buildPinIcon(offer: Offer): L.DivIcon {
+const MAP_STYLE_STORAGE_KEY = 'impulso:map_style_v1';
+
+const TILE_LAYERS: Record<
+  MapStyleId,
+  {
+    label: string;
+    emoji: string;
+    url: string;
+    subdomains?: string;
+    attribution: string;
+    overlayUrl?: string;
+    maxNativeZoom: number;
+  }
+> = {
+  streets: {
+    label: 'Calles HD',
+    emoji: '🗺️',
+    url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+    subdomains: 'abcd',
+    attribution: '&copy; OpenStreetMap &copy; CARTO',
+    maxNativeZoom: 19,
+  },
+  satellite: {
+    label: 'Satélite HD',
+    emoji: '🛰️',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    overlayUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
+    attribution: '&copy; Esri World Imagery &amp; Earthstar Geographics',
+    maxNativeZoom: 18,
+  },
+  dark: {
+    label: 'Nocturno',
+    emoji: '🌙',
+    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+    subdomains: 'abcd',
+    attribution: '&copy; OpenStreetMap &copy; CARTO',
+    maxNativeZoom: 19,
+  },
+};
+
+const OSM_FALLBACK_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+const OSM_FALLBACK_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+
+/** Pines personalizados: emoji + precio flotante en tiempo real (+ anillo radar si está enfocado). */
+function buildPinIcon(offer: Offer, focused: boolean): L.DivIcon {
   const html = `
-    <div class="imp-pin">
+    <div class="imp-pin ${focused ? 'imp-pin-focused' : ''}">
+      ${focused ? '<div class="imp-pin-pulse"></div>' : ''}
       <div class="imp-pin-bubble" role="img" aria-label="${offer.emoji_icon}">${offer.emoji_icon}</div>
       <div class="imp-pin-price">${formatCOP(offer.promo_price)}</div>
       <div class="imp-pin-tip"></div>
@@ -25,19 +76,19 @@ function buildPinIcon(offer: Offer): L.DivIcon {
   return L.divIcon({
     className: 'imp-pin-marker',
     html,
-    iconSize: [44, 68],
-    iconAnchor: [22, 66],
+    iconSize: [48, 72],
+    iconAnchor: [24, 70],
   });
 }
 
 const PIN_ICON_CACHE = new Map<string, L.DivIcon>();
 
-function pinIconFor(offer: Offer): L.DivIcon {
-  const key = `${offer.id}|${offer.promo_price}`;
+function pinIconFor(offer: Offer, focused: boolean): L.DivIcon {
+  const key = `${offer.id}|${offer.promo_price}|${focused ? '1' : '0'}`;
   const cached = PIN_ICON_CACHE.get(key);
   if (cached) return cached;
-  const icon = buildPinIcon(offer);
-  if (PIN_ICON_CACHE.size > 400) PIN_ICON_CACHE.clear();
+  const icon = buildPinIcon(offer, focused);
+  if (PIN_ICON_CACHE.size > 500) PIN_ICON_CACHE.clear();
   PIN_ICON_CACHE.set(key, icon);
   return icon;
 }
@@ -58,6 +109,11 @@ interface MapControllerProps {
   locating: boolean;
   onLocateClick: () => void;
   recenterToken: number;
+  focusedOffer: Offer | null;
+  focusToken: number;
+  hasExplicitFocus: boolean;
+  expanded: boolean;
+  mapStyle: MapStyleId;
 }
 
 function MapController({
@@ -68,12 +124,46 @@ function MapController({
   locating,
   onLocateClick,
   recenterToken,
+  focusedOffer,
+  focusToken,
+  hasExplicitFocus,
+  expanded,
+  mapStyle,
 }: MapControllerProps) {
   const map = useMap();
   const followingRef = useRef(true);
   const lastCenterRef = useRef<LatLng | null>(null);
   const lastTokenRef = useRef(recenterToken);
+  const lastFocusTokenRef = useRef(0);
   const hadGeoRef = useRef(false);
+
+  // 🔄 Refresco estricto de dimensiones (`invalidateSize`) al montar, redimensionar, expandir o cambiar de estilo/tab
+  useEffect(() => {
+    const refresh = () => {
+      try {
+        map.invalidateSize({ animate: false, pan: false });
+      } catch {
+        /* instancia desmontada */
+      }
+    };
+    refresh();
+    const t1 = window.setTimeout(refresh, 120);
+    const t2 = window.setTimeout(refresh, 420);
+
+    const container = map.getContainer();
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && container) {
+      ro = new ResizeObserver(() => refresh());
+      ro.observe(container);
+    }
+    window.addEventListener('resize', refresh);
+    return () => {
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+      ro?.disconnect();
+      window.removeEventListener('resize', refresh);
+    };
+  }, [map, expanded, mapStyle, recenterToken, focusToken]);
 
   useEffect(() => {
     const onDragStart = () => {
@@ -85,9 +175,40 @@ function MapController({
     };
   }, [map]);
 
+  // 🎯 Prioridad absoluta #1: salto explícito "Ver en mapa" desde Radar o Perfil
   useEffect(() => {
-    // Al obtener la primera lectura GPS exacta, forzamos vuelo inmediato al punto azul
-    if (!hadGeoRef.current && geoPos != null) {
+    if (!focusedOffer || focusToken === lastFocusTokenRef.current) return;
+    if (focusedOffer.lat == null || focusedOffer.lng == null) return;
+    lastFocusTokenRef.current = focusToken;
+    followingRef.current = false; // dejamos quieto sobre el comercio elegido
+    const target: LatLng = { lat: focusedOffer.lat, lng: focusedOffer.lng };
+    lastCenterRef.current = target;
+    map.invalidateSize({ animate: false, pan: false });
+    map.flyTo([target.lat, target.lng], 17, { animate: true, duration: 0.75 });
+  }, [map, focusedOffer, focusToken]);
+
+  // 🧭 Sincronización de centro por municipio, foco de comercio o GPS
+  useEffect(() => {
+    // Si hay un salto explícito de oferta reciente, no pisar el vuelo
+    if (focusedOffer && focusToken > 0 && focusToken === lastFocusTokenRef.current) {
+      return;
+    }
+
+    if (recenterToken !== lastTokenRef.current) {
+      lastTokenRef.current = recenterToken;
+      followingRef.current = true;
+      lastCenterRef.current = null;
+      map.invalidateSize({ animate: false, pan: false });
+      map.flyTo([center.lat, center.lng], hasExplicitFocus ? 17 : geoPos ? Math.max(zoom, 16) : zoom, {
+        animate: true,
+        duration: 0.65,
+      });
+      lastCenterRef.current = center;
+      return;
+    }
+
+    // Al obtener la primera lectura GPS exacta (si no hay foco explícito), volamos al punto azul
+    if (!hadGeoRef.current && geoPos != null && !hasExplicitFocus) {
       hadGeoRef.current = true;
       followingRef.current = true;
       lastCenterRef.current = geoPos;
@@ -96,12 +217,6 @@ function MapController({
     }
     if (geoPos == null) {
       hadGeoRef.current = false;
-    }
-
-    if (recenterToken !== lastTokenRef.current) {
-      lastTokenRef.current = recenterToken;
-      followingRef.current = true;
-      lastCenterRef.current = null;
     }
 
     if (!followingRef.current) {
@@ -120,9 +235,9 @@ function MapController({
       }
     }
 
-    map.setView([center.lat, center.lng], geoPos ? Math.max(zoom, 16) : zoom, { animate: true });
+    map.setView([center.lat, center.lng], hasExplicitFocus ? 17 : geoPos ? Math.max(zoom, 16) : zoom, { animate: true });
     lastCenterRef.current = center;
-  }, [map, center.lat, center.lng, zoom, geoPos, recenterToken]);
+  }, [map, center.lat, center.lng, zoom, geoPos, recenterToken, hasExplicitFocus, focusedOffer, focusToken]);
 
   const geoActive = geoStatus === 'active' && geoPos != null;
 
@@ -153,16 +268,16 @@ function MapController({
       aria-label="Centrar en mi ubicación exacta"
       className={
         geoActive
-          ? 'pressable absolute right-3 top-3 z-20 grid h-11 w-11 place-items-center rounded-full border border-blue-400/60 bg-blue-500 text-white shadow-[0_6px_18px_rgba(2,6,23,0.55)] transition hover:brightness-110'
+          ? 'pressable absolute right-3 top-3 z-20 grid h-10 w-10 place-items-center rounded-full border border-blue-400/60 bg-blue-500 text-white shadow-[0_6px_18px_rgba(2,6,23,0.55)] transition hover:brightness-110'
           : geoStatus === 'inexact'
-            ? 'pressable absolute right-3 top-3 z-20 grid h-11 w-11 place-items-center rounded-full border border-amber-400/60 bg-amber-500 text-slate-950 shadow-[0_6px_18px_rgba(2,6,23,0.55)] transition hover:brightness-110'
-            : 'pressable absolute right-3 top-3 z-20 grid h-11 w-11 place-items-center rounded-full border border-impulso-emerald/50 bg-impulso-panel text-impulso-mint shadow-[0_6px_18px_rgba(2,6,23,0.55)] transition hover:bg-impulso-emerald hover:text-slate-950'
+            ? 'pressable absolute right-3 top-3 z-20 grid h-10 w-10 place-items-center rounded-full border border-amber-400/60 bg-amber-500 text-slate-950 shadow-[0_6px_18px_rgba(2,6,23,0.55)] transition hover:brightness-110'
+            : 'pressable absolute right-3 top-3 z-20 grid h-10 w-10 place-items-center rounded-full border border-impulso-emerald/50 bg-slate-950/90 text-impulso-mint shadow-[0_6px_18px_rgba(2,6,23,0.55)] backdrop-blur-md transition hover:bg-impulso-emerald hover:text-slate-950'
       }
     >
       {locating ? (
-        <Loader2 className="h-5 w-5 animate-spin" />
+        <Loader2 className="h-4 w-4 animate-spin" />
       ) : (
-        <LocateFixed className={geoActive ? 'h-5 w-5 animate-pulse-soft' : 'h-5 w-5'} />
+        <LocateFixed className={geoActive ? 'h-4 w-4 animate-pulse-soft' : 'h-4 w-4'} />
       )}
     </button>
   );
@@ -174,19 +289,30 @@ interface LiveMapProps {
   geoPos?: LatLng | null;
   zoom?: number;
   onSelect: (offer: Offer) => void;
+  /** Abre directamente el formulario de apartado desde el preview flotante del mapa. */
+  onQuickReserve?: (offer: Offer) => void;
   /** Reintenta el permiso de ubicación exacta (botón 🎯 del mapa). */
   onGeoRequest?: () => void;
   geoStatus?: GeoStatus;
   locating?: boolean;
-  /** Token externo para forzar recentrado (ej: cambio de municipio). */
+  /** Token externo para forzar recentrado (ej: cambio de municipio o perfil comercio). */
   recenterToken?: number;
+  /** True cuando `center` representa un foco manual explícito (comercio/oferta). */
+  hasExplicitFocus?: boolean;
+  /** V37.0 · Oferta enfocada desde Radar ("Ver en mapa") para volar + resaltar + abrir tarjeta en el mapa. */
+  focusedOffer?: Offer | null;
+  focusToken?: number;
+  onClearFocus?: () => void;
+  onOpenMerchant?: (merchantId: string) => void;
 }
 
 /**
- * Mapa interactivo con activación explícita de GPS exacto (Ley 1581 de 2012):
- * solicita `{ enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }` y
- * rechaza ubicaciones aproximadas (`accuracy > 1000 m`), conservando las
- * coordenadas únicamente en el estado efímero de React.
+ * 🗺️ V37.0 · Mapa HD Nivel Google Maps (100% gratuito, sin API keys):
+ *  - Capas intercambiables en 1 clic: Calles HD (CARTO Voyager Retina), Satélite HD (Esri Imagery + Etiquetas)
+ *    y Radar Nocturno (CARTO Dark Matter), con respaldo automático a OpenStreetMap.
+ *  - Auto-refresco `invalidateSize()` vía ResizeObserver (nunca queda colapsado ni gris).
+ *  - Salto real "Ver en mapa" desde Radar con vuelo suave, pin pulsante y tarjeta rápida interactiva.
+ *  - GPS 100% voluntario bajo Ley 1581 de 2012.
  */
 export function LiveMap({
   offers,
@@ -194,31 +320,90 @@ export function LiveMap({
   geoPos: externalGeoPos,
   zoom = 15,
   onSelect,
+  onQuickReserve,
   onGeoRequest,
   geoStatus: externalGeoStatus = 'idle',
   locating: externalLocating = false,
   recenterToken = 0,
+  hasExplicitFocus = false,
+  focusedOffer = null,
+  focusToken = 0,
+  onClearFocus,
+  onOpenMerchant,
 }: LiveMapProps) {
   const toast = useToast();
+  const mapSectionRef = useRef<HTMLDivElement | null>(null);
   const [localGeoPos, setLocalGeoPos] = useState<LatLng | null>(null);
   const [localStatus, setLocalStatus] = useState<GeoStatus>('idle');
   const [localLocating, setLocalLocating] = useState(false);
   const [localWarning, setLocalWarning] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [useOsmFallback, setUseOsmFallback] = useState(false);
+  const tileErrCountRef = useRef(0);
+  const [mapStyle, setMapStyle] = useState<MapStyleId>(() => {
+    try {
+      const saved = localStorage.getItem(MAP_STYLE_STORAGE_KEY);
+      if (saved === 'streets' || saved === 'satellite' || saved === 'dark') return saved;
+    } catch {
+      /* ignorar */
+    }
+    return 'streets';
+  });
 
   const effectiveGeoPos = externalGeoPos ?? localGeoPos;
   const effectiveStatus = externalGeoPos ? 'active' : externalGeoStatus !== 'idle' ? externalGeoStatus : localStatus;
   const effectiveLocating = externalLocating || localLocating;
-  const effectiveCenter = effectiveGeoPos ?? center;
+  // CRÍTICO V37.0: si hay foco explícito (oferta de Radar o comercio), respetar `center` y NO pisarlo con GPS
+  const effectiveCenter: LatLng =
+    focusedOffer && focusedOffer.lat != null && focusedOffer.lng != null
+      ? { lat: focusedOffer.lat, lng: focusedOffer.lng }
+      : hasExplicitFocus
+        ? center
+        : effectiveGeoPos ?? center;
+
+  // Scroll suave al mapa cuando el usuario toca "Ver en mapa" desde Radar (clave en móvil)
+  useEffect(() => {
+    if (!focusedOffer || focusToken === 0) return;
+    window.setTimeout(() => {
+      mapSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 90);
+  }, [focusedOffer, focusToken]);
+
+  function changeMapStyle(next: MapStyleId) {
+    setMapStyle(next);
+    setUseOsmFallback(false);
+    tileErrCountRef.current = 0;
+    try {
+      localStorage.setItem(MAP_STYLE_STORAGE_KEY, next);
+    } catch {
+      /* ignorar */
+    }
+  }
+
+  // Asegura que la oferta enfocada siempre aparezca como pin incluso si un filtro temporal la ocultó
+  const mergedOffers = useMemo(() => {
+    if (!focusedOffer) return offers;
+    return offers.some((o) => o.id === focusedOffer.id) ? offers : [focusedOffer, ...offers];
+  }, [offers, focusedOffer]);
 
   const pins = useMemo(
     () =>
-      offers.map((offer) => ({
-        offer,
-        icon: pinIconFor(offer),
-        position: [offer.lat, offer.lng] as [number, number],
-      })),
-    [offers],
+      mergedOffers
+        .filter((o) => Number.isFinite(o.lat) && Number.isFinite(o.lng))
+        .map((offer) => {
+          const isFocused = focusedOffer?.id === offer.id;
+          return {
+            offer,
+            isFocused,
+            icon: pinIconFor(offer, isFocused),
+            position: [offer.lat, offer.lng] as [number, number],
+          };
+        }),
+    [mergedOffers, focusedOffer],
   );
+
+  const activeLayer = TILE_LAYERS[mapStyle];
+  const dataStyleAttr = useOsmFallback ? (mapStyle === 'dark' ? 'osm-dark' : 'streets') : mapStyle;
 
   function handleDirectLocate() {
     setLocalWarning(null);
@@ -260,25 +445,122 @@ export function LiveMap({
     );
   }
 
+  const focusedDistance =
+    focusedOffer && effectiveGeoPos && focusedOffer.lat != null && focusedOffer.lng != null
+      ? haversineMeters(effectiveGeoPos, { lat: focusedOffer.lat, lng: focusedOffer.lng })
+      : null;
+
   return (
-    <div className="space-y-2">
-      <div className="imp-map relative z-0 isolate h-[300px] w-full overflow-hidden rounded-3xl border border-white/10 shadow-card">
-        {/* Leyenda inferior */}
-        <div className="pointer-events-none absolute bottom-2.5 left-3 z-20 rounded-full bg-slate-950/75 px-2.5 py-1 text-[10px] font-bold text-slate-300 backdrop-blur-md">
-          📍 Toca un pin para reservar · 🏪 El nombre abre el comercio
+    <div ref={mapSectionRef} className="space-y-2">
+      <div
+        data-style={dataStyleAttr}
+        className={cx(
+          'imp-map relative z-0 isolate w-full overflow-hidden rounded-3xl border border-white/15 shadow-card transition-[height] duration-300',
+          expanded ? 'h-[480px] sm:h-[540px]' : 'h-[330px] sm:h-[360px] lg:h-[395px]',
+        )}
+      >
+        {/* Selector de estilo HD (Calles · Satélite · Nocturno) */}
+        <div className="absolute left-3 top-3 z-20 flex items-center gap-1 rounded-full border border-white/15 bg-slate-950/85 p-1 shadow-lg backdrop-blur-md">
+          {(['streets', 'satellite', 'dark'] as MapStyleId[]).map((id) => {
+            const cfg = TILE_LAYERS[id];
+            const active = mapStyle === id;
+            return (
+              <button
+                key={id}
+                type="button"
+                onClick={() => changeMapStyle(id)}
+                className={cx(
+                  'pressable rounded-full px-2.5 py-1 text-[10px] font-extrabold transition',
+                  active
+                    ? 'bg-impulso-emerald text-slate-950 shadow-sm'
+                    : 'text-slate-300 hover:bg-white/10 hover:text-white',
+                )}
+              >
+                {cfg.emoji} <span className="hidden xs:inline sm:inline">{cfg.label}</span>
+              </button>
+            );
+          })}
         </div>
 
-        {/* Botón rápido en mapa cuando aún no hay ubicación exacta activa */}
-        {!effectiveGeoPos && (
-          <button
-            type="button"
-            onClick={handleDirectLocate}
-            disabled={effectiveLocating}
-            className="pressable absolute left-3 top-3 z-20 flex items-center gap-1.5 rounded-full border border-impulso-emerald/50 bg-slate-950/85 px-3 py-1.5 text-[11px] font-extrabold text-impulso-mint shadow-card backdrop-blur-md transition hover:bg-impulso-emerald hover:text-slate-950 disabled:opacity-60"
-          >
-            {effectiveLocating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <span>📍</span>}
-            {effectiveLocating ? 'Buscando GPS exacto…' : 'Encontrar ofertas exactas cerca de mí'}
-          </button>
+        {/* Botón ampliar/compactar mapa (debajo del botón GPS) */}
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          title={expanded ? 'Compactar mapa' : 'Ampliar mapa'}
+          aria-label={expanded ? 'Compactar mapa' : 'Ampliar mapa'}
+          className="pressable absolute right-3 top-14 z-20 grid h-9 w-9 place-items-center rounded-full border border-white/15 bg-slate-950/85 text-slate-200 shadow-md backdrop-blur-md transition hover:border-impulso-emerald/50 hover:text-impulso-mint"
+        >
+          {expanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+        </button>
+
+        {/* Tarjeta flotante de oferta enfocada (al pulsar "Ver en mapa" desde Radar) */}
+        {focusedOffer ? (
+          <div className="absolute inset-x-2.5 bottom-2.5 z-30 rounded-2xl border border-impulso-emerald/50 bg-slate-950/92 p-3 shadow-[0_14px_36px_rgba(0,0,0,0.75)] backdrop-blur-xl">
+            <div className="flex items-start gap-2.5">
+              {focusedOffer.image_thumb ? (
+                <img
+                  src={focusedOffer.image_thumb}
+                  alt={focusedOffer.title}
+                  className="h-12 w-12 shrink-0 rounded-xl object-cover ring-1 ring-white/15"
+                />
+              ) : (
+                <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl border border-white/10 bg-slate-900 text-2xl">
+                  {focusedOffer.emoji_icon}
+                </div>
+              )}
+              <div className="min-w-0 flex-1">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="truncate text-xs font-extrabold text-white">{focusedOffer.title}</p>
+                  {onClearFocus && (
+                    <button
+                      type="button"
+                      onClick={onClearFocus}
+                      aria-label="Cerrar tarjeta del mapa"
+                      className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-white/10 text-slate-300 hover:bg-white/20 hover:text-white"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+                <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] font-semibold text-slate-300">
+                  <button
+                    type="button"
+                    onClick={() => focusedOffer.merchant?.id && onOpenMerchant?.(focusedOffer.merchant.id)}
+                    className="truncate text-impulso-mint underline decoration-dotted underline-offset-2"
+                  >
+                    🏪 {focusedOffer.merchant?.business_name ?? 'Comercio local'}
+                  </button>
+                  <span>·</span>
+                  <span className="font-extrabold text-white">{formatCOP(focusedOffer.promo_price)}</span>
+                  {focusedDistance != null && (
+                    <span className="text-sky-300">· 📍 {distanceText(focusedDistance)}</span>
+                  )}
+                </p>
+              </div>
+            </div>
+            <div className="mt-2.5 grid grid-cols-2 gap-1.5">
+              <button
+                type="button"
+                onClick={() => (onQuickReserve ? onQuickReserve(focusedOffer) : onSelect(focusedOffer))}
+                className="pressable flex items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-impulso-emerald to-teal-600 py-2 text-[11px] font-extrabold text-white shadow-glow"
+              >
+                <Ticket className="h-3.5 w-3.5" /> Apartar ahora
+              </button>
+              <a
+                href={`https://www.google.com/maps/dir/?api=1&destination=${focusedOffer.lat},${focusedOffer.lng}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="pressable flex items-center justify-center gap-1.5 rounded-xl border border-white/15 bg-slate-900 py-2 text-[11px] font-bold text-slate-200 transition hover:border-sky-400/50 hover:text-sky-300"
+              >
+                <Navigation className="h-3.5 w-3.5" /> Cómo llegar
+                <ExternalLink className="h-3 w-3 opacity-70" />
+              </a>
+            </div>
+          </div>
+        ) : (
+          <div className="pointer-events-none absolute bottom-2.5 left-3 z-20 rounded-full border border-white/10 bg-slate-950/80 px-2.5 py-1 text-[10px] font-bold text-slate-200 backdrop-blur-md">
+            📍 {pins.length} oferta{pins.length === 1 ? '' : 's'} en el radar · Toca un pin para apartar
+          </div>
         )}
 
         <MapContainer
@@ -288,7 +570,34 @@ export function LiveMap({
           attributionControl
           className="h-full w-full"
         >
-          <TileLayer url={TILE_URL} attribution={TILE_ATTRIBUTION} maxZoom={19} crossOrigin="anonymous" />
+          <TileLayer
+            key={`${mapStyle}-${useOsmFallback ? 'osm' : 'hd'}`}
+            url={useOsmFallback ? OSM_FALLBACK_URL : activeLayer.url}
+            subdomains={useOsmFallback ? 'abc' : activeLayer.subdomains}
+            attribution={useOsmFallback ? OSM_FALLBACK_ATTR : activeLayer.attribution}
+            maxZoom={20}
+            maxNativeZoom={useOsmFallback ? 19 : activeLayer.maxNativeZoom}
+            detectRetina={!useOsmFallback && mapStyle !== 'satellite'}
+            crossOrigin="anonymous"
+            eventHandlers={{
+              tileerror: () => {
+                tileErrCountRef.current += 1;
+                if (!useOsmFallback && tileErrCountRef.current >= 4) {
+                  setUseOsmFallback(true);
+                }
+              },
+            }}
+          />
+          {!useOsmFallback && activeLayer.overlayUrl && (
+            <TileLayer
+              key={`${mapStyle}-labels`}
+              url={activeLayer.overlayUrl}
+              maxZoom={20}
+              maxNativeZoom={18}
+              opacity={0.92}
+              crossOrigin="anonymous"
+            />
+          )}
           <MapController
             center={effectiveCenter}
             zoom={zoom}
@@ -297,6 +606,11 @@ export function LiveMap({
             locating={effectiveLocating}
             onLocateClick={handleDirectLocate}
             recenterToken={recenterToken}
+            focusedOffer={focusedOffer}
+            focusToken={focusToken}
+            hasExplicitFocus={hasExplicitFocus}
+            expanded={expanded}
+            mapStyle={mapStyle}
           />
           {effectiveGeoPos && (
             <Marker
@@ -306,11 +620,12 @@ export function LiveMap({
               keyboard={false}
             />
           )}
-          {pins.map(({ offer, icon, position }) => (
+          {pins.map(({ offer, isFocused, icon, position }) => (
             <Marker
               key={offer.id}
               position={position}
               icon={icon}
+              zIndexOffset={isFocused ? 1000 : 0}
               eventHandlers={{ click: () => onSelect(offer) }}
               keyboard={false}
             />
