@@ -131,25 +131,55 @@ input[type='number'] {
   background: inherit;
 }
 
-/* Animación sutil y elegante del pulso radar en el isotipo oficial de IMPULSO */
+/* Animación radar armónica de precisión en el isotipo oficial de IMPULSO (V40.0) */
 @keyframes imp-logo-radar {
   0% {
-    transform: scale(0.9);
-    opacity: 0.55;
+    transform: scale(0.85);
+    opacity: 0.65;
   }
-  70% {
-    transform: scale(2.15);
+  72% {
+    transform: scale(2.35);
     opacity: 0;
   }
   100% {
-    transform: scale(2.15);
+    transform: scale(2.35);
     opacity: 0;
+  }
+}
+@keyframes imp-logo-beacon {
+  0%, 100% {
+    filter: drop-shadow(0 0 2px rgba(16, 185, 129, 0.45));
+    opacity: 1;
+  }
+  50% {
+    filter: drop-shadow(0 0 6px rgba(34, 211, 238, 0.85));
+    opacity: 0.92;
+  }
+}
+@keyframes imp-radar-sweep {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
   }
 }
 .imp-logo-radar-ring {
   transform-box: fill-box;
   transform-origin: center;
-  animation: imp-logo-radar 3.6s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+  animation: imp-logo-radar 3.4s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+.imp-logo-radar-ring-2 {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: imp-logo-radar 3.4s cubic-bezier(0.22, 1, 0.36, 1) 1.7s infinite;
+}
+.imp-logo-radar-core {
+  animation: imp-logo-beacon 3.4s ease-in-out infinite;
+}
+.imp-radar-sweep {
+  background: conic-gradient(from 0deg, rgba(16, 185, 129, 0.45) 0deg, rgba(34, 211, 238, 0.14) 55deg, transparent 115deg);
+  animation: imp-radar-sweep 3.2s linear infinite;
 }
 .imp-pin-focused .imp-pin-bubble {
   border-color: #f59e0b;

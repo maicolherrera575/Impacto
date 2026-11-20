@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   BadgeCheck,
+  Check,
   CheckCircle2,
+  Copy,
   Crown,
   Loader2,
   MapPin,
@@ -11,6 +13,7 @@ import {
   Send,
   Sparkles,
   Ticket,
+  Wrench,
 } from 'lucide-react';
 import type { Offer } from '../../types';
 import { resolveTrustLevel } from '../../types';
@@ -70,14 +73,18 @@ interface ConciergeMessage {
   content: string;
   at: string;
   cards?: RecommendedCardItem[];
+  diagnostic?: {
+    analysis: string;
+    antigravityPrompt: string;
+  };
 }
 
 /**
- * 🛰️ Radar 2.0 (V36.0):
+ * 🛰️ Radar 2.0 (V40.0):
  * - Visible en PC y Móvil (`fixed z-[45]`, siempre por encima de BottomNav).
- * - Dictado por voz nativo `es-CO` con onda pulsante.
- * - Motor híbrido de ofertas en vivo (`radarMatcher.ts`, <5ms) con tarjetas interactivas
- *   clickeables dentro del chat ("Apartar ahora" y "Ver en mapa") + IA contextual <2s.
+ * - Dictado por voz nativo `es-CO` con limpieza garantizada del input y buffer al enviar/detener.
+ * - Aprovecha la ubicación efímera activa del usuario (Ley 1581) para recomendar por cercanía real.
+ * - Escalamiento técnico con Diagnóstico IA + Prompt listo para Antigravity copiable en 1 clic.
  */
 export function SupportConcierge({
   userRole,
@@ -95,13 +102,14 @@ export function SupportConcierge({
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [ticketSentId, setTicketSentId] = useState<string | null>(null);
+  const [copiedPromptIdx, setCopiedPromptIdx] = useState<number | null>(null);
   const [messages, setMessages] = useState<ConciergeMessage[]>(() => [
     {
       role: 'assistant',
       content:
         userRole === 'merchant'
           ? '¡Hola! Soy Radar, el asistente de élite de Impulso. ¿En qué te ayudo hoy con tus ofertas, recargas o seguridad?'
-          : `¡Hola! Soy Radar 🛰️. Pregúntame o díctame qué buscas hoy en ${municipality} (ej: "tengo $15.000 para almorzar" o "abono para el campo") y te muestro las ofertas activas al instante.`,
+          : `¡Hola! Soy Radar 🛰️. Pregúntame o díctame qué buscas hoy en ${municipality} (ej: "tengo $15.000 para almorzar" o "qué hay cerca de mí") y te muestro las ofertas activas al instante.`,
       at: new Date().toISOString(),
     },
   ]);
@@ -109,8 +117,10 @@ export function SupportConcierge({
   const lastExternalSeqRef = useRef<number>(0);
 
   const speech = useSpeechRecognition((transcript) => {
-    setInput(transcript);
-    void sendMessage(transcript);
+    setInput('');
+    if (transcript.trim()) {
+      void sendMessage(transcript.trim());
+    }
   });
 
   const [promptSeed] = useState(() => Math.floor(Math.random() * QUICK_PROMPTS_CLIENT_POOL.length));
@@ -129,14 +139,17 @@ export function SupportConcierge({
     const clean = (textOverride ?? input).trim();
     if (!clean || busy) return;
 
+    // V40.0 · Limpieza garantizada del input y dictado de voz en todo envío (escrito o dictado)
+    if (speech.listening) speech.stop();
+    setInput('');
+
     const userMsg: ConciergeMessage = { role: 'user', content: clean, at: new Date().toISOString() };
     const nextHistory = [...messages, userMsg];
     setMessages(nextHistory);
-    if (!textOverride) setInput('');
     setBusy(true);
     scrollToBottom();
 
-    // ⚡ Fase local determinista (<5ms, 0 tokens): busca ofertas activas + pulso del municipio
+    // ⚡ Fase local determinista (<5ms, 0 tokens): busca ofertas activas + distancia GPS efímera + pulso del municipio
     const localMatch = matchLiveOffersForRadar(clean, offers, geoPos, 4);
     const liveDigest = buildLiveOffersDigest(offers);
     const matchedCards: RecommendedCardItem[] = localMatch.matches.map((m) => ({
@@ -161,6 +174,7 @@ export function SupportConcierge({
         municipality,
         intent: localMatch.intent,
         isInformationalOnly: localMatch.isInformationalOnly,
+        hasActiveGeo: Boolean(geoPos),
         matchedOffersSummary: compactSummary,
         isNearMatch: localMatch.isNearMatch,
         parsedBudget: localMatch.parsedBudget,
@@ -174,22 +188,34 @@ export function SupportConcierge({
         },
       });
 
+      const isEscalated = assessment.isTechnicalIssue && !localMatch.isInformationalOnly;
       const assistantMsg: ConciergeMessage = {
         role: 'assistant',
         content: assessment.reply,
         at: new Date().toISOString(),
         ...(matchedCards.length > 0 ? { cards: matchedCards } : {}),
+        ...(isEscalated && assessment.antigravityPrompt
+          ? {
+              diagnostic: {
+                analysis: assessment.aiAnalysis,
+                antigravityPrompt: assessment.antigravityPrompt,
+              },
+            }
+          : {}),
       };
       const updatedConversation = [...nextHistory, assistantMsg];
       setMessages(updatedConversation);
       scrollToBottom();
 
-      if (assessment.isTechnicalIssue && !localMatch.isInformationalOnly) {
+      if (isEscalated) {
         const transcriptForDb: SupportChatMessage[] = updatedConversation.map((m) => ({
           role: m.role,
           text: m.content,
           at: m.at,
         }));
+        const packedAnalysis = assessment.antigravityPrompt
+          ? `[DIAGNÓSTICO IA]\n${assessment.aiAnalysis}\n\n[PROMPT ANTIGRAVITY]\n${assessment.antigravityPrompt}`
+          : assessment.aiAnalysis;
         const res = await submitSupportTicket({
           userRole,
           userName,
@@ -198,10 +224,10 @@ export function SupportConcierge({
           severity: assessment.severity,
           summary: assessment.summary,
           chatTranscript: transcriptForDb,
-          aiAnalysis: assessment.aiAnalysis,
+          aiAnalysis: packedAnalysis,
         });
         setTicketSentId(res.ticket?.id ?? `local-${Date.now()}`);
-        toast.info('🛠️ Ticket registrado para revisión prioritaria.');
+        toast.info('🛠️ Ticket y diagnóstico técnico registrados para revisión prioritaria.');
       }
     } catch {
       setMessages((prev) => [
@@ -233,6 +259,17 @@ export function SupportConcierge({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [externalPrompt]);
 
+  function copyAntigravityPrompt(prompt: string, idx: number): void {
+    navigator.clipboard
+      .writeText(prompt)
+      .then(() => {
+        setCopiedPromptIdx(idx);
+        toast.success('📋 Prompt listo para Antigravity copiado');
+        window.setTimeout(() => setCopiedPromptIdx((cur) => (cur === idx ? null : cur)), 2000);
+      })
+      .catch(() => toast.error('No se pudo copiar automáticamente'));
+  }
+
   return (
     <>
       {/* 🛰️ Lanzador flotante universal (PC + Móvil · z-[45] siempre sobre BottomNav) */}
@@ -249,25 +286,40 @@ export function SupportConcierge({
           title="¿Qué buscas hoy? Pregúntale a Radar"
           className="pressable relative flex items-center gap-2 rounded-full border border-impulso-emerald/50 bg-gradient-to-br from-slate-950 via-slate-900 to-emerald-950 px-4 py-3 text-xs font-extrabold text-white shadow-[0_14px_36px_rgba(0,0,0,0.6),0_0_26px_rgba(16,185,129,0.34)] backdrop-blur-xl transition hover:border-impulso-mint hover:shadow-[0_14px_40px_rgba(0,0,0,0.65),0_0_32px_rgba(52,211,153,0.48)]"
         >
-          <span className="relative flex h-5 w-5 items-center justify-center">
-            <span className="absolute inset-0 animate-ping rounded-full bg-impulso-emerald/45" />
-            <Radar className="relative h-4 w-4 text-impulso-mint" />
+          <span className="relative flex h-6 w-6 items-center justify-center overflow-hidden rounded-full border border-impulso-emerald/45 bg-slate-950/80">
+            <span className="imp-radar-sweep pointer-events-none absolute inset-0 rounded-full" />
+            <Radar className="relative h-3.5 w-3.5 text-impulso-mint" />
           </span>
           <span>Radar</span>
         </button>
       </div>
 
-      <ModalShell open={open} onClose={() => setOpen(false)} escClose closeLabel="Cerrar Radar" panelClassName="max-w-lg">
+      <ModalShell
+        open={open}
+        onClose={() => {
+          if (speech.listening) speech.stop();
+          setOpen(false);
+        }}
+        escClose
+        closeLabel="Cerrar Radar"
+        panelClassName="max-w-lg"
+      >
         <div className="flex max-h-[86dvh] flex-col p-4 pt-5">
           <div className="flex items-center gap-2.5 pb-3 pr-11">
-            <div className="relative grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-impulso-emerald/30 to-cyan-500/20 ring-1 ring-impulso-emerald/45">
-              <Radar className="h-5 w-5 text-impulso-mint" />
+            <div className="relative grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-2xl bg-gradient-to-br from-impulso-emerald/25 to-cyan-500/15 ring-1 ring-impulso-emerald/45">
+              <span className="imp-radar-sweep pointer-events-none absolute inset-0 rounded-2xl" />
+              <Radar className="relative h-5 w-5 text-impulso-mint" />
               <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-impulso-emerald ring-2 ring-slate-950" />
             </div>
-            <div>
-              <h3 className="flex items-center gap-1.5 text-base font-extrabold text-white">
+            <div className="min-w-0 flex-1">
+              <h3 className="flex flex-wrap items-center gap-1.5 text-base font-extrabold text-white">
                 Radar · Asistente Impulso
                 <Sparkles className="h-3.5 w-3.5 text-impulso-mint" />
+                {geoPos && (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-sky-400/35 bg-sky-500/15 px-2 py-0.5 text-[9px] font-extrabold text-sky-300">
+                    📍 Cercanía activa
+                  </span>
+                )}
               </h3>
               <p className="text-[11px] font-semibold text-slate-400">
                 Ofertas en vivo en {municipality} · Voz + Respuesta rápida
@@ -290,7 +342,7 @@ export function SupportConcierge({
             ))}
           </div>
 
-          {/* Historial + Tarjetas interactivas de ofertas en vivo */}
+          {/* Historial + Tarjetas interactivas de ofertas en vivo + Bloque Diagnóstico Antigravity */}
           <div
             ref={listRef}
             className="min-h-[250px] max-h-[48dvh] flex-1 space-y-3 overflow-y-auto rounded-2xl border border-white/[0.07] bg-slate-950/60 p-3"
@@ -307,6 +359,34 @@ export function SupportConcierge({
                 >
                   {m.content}
                 </div>
+
+                {/* 🤖 V40.0 · Diagnóstico IA + Prompt listo para Antigravity en casos escalados */}
+                {m.diagnostic && (
+                  <div className="w-full max-w-[96%] rounded-2xl border border-impulso-emerald/35 bg-slate-900/95 p-3 text-xs">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="flex items-center gap-1.5 text-[11px] font-extrabold text-impulso-mint">
+                        <Wrench className="h-3.5 w-3.5" /> Diagnóstico IA + Prompt para Antigravity
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => copyAntigravityPrompt(m.diagnostic!.antigravityPrompt, i)}
+                        className="pressable inline-flex items-center gap-1 rounded-lg bg-impulso-emerald px-2.5 py-1 text-[10px] font-extrabold text-slate-950"
+                      >
+                        {copiedPromptIdx === i ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                        {copiedPromptIdx === i ? 'Copiado' : 'Copiar prompt'}
+                      </button>
+                    </div>
+                    <p className="mt-1.5 text-[11px] leading-relaxed text-slate-300">{m.diagnostic.analysis}</p>
+                    <details className="mt-2 rounded-xl border border-white/[0.07] bg-slate-950/80 p-2">
+                      <summary className="cursor-pointer text-[10px] font-bold text-slate-400">
+                        Ver prompt técnico completo
+                      </summary>
+                      <pre className="mt-1.5 max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[10px] leading-relaxed text-slate-200">
+                        {m.diagnostic.antigravityPrompt}
+                      </pre>
+                    </details>
+                  </div>
+                )}
 
                 {/* 🎯 Tarjetas Interactivas de Ofertas Reales dentro de Radar */}
                 {m.cards && m.cards.length > 0 && (
@@ -383,7 +463,6 @@ export function SupportConcierge({
                               type="button"
                               onClick={() => {
                                 setOpen(false);
-                                // Espera a que ModalShell libere el bloqueo de scroll antes de volar y centrar el mapa
                                 window.setTimeout(() => {
                                   onFocusOfferOnMap?.(offer);
                                 }, 140);
@@ -414,7 +493,14 @@ export function SupportConcierge({
                 <span className="h-2.5 w-2.5 animate-ping rounded-full bg-impulso-rose" />
                 Escuchando tu voz (es-CO)… habla ahora
               </span>
-              <button type="button" onClick={speech.stop} className="underline">
+              <button
+                type="button"
+                onClick={() => {
+                  speech.stop();
+                  setInput('');
+                }}
+                className="underline"
+              >
                 Detener
               </button>
             </div>
@@ -423,7 +509,7 @@ export function SupportConcierge({
           {ticketSentId && (
             <div className="mt-2.5 flex items-center gap-2 rounded-xl border border-impulso-emerald/35 bg-impulso-emerald/10 px-3 py-2 text-[11px] font-bold text-impulso-mint">
               <CheckCircle2 className="h-4 w-4 shrink-0" />
-              <span>Ticket registrado en la cola prioritaria de seguridad y soporte.</span>
+              <span>Ticket y diagnóstico guardados en la bandeja de soporte del administrador.</span>
             </div>
           )}
 
@@ -440,7 +526,7 @@ export function SupportConcierge({
               placeholder={
                 userRole === 'merchant'
                   ? 'Pregunta o dicta tu duda…'
-                  : 'Ej: "almuerzo menos de 15 mil" o "abono"'
+                  : 'Ej: "almuerzo menos de 15 mil" o "qué hay cerca"'
               }
               maxLength={400}
               className="flex-1 rounded-2xl border border-white/10 bg-slate-950/70 px-3.5 py-3 text-sm font-medium text-white placeholder:text-slate-600 outline-none focus:border-impulso-emerald/60"
@@ -448,7 +534,15 @@ export function SupportConcierge({
             {speech.supported && (
               <button
                 type="button"
-                onClick={() => (speech.listening ? speech.stop() : speech.start())}
+                onClick={() => {
+                  if (speech.listening) {
+                    speech.stop();
+                    setInput('');
+                  } else {
+                    setInput('');
+                    speech.start();
+                  }
+                }}
                 disabled={busy}
                 aria-label={speech.listening ? 'Detener dictado por voz' : 'Dictar por voz'}
                 title={speech.listening ? 'Detener dictado' : 'Dictar por voz (es-CO)'}

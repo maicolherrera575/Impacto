@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BadgeCheck,
   Coins,
+  Copy,
   Flag,
   FlaskConical,
   Gavel,
@@ -1636,9 +1637,48 @@ export function AdminPanel({ open, onClose, profile, onProfileChange }: AdminPan
                       </div>
 
                       <p className="mt-2 text-sm font-extrabold text-white">{t.summary}</p>
-                      <p className="mt-1 rounded-xl border border-white/[0.06] bg-slate-950/60 p-2.5 text-xs leading-relaxed text-slate-300">
-                        <span className="font-extrabold text-impulso-mint">Diagnóstico IA:</span> {t.ai_analysis}
-                      </p>
+                      {(() => {
+                        const marker = '[PROMPT ANTIGRAVITY]';
+                        const parts = (t.ai_analysis || '').split(marker);
+                        const diagnosisText = parts[0].replace(/^\[DIAGNÓSTICO IA\]\s*/i, '').trim() || t.ai_analysis;
+                        const promptText =
+                          parts[1]?.trim() ||
+                          [
+                            `# FIX ESCALADO DESDE SOPORTE · IMPULSO (${t.municipality})`,
+                            `Severidad: ${t.severity.toUpperCase()} | Categoría: ${t.category} | Rol: ${t.user_role}`,
+                            `Síntoma: "${t.summary}"`,
+                            `Diagnóstico IA: ${diagnosisText}`,
+                            `Audita causa raíz sin regresiones, verifica npm run build (TS6133 = 0) y typecheck de api/*.ts.`,
+                          ].join('\n');
+                        return (
+                          <>
+                            <p className="mt-1 rounded-xl border border-white/[0.06] bg-slate-950/60 p-2.5 text-xs leading-relaxed text-slate-300">
+                              <span className="font-extrabold text-impulso-mint">Diagnóstico IA:</span> {diagnosisText}
+                            </p>
+                            <details className="mt-2 rounded-xl border border-impulso-emerald/25 bg-impulso-emerald/[0.05] p-2.5 text-xs">
+                              <summary className="flex cursor-pointer items-center justify-between gap-2 font-extrabold text-impulso-mint">
+                                <span>🤖 Prompt listo para Antigravity</span>
+                                <span className="text-[10px] font-bold text-slate-400">Ver / Copiar</span>
+                              </summary>
+                              <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-slate-950/80 p-2.5 font-mono text-[10px] leading-relaxed text-slate-200">
+                                {promptText}
+                              </pre>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  navigator.clipboard
+                                    .writeText(promptText)
+                                    .then(() => toast.success('📋 Prompt para Antigravity copiado'))
+                                    .catch(() => toast.error('No se pudo copiar automáticamente'));
+                                }}
+                                className="pressable mt-2 inline-flex items-center gap-1.5 rounded-lg bg-impulso-emerald px-3 py-1.5 text-[11px] font-extrabold text-slate-950"
+                              >
+                                <Copy className="h-3.5 w-3.5" /> Copiar prompt para Antigravity
+                              </button>
+                            </details>
+                          </>
+                        );
+                      })()}
 
                       {Array.isArray(t.chat_transcript) && t.chat_transcript.length > 0 && (
                         <details className="mt-2 rounded-xl border border-white/[0.06] bg-slate-950/40 p-2.5 text-xs text-slate-400">

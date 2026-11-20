@@ -2338,6 +2338,26 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
               <PricePill brand={brand} t={darkPhotoTheme} s={s} />
             </div>
           )}
+          {/* V40.0 · Toma secundaria integrada con armonía cromática si se cargó Foto 2 */}
+          {photo2 && photo2 !== photoUrl && (
+            <div
+              style={{
+                position: 'absolute',
+                left: pad,
+                bottom: 10 * ts,
+                width: isSquare ? 88 : 132,
+                height: isSquare ? 62 : 94,
+                borderRadius: 14 * ts,
+                overflow: 'hidden',
+                border: `2px solid ${t.accent2}`,
+                boxShadow: '0 14px 30px rgba(0,0,0,0.6)',
+                zIndex: 5,
+                background: '#050811',
+              }}
+            >
+              <Photo url={photo2} zoom={1.06} posY={0.48} accent={t.accent} accent2={t.accent2} monogram={brandMonogram} />
+            </div>
+          )}
         </div>
 
         {/* Filete arquitectónico de color de marca */}
@@ -2710,7 +2730,7 @@ export function AfficheArtboard(props: AfficheProps): ReactElement {
       accent: ensureContrastColor(t.accent, diagSurface, 4.6),
       accent2: ensureContrastColor(t.accent2, diagSurface, 5.2),
     };
-    const topRightQrSize = isSquare ? 104 : 148;
+    const topRightQrSize = isSquare ? 98 : 132;
     const hasTopRightQr = showQr && Boolean(qrValue || qrUrl);
 
     return (

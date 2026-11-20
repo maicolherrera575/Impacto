@@ -62,6 +62,7 @@ import { beepAlert } from '../../utils/sound';
 import { openWhatsApp, shareUrl } from '../../utils/whatsapp';
 import { encodeShortUuid } from '../../utils/shortId';
 import { resolveTrustLevel } from '../../types';
+import type { LatLng } from '../../utils/geo';
 import { ADMIN_WHATSAPP } from '../../config/env';
 
 interface MerchantDashboardProps {
@@ -74,6 +75,8 @@ interface MerchantDashboardProps {
   /** V38.0 · Permite que Radar desde Mi Panel también salte al mapa o abra una oferta. */
   onFocusOfferOnMap?: (offer: Offer) => void;
   onReserveOffer?: (offer: Offer) => void;
+  /** V40.0 · Posición GPS efímera activa en sesión (Ley 1581: solo en memoria de React). */
+  geoPos?: LatLng | null;
 }
 
 /**
@@ -90,6 +93,7 @@ export function MerchantDashboard({
   onOpenAdmin,
   onFocusOfferOnMap,
   onReserveOffer,
+  geoPos = null,
 }: MerchantDashboardProps) {
   const toast = useToast();
   const now = useTick(1000);
@@ -1184,62 +1188,84 @@ export function MerchantDashboard({
           </section>
         )}
 
-        {/* 🪪 Datos de confianza: el admin los audita con IA para verificar más rápido */}
+        {/* 🛡️ V40.0 · Verificación Ágil de Comercio (rápida en 2 minutos + segura anti-estafas) */}
         <section className="rounded-3xl border border-white/10 bg-impulso-panel p-4">
-          <p className="text-sm font-bold text-white">🪪 Datos de confianza (recomendados)</p>
-          <p className="mt-1 text-xs leading-relaxed text-slate-400">
-            El administrador audita estos datos con IA para otorgarte la insignia ✅ Verificado más rápido: tu NIT o
-            cédula y un link de tu Facebook, Instagram o Google Maps.
-          </p>
-          <div className="mt-3 space-y-2">
-            <input
-              value={nitInput}
-              onChange={(e) => setNitInput(e.target.value)}
-              placeholder="NIT o cédula (ej: 900123456-7 o 1023456789)"
-              className="w-full rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3 text-sm font-medium text-white placeholder:text-slate-600 outline-none focus:border-impulso-emerald/60"
-            />
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <p className="flex items-center gap-1.5 text-sm font-extrabold text-white">
+                <ShieldCheck className="h-4 w-4 text-impulso-mint" />
+                Verificación Ágil de Comercio {profile.is_verified ? '✅' : ''}
+              </p>
+              <p className="mt-1 text-xs leading-relaxed text-slate-400">
+                Obtén la insignia <span className="font-bold text-impulso-mint">✅ Verificado</span> en menos de 2 minutos para vender con máxima confianza (cero formularios largos).
+              </p>
+            </div>
+            <span
+              className={cx(
+                'shrink-0 rounded-full px-2.5 py-1 text-[10px] font-extrabold uppercase',
+                profile.is_verified
+                  ? 'bg-impulso-emerald/15 text-impulso-mint'
+                  : profile.kyb_status === 'pending'
+                    ? 'bg-impulso-gold/15 text-impulso-gold'
+                    : 'bg-white/10 text-slate-300',
+              )}
+            >
+              {profile.is_verified ? 'Verificado' : profile.kyb_status === 'pending' ? 'En revisión' : '2 pasos'}
+            </span>
+          </div>
+
+          {/* Paso 1 rápido: enlace o documento básico */}
+          <div className="mt-3 space-y-2 rounded-2xl border border-white/[0.07] bg-slate-950/40 p-3">
+            <p className="text-[11px] font-extrabold text-slate-200">
+              Paso 1 · Datos básicos de respaldo (opcional pero acelera la aprobación)
+            </p>
             <input
               value={socialInput}
               onChange={(e) => setSocialInput(e.target.value)}
-              placeholder="Link de Facebook / Instagram / Google Maps"
-              className="w-full rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3 text-sm font-medium text-white placeholder:text-slate-600 outline-none focus:border-impulso-emerald/60"
+              placeholder="Link de Google Maps, Instagram o Facebook del negocio"
+              className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-3.5 py-2.5 text-xs font-medium text-white placeholder:text-slate-600 outline-none focus:border-impulso-emerald/60"
+            />
+            <input
+              value={nitInput}
+              onChange={(e) => setNitInput(e.target.value)}
+              placeholder="Cédula o NIT del titular (ej: 1023456789)"
+              className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-3.5 py-2.5 text-xs font-medium text-white placeholder:text-slate-600 outline-none focus:border-impulso-emerald/60"
             />
             <button
               onClick={() => void saveTrustData()}
               disabled={trustBusy}
-              className="pressable flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-impulso-emerald to-teal-600 py-3 text-sm font-extrabold text-white disabled:opacity-60"
+              className="pressable flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-impulso-emerald to-teal-600 py-2.5 text-xs font-extrabold text-white disabled:opacity-60"
             >
-              {trustBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : '💾'} Guardar datos de confianza
+              {trustBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : '💾'} Guardar respaldo rápido
             </button>
           </div>
 
-          {/* 🪪 V20 · Verificación de identidad estricta (KYB): cédula + foto */}
-          <div className="mt-4 rounded-2xl border border-impulso-gold/25 bg-impulso-gold/5 p-3">
-            <p className="flex items-center gap-1.5 text-sm font-bold text-impulso-gold">
-              <ShieldCheck className="h-4 w-4" /> Verificación de identidad estricta
+          {/* Paso 2: 2 fotos rápidas en WebP o verificación exprés por WhatsApp */}
+          <div className="mt-3 rounded-2xl border border-impulso-gold/25 bg-impulso-gold/5 p-3">
+            <p className="flex items-center gap-1.5 text-xs font-extrabold text-impulso-gold">
+              <ShieldCheck className="h-4 w-4" /> Paso 2 · Confirmación visual (2 fotos rápidas)
             </p>
-            <p className="mt-1 text-xs leading-relaxed text-slate-400">
-              Sube la imagen de tu <span className="font-bold text-slate-200">cédula o RUT</span> y una{' '}
-              <span className="font-bold text-slate-200">foto real de tu establecimiento</span> (o de ti). Se comprimen
-              en tu celular a WebP ≤ 100 KB y el administrador las audita antes de darte la insignia de verificado.
+            <p className="mt-1 text-[11px] leading-relaxed text-slate-400">
+              Toma o sube foto de tu <span className="font-bold text-slate-200">cédula/RUT</span> y de tu{' '}
+              <span className="font-bold text-slate-200">local o producto real</span>. Se optimizan solas al instante.
             </p>
             {profile.kyb_status === 'pending' && (
               <p className="mt-2 rounded-xl border border-impulso-gold/30 bg-impulso-gold/10 px-3 py-2 text-xs font-bold text-impulso-gold">
-                ⏳ Tu verificación está en revisión por el administrador
+                ⏳ Solicitud recibida: el administrador está revisando tu insignia ✅
               </p>
             )}
             {profile.kyb_status === 'approved' && (
               <p className="mt-2 rounded-xl border border-impulso-emerald/30 bg-impulso-emerald/10 px-3 py-2 text-xs font-bold text-impulso-mint">
-                ✅ Identidad verificada: ya tienes la insignia de confianza
+                ✅ Comercio verificado: tus ofertas ya muestran el sello de confianza
               </p>
             )}
             {profile.kyb_status === 'rejected' && (
               <p className="mt-2 rounded-xl border border-impulso-rose/30 bg-impulso-rose/10 px-3 py-2 text-xs font-bold text-impulso-rose">
-                Tu verificación fue rechazada: vuelve a enviar imágenes claras y legibles
+                Las fotos anteriores estaban borrosas: súbelas de nuevo con buena luz
               </p>
             )}
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <label className="pressable flex cursor-pointer flex-col items-center gap-1.5 rounded-xl border border-white/10 bg-slate-950/40 px-2 py-3 text-center text-xs font-bold text-slate-300">
+            <div className="mt-2.5 grid grid-cols-2 gap-2">
+              <label className="pressable flex cursor-pointer flex-col items-center gap-1.5 rounded-xl border border-white/10 bg-slate-950/50 px-2 py-3 text-center text-xs font-bold text-slate-300">
                 {kybDoc ? (
                   <img src={kybDoc} alt="Documento" className="h-14 w-full rounded-lg object-cover" />
                 ) : (
@@ -1255,7 +1281,7 @@ export function MerchantDashboard({
                   onChange={(e) => void pickKybImage(e.target.files?.[0], 'doc')}
                 />
               </label>
-              <label className="pressable flex cursor-pointer flex-col items-center gap-1.5 rounded-xl border border-white/10 bg-slate-950/40 px-2 py-3 text-center text-xs font-bold text-slate-300">
+              <label className="pressable flex cursor-pointer flex-col items-center gap-1.5 rounded-xl border border-white/10 bg-slate-950/50 px-2 py-3 text-center text-xs font-bold text-slate-300">
                 {kybFace ? (
                   <img src={kybFace} alt="Establecimiento" className="h-14 w-full rounded-lg object-cover" />
                 ) : (
@@ -1272,14 +1298,28 @@ export function MerchantDashboard({
                 />
               </label>
             </div>
-            <button
-              onClick={() => void submitKyb()}
-              disabled={kybBusy || profile.kyb_status === 'pending'}
-              className="pressable mt-2 flex w-full items-center justify-center gap-2 rounded-2xl border border-impulso-gold/40 bg-impulso-gold/10 py-2.5 text-sm font-extrabold text-impulso-gold disabled:opacity-50"
-            >
-              {kybBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
-              {profile.kyb_status === 'pending' ? 'En revisión…' : 'Enviar a verificación'}
-            </button>
+            <div className="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+              <button
+                onClick={() => void submitKyb()}
+                disabled={kybBusy || profile.kyb_status === 'pending'}
+                className="pressable flex items-center justify-center gap-1.5 rounded-xl border border-impulso-gold/40 bg-impulso-gold/15 py-2.5 text-xs font-extrabold text-impulso-gold disabled:opacity-50"
+              >
+                {kybBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+                {profile.kyb_status === 'pending' ? 'En revisión…' : 'Solicitar insignia ✅'}
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  openWhatsApp(
+                    paymentContact,
+                    `¡Hola! Soy ${profile.business_name} en ${profile.municipality} y quiero agilizar mi verificación ✅ en Impulso.${socialInput.trim() ? ` Link: ${socialInput.trim()}` : ''}`,
+                  )
+                }
+                className="pressable flex items-center justify-center gap-1.5 rounded-xl border border-impulso-emerald/35 bg-impulso-emerald/10 py-2.5 text-xs font-bold text-impulso-mint"
+              >
+                <MessageCircle className="h-3.5 w-3.5" /> Verificar por WhatsApp
+              </button>
+            </div>
           </div>
         </section>
 
@@ -1490,6 +1530,7 @@ export function MerchantDashboard({
         userName={profile.business_name}
         municipality={profile.municipality}
         offers={myOffers}
+        geoPos={geoPos}
         onFocusOfferOnMap={onFocusOfferOnMap}
         onReserveOffer={onReserveOffer}
         bottomOffsetClass="bottom-5 right-4 sm:bottom-6 sm:right-6"

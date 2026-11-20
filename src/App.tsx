@@ -807,6 +807,7 @@ export default function App() {
           onOpenAdmin={() => setAdminOpen(true)}
           onFocusOfferOnMap={handleFocusOfferOnMap}
           onReserveOffer={handleOpenOfferQuickReserve}
+          geoPos={geo.status === 'active' && geo.pos ? geo.pos : null}
         />
       ) : (
         <div className="grid min-h-dvh place-items-center px-4">

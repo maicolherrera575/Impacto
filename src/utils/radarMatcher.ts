@@ -84,7 +84,10 @@ const STOP_WORDS = new Set([
 ]);
 
 const SHOPPING_INTENT_RE =
-  /busco|quiero\s+(comprar|comer|almorzar|ver|apartar|algo|un|una)|apart(ar|ame|o)|compr(ar|o)|recomiend|sorpr?end|mu[eé]str|ens[eé][nñ]|oferta|promo|barat|econ[oó]mic|presupuesto|tengo\s+\$?\d|menos\s+de|que\s+hay|qu[eé]\s+hay|donde\s+consigo|hambre|comer|almuerz|abono|agro|campo|flete|pan|trucha|ferreter|droguer|hotel|caba[nñ]|descuento/i;
+  /busco|quiero\s+(comprar|comer|almorzar|ver|apartar|algo|un|una)|apart(ar|ame|o)|compr(ar|o)|recomiend|sorpr?end|mu[eé]str|ens[eé][nñ]|oferta|promo|barat|econ[oó]mic|presupuesto|tengo\s+\$?\d|menos\s+de|que\s+hay|qu[eé]\s+hay|donde\s+consigo|hambre|comer|almuerz|abono|agro|campo|flete|pan|trucha|ferreter|droguer|hotel|caba[nñ]|descuento|cerca\s+de\s+m[ií]|cerquita|m[aá]s\s+cercan|por\s+aqu[ií]|alrededor/i;
+
+const PROXIMITY_QUERY_RE =
+  /cerca\s+de\s+m[ií]|cerquita|m[aá]s\s+cercan|por\s+aqu[ií]|alrededor|a\s+cu[aá]ntos\s+metros|qu[eé]\s+hay\s+cerca|que\s+hay\s+cerca|ubicaci[oó]n\s+actual/i;
 
 const SUPPORT_REPORT_RE =
   /error|no\s+(funciona|carga|abre|sirve|deja|llega)|fall[ao]|bug|roto|congel|bloque|duplicad|cobr[oó]|descont[oó]|reportar|denunciar|reclamo|disputa|hablar\s+con\s+(un\s+)?(humano|admin|administrador|soporte|alguien)|soporte\s+t[eé]cnico|contrase[nñ]a|huella|biometr|recarg|cr[eé]dito|nequi\s+oficial|gps\s+no/i;
@@ -310,6 +313,15 @@ export function matchLiveOffersForRadar(
 
   const scored: Array<{ offer: Offer; score: number; distanceMeters: number | null }> = [];
 
+  const isProximityQuery = PROXIMITY_QUERY_RE.test(query);
+
+  // Si pide genérico ("qué ofertas hay hoy", "tengo 10000 sorpendame", "qué hay cerca de mí"), todas califican
+  const isGenericBrowse =
+    keywords.length === 0 ||
+    isProximityQuery ||
+    GENERIC_BROWSE_RE.test(norm) ||
+    (parsedBudget !== null && keywords.length <= 1);
+
   for (const offer of activePool) {
     const price = Number(offer.promo_price ?? 0);
     const titleNorm = normalizeText(offer.title);
@@ -367,11 +379,6 @@ export function matchLiveOffersForRadar(
       }
     }
 
-    // Si pide genérico ("qué ofertas hay hoy", "tengo 10000 sorpendame", "algo barato"), todas califican
-    const isGenericBrowse =
-      keywords.length === 0 ||
-      GENERIC_BROWSE_RE.test(norm) ||
-      (parsedBudget !== null && keywords.length <= 1);
     if (score === 0 && !isGenericBrowse) continue;
     if (score === 0 && isGenericBrowse) score = 10;
 
@@ -388,8 +395,9 @@ export function matchLiveOffersForRadar(
         ? haversineMeters(geoPos, { lat: offer.lat, lng: offer.lng })
         : null;
     if (distanceMeters != null) {
-      if (distanceMeters <= 400) score += 14;
-      else if (distanceMeters <= 1200) score += 8;
+      if (distanceMeters <= 300) score += isProximityQuery ? 40 : 16;
+      else if (distanceMeters <= 800) score += isProximityQuery ? 28 : 11;
+      else if (distanceMeters <= 1800) score += isProximityQuery ? 16 : 6;
     }
 
     // Confianza y verificación del comercio
@@ -399,7 +407,16 @@ export function matchLiveOffersForRadar(
     scored.push({ offer, score, distanceMeters });
   }
 
-  scored.sort((a, b) => b.score - a.score || Number(a.offer.promo_price) - Number(b.offer.promo_price));
+  scored.sort((a, b) => {
+    if (isProximityQuery && a.distanceMeters != null && b.distanceMeters != null) {
+      return a.distanceMeters - b.distanceMeters || b.score - a.score;
+    }
+    return (
+      b.score - a.score ||
+      (a.distanceMeters != null && b.distanceMeters != null ? a.distanceMeters - b.distanceMeters : 0) ||
+      Number(a.offer.promo_price) - Number(b.offer.promo_price)
+    );
+  });
 
   // 🔄 Respaldo inteligente de opciones cercanas: si el presupuesto o búsqueda no tuvo coincidencia exacta
   // pero SÍ hay ofertas activas en el municipio, proponemos las más económicas / cercanas (nunca muro vacío)

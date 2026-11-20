@@ -766,18 +766,29 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     };
   }, [brand, priceMode, texts.priceLabel, defaultCtaByQr]);
 
-  /** Textos finales del artboard: editables con defaults inteligentes. */
+  /** Textos finales del artboard: editables con defaults inteligentes + auto-sanación de borradores heredados (V40.0). */
   const T = useMemo<Texts>(() => {
     const benefits = texts.benefits.map((b, i) => b.trim() || (dflt.benefits[i] ?? ''));
+    const briefClean = briefText.trim();
+    const isFoodBrief = /comida|almuerz|restauran|panader|asado|pollo|pizza|caf[eé]|desayun|postre|empanad/i.test(briefClean);
+    const rawSub = texts.sub.trim() || dflt.sub;
+    const subLooksStaleFood =
+      briefClean.length >= 12 &&
+      !isFoodBrief &&
+      /^(comida y bebidas|transporte|agro|servicios)\s*·/i.test(rawSub);
+    const briefLead = briefClean.split(/[.!?\n]+/)[0]?.trim() || '';
+    const healedSub = subLooksStaleFood
+      ? (briefLead.length >= 16 ? (briefLead.length <= 108 ? briefLead : `${briefLead.slice(0, 102).trim()}…`) : detectedCategory || 'Soluciones profesionales a tu medida')
+      : rawSub;
     return {
       plain: texts.plain.trim() || dflt.plain,
       highlight: texts.highlight.trim() || dflt.highlight,
-      sub: texts.sub.trim() || dflt.sub,
+      sub: healedSub,
       benefits: benefits.filter(Boolean),
       cta: texts.cta.trim() || dflt.cta,
       priceLabel: texts.priceLabel.trim() || '💬 Cotiza gratis por WhatsApp',
     };
-  }, [texts, dflt]);
+  }, [texts, dflt, briefText, detectedCategory]);
 
   /** Sello resuelto: preset, custom u oculto. */
   const badge = useMemo<string>(() => {
@@ -1886,69 +1897,98 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
     setFormat(v === 'historia' ? 'story' : 'square');
   }
 
-  /** 🟢 V36 · Copy de Agencia para WhatsApp: *negritas*, _cursivas_, dirección exacta y cero relleno spam. */
+  /** 🟢 V40.0 · Copy nativo de Agencia para WhatsApp: 100% fiel al brief/enfoque real (jamás hereda 'Comida y Bebidas' si el brief es otro rubro). */
   const waSocialText = useMemo(() => {
+    const briefClean = briefText.trim();
+    const isFoodBrief = /comida|almuerz|restauran|panader|asado|pollo|pizza|caf[eé]|desayun|postre|empanad/i.test(briefClean);
+    const isSvcCtx =
+      priceMode === 'servicio' ||
+      /marketing|agencia|publicidad|afiche|redes|digital|software|web|dise[nñ]o|consultor|asesor|plataforma|app/i.test(
+        `${briefClean} ${detectedCategory}`,
+      );
+    const staleFoodSub = /^(comida y bebidas|transporte|agro|servicios)\s*·/i.test(T.sub.trim()) && !isFoodBrief;
+    const briefLead = briefClean.split(/[.!?\n]+/)[0]?.trim() || '';
+    const cleanSub = staleFoodSub
+      ? (briefLead.length >= 16 ? (briefLead.length <= 120 ? briefLead : `${briefLead.slice(0, 114).trim()}…`) : detectedCategory || 'Soluciones a la medida de tu negocio')
+      : T.sub.trim();
+
+    if (campaign?.socialMediaCopy?.aida && !(/comida y bebidas/i.test(campaign.socialMediaCopy.aida) && !isFoodBrief)) {
+      return `${campaign.socialMediaCopy.aida.trim()}\n🔗 ${primaryLink}`;
+    }
+
     const hook = `${T.plain} ${T.highlight}`.trim();
     const price =
-      brand.promoPrice != null
+      !isSvcCtx && brand.promoPrice != null
         ? `Hoy por *${formatCOP(brand.promoPrice)}*${
             brand.normalPrice != null && brand.normalPrice > brand.promoPrice ? ` _(antes ${formatCOP(brand.normalPrice)})_` : ''
           }`
-        : `_${T.priceLabel.trim()}_`;
+        : `_${T.priceLabel.trim() || 'Asesoría y cotización personalizada'}_`;
     const place = brand.address?.trim()
       ? `${brand.address.trim()} · ${brand.municipality || 'Gachetá'}`
       : brand.municipality || 'Gachetá';
     return [
-      `*${hook.toUpperCase()}*`,
-      `_${T.sub.trim()}_`,
+      `✨ *${hook.toUpperCase()}*`,
+      `_${cleanSub}_`,
       '',
-      `${brand.product || brand.name || 'Promoción especial'} — ${price}`,
-      T.benefits.filter(Boolean).slice(0, 3).map((b) => `• ${b}`).join('\n'),
+      `${brand.product || detectedCategory || brand.name || 'Solución profesional'} — ${price}`,
+      T.benefits.filter(Boolean).slice(0, 3).map((b) => `✅ *${b.replace(/^[^\p{L}\p{N}]+/u, '')}*`).join('\n'),
       '',
-      `📍 *Dónde:* ${place}`,
-      `📲 *Aparta o cotiza directo:* ${brand.phoneDisplay || 'Escríbenos aquí'}`,
+      `📍 _${place}_`,
+      isSvcCtx
+        ? `👉 *Escríbenos por WhatsApp* y solicita tu diagnóstico directo: ${brand.phoneDisplay || 'clic abajo'}`
+        : `📲 *Aparta tu cupo hoy por WhatsApp:* ${brand.phoneDisplay || 'clic abajo'}`,
       `🔗 ${primaryLink}`,
     ].join('\n');
-  }, [T, brand, primaryLink]);
+  }, [T, brand, primaryLink, briefText, detectedCategory, priceMode, campaign]);
 
-  /** 📸 8 hashtags estratégicos del municipio (#Gachetá #Guavio) + rubro + producto. */
+  /** 📸 8 hashtags estratégicos del municipio (#Gachetá #Guavio) + rubro real del brief. */
   const igHashtags = useMemo(() => {
     const words = (src: string): string[] =>
       src
         .toLowerCase()
         .replace(/[^a-záéíóúñü\s]/gi, '')
         .split(/\s+/)
-        .filter((w) => w.length > 3)
+        .filter((w) => w.length > 3 && !/^(para|como|esta|este|unos|unas|unos|sobre|desde|hace|osea)$/i.test(w))
         .slice(0, 3)
         .map((w) => `#${w.charAt(0).toUpperCase()}${w.slice(1)}`);
+    const isDigital = /marketing|agencia|publicidad|afiche|redes|digital|dise[nñ]o/i.test(`${briefText} ${detectedCategory}`);
     const base = [
       `#${(brand.municipality || 'Gachetá').replace(/\s+/g, '')}`,
       '#Guavio',
       '#Cundinamarca',
+      ...(isDigital ? ['#MarketingDigital', '#PublicidadLocal', '#DiseñoPublicitario'] : ['#ComercioLocal', '#OfertasHoy']),
       ...words(detectedCategory),
       ...words(brand.product),
-      '#ComercioLocal',
       '#ApoyaLoNuestro',
-      '#OfertasHoy',
       '#ImpulsoLocal',
     ];
     return [...new Set(base)].slice(0, 8).join(' ');
-  }, [detectedCategory, brand.product, brand.municipality]);
+  }, [detectedCategory, brand.product, brand.municipality, briefText]);
 
-  /** 📸 V36 · Copy Instagram (estructura AIDA respirable + dirección exacta + hashtags del Guavio). */
+  /** 📸 V40.0 · Copy Instagram 100% alineado al brief (prioriza copy IA PAS + hashtags reales). */
   const igCaption = useMemo(() => {
+    const briefClean = briefText.trim();
+    const isFoodBrief = /comida|almuerz|restauran|panader|asado|pollo|pizza|caf[eé]|desayun|postre|empanad/i.test(briefClean);
+    if (campaign?.socialMediaCopy?.pas && !(/comida y bebidas/i.test(campaign.socialMediaCopy.pas) && !isFoodBrief)) {
+      return campaign.socialMediaCopy.pas.trim();
+    }
+    const isSvcCtx =
+      priceMode === 'servicio' ||
+      /marketing|agencia|publicidad|afiche|redes|digital|software|web|dise[nñ]o/i.test(`${briefClean} ${detectedCategory}`);
     const hook = `${T.plain} ${T.highlight}`.trim();
+    const staleFoodSub = /^(comida y bebidas|transporte|agro|servicios)\s*·/i.test(T.sub.trim()) && !isFoodBrief;
+    const cleanSub = staleFoodSub ? briefClean.split(/[.!?\n]+/)[0]?.trim() || detectedCategory : T.sub.trim();
     const priceNote =
-      brand.promoPrice != null
+      !isSvcCtx && brand.promoPrice != null
         ? `Precio especial de hoy: ${formatCOP(brand.promoPrice)}${
             brand.normalPrice != null && brand.normalPrice > brand.promoPrice ? ` (precio habitual ${formatCOP(brand.normalPrice)})` : ''
           }.`
-        : `${T.priceLabel.trim()}.`;
+        : `${T.priceLabel.trim() || 'Cotiza hoy sin compromiso por WhatsApp'}.`;
     const bullets = T.benefits.filter(Boolean).slice(0, 3).map((b) => `— ${b}`).join('\n');
     return [
-      `${brand.emoji} ${hook}`,
+      `✨ ${hook}`,
       '',
-      T.sub.trim(),
+      cleanSub,
       '',
       bullets,
       '',
@@ -1958,52 +1998,68 @@ export function MarketingStudio({ merchants, offers }: MarketingStudioProps) {
       '',
       igHashtags,
     ].join('\n');
-  }, [T, brand, igHashtags]);
+  }, [T, brand, igHashtags, briefText, detectedCategory, priceMode, campaign]);
 
-  /** 📘 V36 · Copy Facebook (estructura PAS conversacional para grupos y Marketplace del Guavio). */
+  /** 📘 V40.0 · Copy Facebook (PAS conversacional 100% fiel al brief del negocio). */
   const fbPostText = useMemo(() => {
+    const briefClean = briefText.trim();
+    const isFoodBrief = /comida|almuerz|restauran|panader|asado|pollo|pizza|caf[eé]|desayun|postre|empanad/i.test(briefClean);
+    const isSvcCtx =
+      priceMode === 'servicio' ||
+      /marketing|agencia|publicidad|afiche|redes|digital|software|web|dise[nñ]o/i.test(`${briefClean} ${detectedCategory}`);
     const hook = `${T.plain} ${T.highlight}`.trim();
+    const staleFoodSub = /^(comida y bebidas|transporte|agro|servicios)\s*·/i.test(T.sub.trim()) && !isFoodBrief;
+    const cleanSub = staleFoodSub ? briefClean.split(/[.!?\n]+/)[0]?.trim() || detectedCategory : T.sub.trim();
     const profileUrl =
       mode === 'plataforma' && merchantId
         ? `${window.location.origin}${window.location.pathname}?comercio=${merchantId}`
         : primaryLink;
     const priceLine =
-      brand.promoPrice != null
+      !isSvcCtx && brand.promoPrice != null
         ? `💰 Precio de hoy: ${formatCOP(brand.promoPrice)}${
             brand.normalPrice != null && brand.normalPrice > brand.promoPrice ? ` (antes ${formatCOP(brand.normalPrice)})` : ''
           }`
-        : `💬 ${T.priceLabel.trim()}`;
+        : `💬 ${T.priceLabel.trim() || 'Diagnóstico y cotización directa por WhatsApp'}`;
     return [
       `${hook.toUpperCase()}`,
       '',
-      `Si estás en ${brand.municipality || 'Gachetá'} y buscas ${brand.product || 'atención de primera sin dar vueltas'}, en ${brand.name || 'nuestro local'} ya lo tenemos listo para ti.`,
+      isSvcCtx
+        ? `Si tienes un negocio en ${brand.municipality || 'Gachetá'} y quieres destacar con ${detectedCategory || brand.product || 'publicidad profesional'}, en ${brand.name || 'nuestro estudio'} te acompañamos paso a paso.`
+        : `Si estás en ${brand.municipality || 'Gachetá'} y buscas ${brand.product || 'atención de primera sin dar vueltas'}, en ${brand.name || 'nuestro local'} ya lo tenemos listo para ti.`,
       '',
-      T.sub.trim(),
+      cleanSub,
       T.benefits.filter(Boolean).slice(0, 3).map((b) => `✅ ${b}`).join('\n'),
       '',
       priceLine,
-      `📍 Visítanos en: ${brand.address || brand.municipality || 'Gachetá'}`,
+      `📍 ${brand.address || brand.municipality || 'Gachetá'}`,
       `📲 Escribe directo por WhatsApp: ${primaryLink}`,
-      `🏪 Ver perfil verificado y mapa en Impulso: ${profileUrl}`,
+      `🏪 Conoce más en Impulso: ${profileUrl}`,
       '',
       igHashtags,
     ].join('\n');
-  }, [T, brand, primaryLink, mode, merchantId, igHashtags]);
+  }, [T, brand, primaryLink, mode, merchantId, igHashtags, briefText, detectedCategory, priceMode]);
 
-  /** 🟢 V18 · Secuencia de 3 Estados de WhatsApp derivada del titular/marca:
-   *  siempre lista desde el primer segundo (la IA la pisa si ya se generó). */
+  /** 🟢 V40.0 · Secuencia de 3 Estados de WhatsApp (prioriza copy IA del brief). */
   const statusTexts = useMemo(() => {
+    if (campaign?.whatsappStatusSequence?.status1) {
+      return campaign.whatsappStatusSequence;
+    }
+    const isSvcCtx =
+      priceMode === 'servicio' ||
+      /marketing|agencia|publicidad|afiche|redes|digital/i.test(`${briefText} ${detectedCategory}`);
     const hook = `${T.plain} ${T.highlight}`.trim();
     const hookUp = hook ? `${hook.charAt(0).toUpperCase()}${hook.slice(1)}` : 'Promoción de hoy';
-    const price = brand.promoPrice != null ? ` SOLO *${formatCOP(brand.promoPrice)}*` : '';
+    const price = !isSvcCtx && brand.promoPrice != null ? ` SOLO *${formatCOP(brand.promoPrice)}*` : '';
     const ben = T.benefits.filter(Boolean);
     const wa = brand.phoneDisplay || 'nuestro WhatsApp';
     return {
-      status1: `🚨 ${hookUp}\n${ben[0] || T.sub.trim() || 'Disponible hoy en tu municipio'}\n📍 ${brand.address || brand.municipality || 'Gachetá'}`,
-      status2: `👀 ¿Ya lo viste?\n${brand.product || hookUp}${price}\n${ben.slice(0, 2).map((b) => `✅ ${b}`).join('\n') || '✅ Atención inmediata'}\n🔗 ${primaryLink}`,
-      status3: `⏳ ¡Últimas unidades!\n${hookUp}\n💬 Escríbeme AHORA y te lo aparto 👉 *${wa}*`,
+      status1: `${isSvcCtx ? '🚀' : '🚨'} *${hookUp}*\n_${ben[0] || T.sub.trim() || 'Disponible hoy en tu municipio'}_\n📍 ${brand.address || brand.municipality || 'Gachetá'}`,
+      status2: `👀 ¿Ya conoces *${brand.name || 'nuestro servicio'}*?\n${brand.product || hookUp}${price}\n${ben.slice(0, 2).map((b) => `✅ ${b}`).join('\n') || '✅ Atención inmediata'}\n🔗 ${primaryLink}`,
+      status3: isSvcCtx
+        ? `✨ *Agenda abierta esta semana*\n${hookUp}\n💬 Escríbenos ahora y te asesoramos directo 👉 *${wa}*`
+        : `⏳ *¡Últimos cupos de hoy!*\n${hookUp}\n💬 Escríbeme AHORA y te lo aparto 👉 *${wa}*`,
     };
-  }, [T, brand, primaryLink]);
+  }, [T, brand, primaryLink, campaign, priceMode, briefText, detectedCategory]);
 
   /** 🎬 V36 · Guion profesional TikTok / Reels 20 s ([0-3s], [3-12s], [12-20s] + texto en pantalla). */
   const videoShots = useMemo(() => {

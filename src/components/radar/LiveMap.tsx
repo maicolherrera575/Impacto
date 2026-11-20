@@ -43,6 +43,7 @@ const TILE_LAYERS: Record<
     url: string;
     attribution: string;
     maxNativeZoom: number;
+    maxZoom: number;
     dataStyle: 'streets' | 'satellite' | 'osm-dark';
   }
 > = {
@@ -51,7 +52,8 @@ const TILE_LAYERS: Record<
     emoji: '🗺️',
     url: OSM_URL,
     attribution: OSM_ATTR,
-    maxNativeZoom: 19,
+    maxNativeZoom: 18,
+    maxZoom: 18,
     dataStyle: 'streets',
   },
   satellite: {
@@ -59,7 +61,8 @@ const TILE_LAYERS: Record<
     emoji: '🛰️',
     url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
     attribution: '&copy; Esri World Imagery',
-    maxNativeZoom: 18,
+    maxNativeZoom: 17,
+    maxZoom: 17,
     dataStyle: 'satellite',
   },
   dark: {
@@ -67,7 +70,8 @@ const TILE_LAYERS: Record<
     emoji: '🌙',
     url: OSM_URL,
     attribution: OSM_ATTR,
-    maxNativeZoom: 19,
+    maxNativeZoom: 18,
+    maxZoom: 18,
     dataStyle: 'osm-dark',
   },
 };
@@ -180,6 +184,15 @@ function MapController({
 
   // 🔄 Refresco estricto de dimensiones (`invalidateSize`) al montar, redimensionar, expandir o cambiar de pestaña
   useEffect(() => {
+    const targetMaxZoom = TILE_LAYERS[mapStyle].maxZoom;
+    try {
+      map.setMaxZoom(targetMaxZoom);
+      if (map.getZoom() > targetMaxZoom) {
+        map.setZoom(targetMaxZoom, { animate: false });
+      }
+    } catch {
+      /* instancia desmontada */
+    }
     const refresh = () => {
       try {
         map.invalidateSize({ animate: false, pan: false });
@@ -645,7 +658,9 @@ export function LiveMap({
 
         <MapContainer
           center={[effectiveCenter.lat, effectiveCenter.lng]}
-          zoom={focusedCoords ? 17 : zoom}
+          zoom={focusedCoords ? Math.min(17, activeLayer.maxZoom) : zoom}
+          minZoom={12}
+          maxZoom={activeLayer.maxZoom}
           scrollWheelZoom={true}
           zoomControl={false}
           wheelDebounceTime={40}
@@ -657,8 +672,9 @@ export function LiveMap({
             key={effectiveStyleId}
             url={activeLayer.url}
             attribution={activeLayer.attribution}
-            maxZoom={20}
+            maxZoom={activeLayer.maxZoom}
             maxNativeZoom={activeLayer.maxNativeZoom}
+            detectRetina={effectiveStyleId !== 'satellite'}
             eventHandlers={{
               tileerror: () => {
                 if (effectiveStyleId === 'satellite') {

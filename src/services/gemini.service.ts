@@ -1141,10 +1141,17 @@ export const FOCUS_DIRECTIVES: Record<
         industry === 'servicios_profesionales' ||
         industry === 'salud_belleza';
       if (treatAsService) {
+        if (industry === 'digital_tech') {
+          return [
+            ['Haz que tu negocio venda', 'más hoy con publicidad pro'],
+            ['Lleva tu marca al siguiente', 'nivel en redes desde hoy'],
+            ['Afiches y campañas pro', `que atraen clientes con ${brand}`],
+          ];
+        }
         return [
           ['Activa hoy tus resultados con', product],
-          [`Cupos limitados esta semana en`, brand],
           ['Acelera hoy tu crecimiento con', product],
+          ['Atención prioritaria hoy en', brand],
         ];
       }
       return [
@@ -2301,6 +2308,49 @@ export interface SupportConciergeAssessment {
   category: 'usage' | 'technical' | 'bug' | 'billing' | 'abuse';
   summary: string;
   aiAnalysis: string;
+  /** 🤖 V40.0 · Prompt estructurado listo para pegar en Antigravity cuando se escala un problema técnico/operativo. */
+  antigravityPrompt?: string;
+}
+
+function buildAntigravityEscalationPrompt(params: {
+  message: string;
+  userRole: 'client' | 'merchant' | 'admin';
+  municipality: string;
+  category: SupportConciergeAssessment['category'];
+  severity: SupportConciergeAssessment['severity'];
+  diagnosis: string;
+}): string {
+  const areaHint =
+    params.category === 'billing'
+      ? 'src/components/merchant/CreditsModal.tsx, api/verify-receipt.ts, src/services/credits.service.ts'
+      : params.category === 'abuse'
+        ? 'src/utils/securityFilter.ts, src/components/admin/AdminPanel.tsx, src/components/offers/ReportModal.tsx'
+        : /mapa|gps|ubicaci|pin|zoom/i.test(params.message)
+          ? 'src/components/radar/LiveMap.tsx, src/utils/geo.ts, src/components/radar/RadarTab.tsx'
+          : /afiche|estudio|copy|qr|foto|marketing/i.test(params.message)
+            ? 'src/components/admin/MarketingStudio.tsx, src/components/admin/AfficheArtboard.tsx, src/services/gemini.service.ts'
+            : /huella|biometr|login|sesi[oó]n|clave|passkey/i.test(params.message)
+              ? 'src/components/auth/AuthModal.tsx, src/services/WebAuthnService.ts, api/webauthn.ts'
+              : 'src/App.tsx, src/components/support/SupportConcierge.tsx, src/services/offers.service.ts';
+
+  return [
+    `# FIX ESCALADO DESDE RADAR · IMPULSO (${params.municipality})`,
+    `Severidad: ${params.severity.toUpperCase()} | Categoría: ${params.category} | Rol afectado: ${params.userRole}`,
+    ``,
+    `## Síntoma reportado`,
+    `"${params.message.trim().slice(0, 260)}"`,
+    ``,
+    `## Diagnóstico inicial IA`,
+    params.diagnosis,
+    ``,
+    `## Archivos prioritarios a auditar`,
+    areaHint,
+    ``,
+    `## Criterios obligatorios`,
+    `1. Reproducir y corregir la causa raíz sin regresiones (conservar logo radar, GPS voluntario Ley 1581, Edge CDN Free Tier y WebP <= 80KB).`,
+    `2. Verificar \`npm run build\` (\`tsc --noEmit && vite build\`, TS6133 = 0) y typecheck estricto de \`api/*.ts\`.`,
+    `3. Confirmar si requiere migración SQL idempotente en Supabase o solo deploy en Vercel.`,
+  ].join('\n');
 }
 
 export interface RadarMatchedOfferContext {
@@ -2336,7 +2386,8 @@ Devuelve ÚNICAMENTE este JSON válido:
   "category": "usage"|"technical"|"bug"|"billing"|"abuse",
   "summary": "resumen corto (máx 120 chars)",
   "ai_analysis": "diagnóstico breve para el admin si aplica (máx 300 chars)",
-  "reply": "respuesta conversacional cálida, humana y precisa"
+  "antigravity_prompt": "SOLO si is_technical_issue es true: prompt técnico estructurado y listo para pegar en Antigravity con síntoma, archivos probables de Impulso y solución recomendada; si false, cadena vacía",
+  "reply": "respuesta conversacional cálida, humana y precisa (si es problema técnico, da pasos claros al usuario)"
 }`;
 
 const RADAR_FAST_DEADLINE_MS = 2_700;
@@ -2415,17 +2466,28 @@ function synthesizeLocalSupportFallback(params: {
   if (looksTechnical) {
     const isFraud = isActualFraudIncident || /estafa|fraude|enga[ñn]|robo|falso/i.test(m);
     const isBillingOrCritical = isFraud || /cobr|pago|cr[eé]dito|nequi|daviplata|bloque/i.test(m);
+    const sev: SupportConciergeAssessment['severity'] = isFraud ? 'critical' : isBillingOrCritical ? 'high' : 'medium';
+    const cat: SupportConciergeAssessment['category'] = isFraud ? 'abuse' : isBillingOrCritical ? 'billing' : 'technical';
+    const diag = `Caso escalado por Radar (${userRole === 'merchant' ? 'comercio' : 'cliente'} en ${municipality}): "${message.trim().slice(0, 220)}".`;
     return {
       isTechnicalIssue: true,
-      severity: isFraud ? 'critical' : isBillingOrCritical ? 'high' : 'medium',
-      category: isFraud ? 'abuse' : isBillingOrCritical ? 'billing' : 'technical',
+      severity: sev,
+      category: cat,
       summary: message.trim().slice(0, 120) || 'Solicitud escalada al administrador',
-      aiAnalysis: `Caso escalado por Radar (${userRole === 'merchant' ? 'comercio' : 'cliente'}): "${message.trim().slice(0, 220)}".`,
+      aiAnalysis: diag,
+      antigravityPrompt: buildAntigravityEscalationPrompt({
+        message,
+        userRole,
+        municipality,
+        category: cat,
+        severity: sev,
+        diagnosis: diag,
+      }),
       reply: isFraud
-        ? 'Tranquilo, estás respaldado. Acabo de enviar este reporte con prioridad máxima al panel del administrador para auditar y bloquear al infractor. Nunca hagas giros anticipados y cuéntame el nombre del local o de la oferta si lo tienes.'
+        ? 'Tranquilo, estás respaldado. Pasos inmediatos: 1) No hagas pagos anticipados ni compartas claves; 2) Ya registré este reporte con prioridad máxima en el panel del administrador con diagnóstico técnico para auditar y bloquear al infractor. Si tienes el nombre del local o la oferta, déjamelo aquí.'
         : isBillingOrCritical
-          ? 'Te entiendo perfecto. Ya registré un aviso prioritario en el panel del administrador para revisar tu pago o cuenta de inmediato. Si tienes la referencia del comprobante, déjamela aquí para agilizarlo.'
-          : '¡Listo! Como este caso requiere atención humana, ya dejé un ticket directo en el panel del administrador de Impulso para que lo revise cuanto antes. Si quieres agregar algún detalle adicional, escríbelo aquí mismo.',
+          ? 'Te entiendo perfecto. Pasos claros: 1) Conserva tu captura o número de referencia; 2) Ya envié el reporte con diagnóstico prioritario al administrador para validar tu pago o cuenta de inmediato. Si tienes el código del comprobante, escríbelo aquí.'
+          : '¡Listo! Como este caso requiere revisión técnica o humana, ya preparé un diagnóstico detallado + un prompt técnico listo para resolverlo y lo dejé registrado en el panel de soporte del administrador.',
     };
   }
 
@@ -2446,13 +2508,14 @@ function synthesizeLocalSupportFallback(params: {
       };
     }
     const budgetText = parsedBudget ? ` dentro de tus $${parsedBudget.toLocaleString('es-CO')}` : '';
+    const geoHint = top.distanceLabel ? ' ordenadas por cercanía a tu ubicación actual' : '';
     return {
       isTechnicalIssue: false,
       severity: 'low',
       category: 'usage',
       summary: `Búsqueda en vivo: ${message.trim().slice(0, 90)}`,
       aiAnalysis: `Radar recomendó ${matchedOffers.length} ofertas activas localmente.`,
-      reply: `¡Mira lo mejor que encontré activo en ${municipality}${budgetText}! Destaca "${top.title}" en ${top.merchant} por $${top.priceCop.toLocaleString('es-CO')}${dist} (quedan ${top.quota} cupos)${extraText}. Toca "Apartar ahora" abajo para asegurar tu cupo o "Ver en mapa" para ubicar el local.`,
+      reply: `¡Mira lo mejor que encontré activo en ${municipality}${budgetText}${geoHint}! Destaca "${top.title}" en ${top.merchant} por $${top.priceCop.toLocaleString('es-CO')}${dist} (quedan ${top.quota} cupos)${extraText}. Toca "Apartar ahora" abajo para asegurar tu cupo o "Ver en mapa" para ubicar el local.`,
     };
   }
 
@@ -2607,6 +2670,7 @@ export async function askSupportConcierge(input: {
   municipality: string;
   intent?: string;
   isInformationalOnly?: boolean;
+  hasActiveGeo?: boolean;
   matchedOffersSummary?: RadarMatchedOfferContext[];
   isNearMatch?: boolean;
   parsedBudget?: number | null;
@@ -2663,7 +2727,7 @@ export async function askSupportConcierge(input: {
       parts: [
         {
           text: isLastUser
-            ? `[Contexto: rol=${input.userRole}, municipio=${input.municipality}${input.parsedBudget ? `, presupuesto=$${input.parsedBudget}` : ''}]${catalogPulseLine}${compactOffersBlock}\nUsuario: ${m.content}`
+            ? `[Contexto: rol=${input.userRole}, municipio=${input.municipality}${input.hasActiveGeo ? ', gps_activo=si (menciona cercanía real en metros/km cuando ayude)' : ''}${input.parsedBudget ? `, presupuesto=$${input.parsedBudget}` : ''}]${catalogPulseLine}${compactOffersBlock}\nUsuario: ${m.content}`
             : m.content,
         },
       ],
@@ -2695,6 +2759,7 @@ export async function askSupportConcierge(input: {
       category?: string;
       summary?: string;
       ai_analysis?: string;
+      antigravity_prompt?: string;
       reply?: string;
     }
 
@@ -2719,12 +2784,26 @@ export async function askSupportConcierge(input: {
           : 'usage';
 
     const dynamicReply = (parsed.reply ?? '').trim();
+    const resolvedAnalysis = (parsed.ai_analysis ?? cleanMsg).trim().slice(0, 600) || 'Clasificado por Radar';
+    const antigravityPrompt = isTechnical
+      ? (parsed.antigravity_prompt ?? '').trim() ||
+        buildAntigravityEscalationPrompt({
+          message: cleanMsg,
+          userRole: input.userRole,
+          municipality: input.municipality,
+          category,
+          severity,
+          diagnosis: resolvedAnalysis,
+        })
+      : undefined;
+
     return {
       isTechnicalIssue: isTechnical,
       severity,
       category,
       summary: (parsed.summary ?? cleanMsg).trim().slice(0, 200) || 'Solicitud de soporte',
-      aiAnalysis: (parsed.ai_analysis ?? cleanMsg).trim().slice(0, 600) || 'Clasificado por Radar',
+      aiAnalysis: resolvedAnalysis,
+      ...(antigravityPrompt ? { antigravityPrompt } : {}),
       reply: dynamicReply || synthesizeLocalSupportFallback(fallbackParams).reply,
     };
   } catch {

@@ -84,17 +84,25 @@ export function ImpulsoLogo({ subtitle, size = 'md', hideTextOnMobile = false, c
             </linearGradient>
           </defs>
 
-          {/* Pulso radar sutil y centrado con margen limpio sobre la "I" oficial de IMPULSO */}
+          {/* Doble onda armónica radar + núcleo luminoso sutil sobre la "I" oficial de IMPULSO (V40.0) */}
           <circle
             cx="9.2"
             cy="9.2"
-            r="3.6"
+            r="3.8"
             stroke={`url(#${gradId})`}
-            strokeWidth="1.25"
+            strokeWidth="1.2"
             className="imp-logo-radar-ring"
           />
-          {/* Letra I geométrica autoritaria con cabezal radar en degradado Esmeralda -> Cian */}
-          <rect x="6" y="6.5" width="6.4" height="5.4" rx="1.5" fill={`url(#${gradId})`} />
+          <circle
+            cx="9.2"
+            cy="9.2"
+            r="3.8"
+            stroke="#22D3EE"
+            strokeWidth="0.9"
+            className="imp-logo-radar-ring-2"
+          />
+          {/* Letra I geométrica autoritaria con cabezal radar vivo en degradado Esmeralda -> Cian */}
+          <rect x="6" y="6.5" width="6.4" height="5.4" rx="1.6" fill={`url(#${gradId})`} className="imp-logo-radar-core" />
           <rect x="6" y="13.8" width="6.4" height="16.7" rx="1.5" fill="#F8FAFC" />
 
           {/* Tipografía pesada MPULSO con kerning óptico limpio y alineación exacta en línea base */}
